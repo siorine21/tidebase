@@ -1,30 +1,21 @@
-.PHONY: dev test sam-build sam-local deploy-dev install db-migrate db-inspect
+.PHONY: test db-test test-edge db-migrate db-inspect
 
+# ローカル/CI 共通テスト一式
+test: db-test test-edge
+
+# マイグレーション + トリガー/RPC のテスト（要: PG* 環境変数で PostgreSQL に接続可能）
+db-test:
+	db/tests/run_local.sh
+
+# Edge Function パーサーのテスト（要: tsc / node 22+）
+test-edge:
+	tsc supabase/functions/tide/parser.ts --outDir supabase/functions/tide/_build \
+	  --target es2022 --module es2022 --moduleResolution bundler --strict
+	node --test supabase/functions/tide/parser.test.mjs
+
+# 本番 Supabase への操作（要: SUPABASE_ACCESS_TOKEN / SUPABASE_PROJECT_REF）
 db-migrate:
 	python3 scripts/supabase_admin.py apply
 
 db-inspect:
 	python3 scripts/supabase_admin.py inspect
-
-install:
-	cd backend && python3.12 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
-
-dev:
-	cd backend && .venv/bin/uvicorn app.main:app --reload --port 8000
-
-test:
-	cd backend && .venv/bin/pytest tests/ -v
-
-sam-build:
-	cd infrastructure && sam build
-
-sam-local:
-	cd infrastructure && sam local start-api --env-vars ../env.json
-
-deploy-dev:
-	cd infrastructure && sam deploy \
-	  --profile yuki \
-	  --region ap-northeast-1 \
-	  --stack-name tidebase-dev \
-	  --capabilities CAPABILITY_IAM \
-	  --resolve-s3
