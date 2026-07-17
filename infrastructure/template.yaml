@@ -1,0 +1,58 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: TIDEBASE API
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 256
+    Runtime: python3.12
+
+Resources:
+  TidebaseApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../backend/
+      Handler: app.main.handler
+      Description: TIDEBASE API（釣果・スポット・潮汐）
+      Policies:
+        # anon key / jwt secret（SecureString）は実行時に SSM から取得（app/config.py）
+        - SSMParameterReadPolicy:
+            ParameterName: tidebase/dev/*
+      Environment:
+        Variables:
+          SUPABASE_URL: !Sub '{{resolve:ssm:/tidebase/dev/supabase_url}}'
+          ENVIRONMENT: dev
+          STAGE: dev
+      Events:
+        Api:
+          Type: HttpApi
+          Properties:
+            Path: /{proxy+}
+            Method: ANY
+
+  # Supabase 自動停止防止（Phase 0 手順書 Step 8）
+  SupabasePingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../backend/
+      Handler: app.ping.handler
+      Description: Supabase 自動停止防止（毎日 6:00 JST 実行）
+      Policies:
+        - SSMParameterReadPolicy:
+            ParameterName: tidebase/dev/supabase_anon_key
+      Environment:
+        Variables:
+          SUPABASE_URL: !Sub '{{resolve:ssm:/tidebase/dev/supabase_url}}'
+      Events:
+        DailyPing:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 21 * * ? *)   # UTC 21:00 = JST 06:00
+            Name: supabase-daily-ping
+            Enabled: true
+
+Outputs:
+  ApiUrl:
+    Description: API Gateway URL
+    Value: !Sub 'https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com'
