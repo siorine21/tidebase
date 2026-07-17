@@ -8,7 +8,8 @@
 |------------|------|
 | [docs/handoff/](docs/handoff/) | 開発ハンドオフ・確定仕様書 v2.4・ワイヤーフレーム v7.2 ほか |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | 実装中の技術決定事項ログ |
-| [db/migrations/](db/migrations/) | DB スキーマ差分（Supabase SQL Editor で適用） |
+| [docs/ops/委任運用ガイド_v1.0.md](docs/ops/委任運用ガイド_v1.0.md) | Claude Code への作業委任セットアップ（一度きり・15分） |
+| [db/migrations/](db/migrations/) | DB スキーマ差分（`make db-migrate` で適用） |
 
 ## 技術スタック
 

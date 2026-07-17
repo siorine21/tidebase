@@ -1,4 +1,10 @@
-.PHONY: dev test sam-build sam-local deploy-dev install
+.PHONY: dev test sam-build sam-local deploy-dev install db-migrate db-inspect
+
+db-migrate:
+	python3 scripts/supabase_admin.py apply
+
+db-inspect:
+	python3 scripts/supabase_admin.py inspect
 
 install:
 	cd backend && python3.12 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt

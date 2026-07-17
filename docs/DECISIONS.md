@@ -174,3 +174,14 @@
   自動化（OIDC）は Phase 5 で検討。設計補完書 9 章。
 - **備考**: API Gateway オーソライザーは採用しない（FastAPI 依存での JWT 検証に
   一本化。オーソライザー Lambda はコールドスタート二段化のデメリットのみ）。
+
+### D-020: 構築・運用作業を Claude Code へ委任する体制（2026-07-17）
+
+- **決定**: ユーザー作業を「一度きりの環境セットアップ（ネットワーク許可 +
+  シークレット登録）と PR 承認」に最小化する。DB マイグレーション適用・
+  スキーマ確認は Supabase Management API 経由のスクリプト
+  （`scripts/supabase_admin.py`、適用済み管理テーブル `_migrations` で冪等）で
+  Claude Code が実行する。手順は `docs/ops/委任運用ガイド_v1.0.md`。
+- **理由**: SQL Editor での手動適用は作業負荷とヒューマンエラーの温床。
+  Management API は HTTPS のみで完結し、サンドボックスのプロキシ経由でも動作する
+  （Postgres 5432 直結はプロキシを通らないため不採用）。
