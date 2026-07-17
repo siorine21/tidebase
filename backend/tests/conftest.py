@@ -1,0 +1,171 @@
+"""テスト共通フィクスチャ。
+
+Supabase には接続せず、リポジトリをインメモリ実装に差し替えて API を検証する。
+"""
+from __future__ import annotations
+
+from datetime import date, datetime, timedelta, timezone
+from typing import Optional
+from uuid import UUID, uuid4
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.api import deps
+from app.main import app
+
+TEST_USER_ID = "11111111-1111-1111-1111-111111111111"
+
+
+class FakeRecordsRepository:
+    def __init__(self) -> None:
+        self.rows: dict[str, dict] = {}
+
+    def create(self, user_id: str, data: dict) -> dict:
+        row = {
+            **data,
+            "id": str(uuid4()),
+            "user_id": user_id,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self.rows[row["id"]] = row
+        return row
+
+    def list(
+        self,
+        user_id: str,
+        *,
+        spot_id: Optional[UUID] = None,
+        is_skunked: Optional[bool] = None,
+        date_from: Optional[date] = None,
+        date_to: Optional[date] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict]:
+        rows = [r for r in self.rows.values() if r["user_id"] == user_id]
+        if spot_id is not None:
+            rows = [r for r in rows if r.get("spot_id") == str(spot_id)]
+        if is_skunked is not None:
+            rows = [r for r in rows if r.get("is_skunked") == is_skunked]
+        if date_from is not None:
+            rows = [r for r in rows if r["fished_at"] >= date_from.isoformat()]
+        if date_to is not None:
+            upper = (date_to + timedelta(days=1)).isoformat()
+            rows = [r for r in rows if r["fished_at"] < upper]
+        rows.sort(key=lambda r: r["fished_at"], reverse=True)
+        return rows[offset : offset + limit]
+
+    def get(self, user_id: str, record_id: UUID) -> Optional[dict]:
+        row = self.rows.get(str(record_id))
+        if row and row["user_id"] == user_id:
+            return row
+        return None
+
+    def update(self, user_id: str, record_id: UUID, data: dict) -> Optional[dict]:
+        row = self.get(user_id, record_id)
+        if row is None:
+            return None
+        row.update(data)
+        return row
+
+    def delete(self, user_id: str, record_id: UUID) -> bool:
+        if self.get(user_id, record_id) is None:
+            return False
+        del self.rows[str(record_id)]
+        return True
+
+    def count_by_spot(self, user_id: str, spot_id: UUID) -> int:
+        return len(
+            [
+                r
+                for r in self.rows.values()
+                if r["user_id"] == user_id and r.get("spot_id") == str(spot_id)
+            ]
+        )
+
+    def reassign_spot(
+        self,
+        user_id: str,
+        from_spot_id: UUID,
+        to_spot_id: UUID,
+        record_ids: Optional[list[UUID]] = None,
+    ) -> int:
+        targets = [
+            r
+            for r in self.rows.values()
+            if r["user_id"] == user_id and r.get("spot_id") == str(from_spot_id)
+        ]
+        if record_ids is not None:
+            wanted = {str(record_id) for record_id in record_ids}
+            targets = [r for r in targets if r["id"] in wanted]
+        for row in targets:
+            row["spot_id"] = str(to_spot_id)
+        return len(targets)
+
+
+class FakeSpotsRepository:
+    def __init__(self) -> None:
+        self.rows: dict[str, dict] = {}
+
+    def create(self, user_id: str, data: dict) -> dict:
+        row = {
+            **data,
+            "id": str(uuid4()),
+            "user_id": user_id,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self.rows[row["id"]] = row
+        return row
+
+    def list(self, user_id: str, *, water_type: Optional[str] = None) -> list[dict]:
+        rows = [r for r in self.rows.values() if r["user_id"] == user_id]
+        if water_type is not None:
+            rows = [r for r in rows if r.get("water_type") == water_type]
+        rows.sort(key=lambda r: r["created_at"], reverse=True)
+        return rows
+
+    def get(self, user_id: str, spot_id: UUID) -> Optional[dict]:
+        row = self.rows.get(str(spot_id))
+        if row and row["user_id"] == user_id:
+            return row
+        return None
+
+    def update(self, user_id: str, spot_id: UUID, data: dict) -> Optional[dict]:
+        row = self.get(user_id, spot_id)
+        if row is None:
+            return None
+        row.update(data)
+        return row
+
+    def delete(self, user_id: str, spot_id: UUID) -> bool:
+        if self.get(user_id, spot_id) is None:
+            return False
+        del self.rows[str(spot_id)]
+        return True
+
+
+@pytest.fixture
+def records_repo() -> FakeRecordsRepository:
+    return FakeRecordsRepository()
+
+
+@pytest.fixture
+def spots_repo() -> FakeSpotsRepository:
+    return FakeSpotsRepository()
+
+
+@pytest.fixture
+def client(records_repo, spots_repo):
+    app.dependency_overrides[deps.get_current_user_id] = lambda: TEST_USER_ID
+    app.dependency_overrides[deps.get_records_repo] = lambda: records_repo
+    app.dependency_overrides[deps.get_spots_repo] = lambda: spots_repo
+    with TestClient(app) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def anon_client():
+    """認証依存を差し替えない素のクライアント（401 テスト用）。"""
+    with TestClient(app) as test_client:
+        yield test_client

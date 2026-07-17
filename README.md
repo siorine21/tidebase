@@ -1,1 +1,39 @@
-# tidebase
+# 🎣 TIDEBASE
+
+釣行記録・ルアーレシピ管理・潮汐相関分析ができる個人向け Web アプリ。
+
+## ドキュメント
+
+| ドキュメント | 内容 |
+|------------|------|
+| [docs/handoff/](docs/handoff/) | 開発ハンドオフ・確定仕様書 v2.4・ワイヤーフレーム v7.2 ほか |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | 実装中の技術決定事項ログ |
+| [db/migrations/](db/migrations/) | DB スキーマ差分（Supabase SQL Editor で適用） |
+
+## 技術スタック
+
+- **バックエンド**: AWS Lambda (Python 3.12) + API Gateway + FastAPI + Mangum
+- **DB**: Supabase (PostgreSQL + Auth + Storage)
+- **フロント**: HTMX + Tailwind CSS + Vanilla JS（Phase 2〜）
+- **IaC**: AWS SAM（`infrastructure/template.yaml`）
+
+## セットアップ
+
+```bash
+make install                 # venv 作成 + 依存インストール
+cp .env.example .env         # Supabase 接続情報を記入
+make dev                     # http://localhost:8000/docs で SwaggerUI
+make test                    # pytest
+```
+
+## API 概要（Phase 1）
+
+| エンドポイント | 内容 |
+|--------------|------|
+| `POST /api/v1/records` ほか CRUD | 釣果記録（ボウズ記録・公開範囲対応） |
+| `POST /api/v1/spots` ほか CRUD | スポット（水域区分・削除ガード・一括変更） |
+| `POST /api/v1/spots/{id}/reassign` | 釣果スポット一括変更 |
+| `GET /api/v1/tide?station=TK&date=YYYY-MM-DD` | 潮汐データ PoC（気象庁 潮位表・潮回り判定付き） |
+| `GET /health` | ヘルスチェック |
+
+認証: `Authorization: Bearer <Supabase JWT>`（潮汐 API と `/health` は認証不要）。
