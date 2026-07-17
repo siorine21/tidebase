@@ -19,7 +19,15 @@ from typing import Callable, Optional
 
 import httpx
 
-JMA_TIDE_URL = "https://www.data.jma.go.jp/gmd/kaiyou/data/db/tide/suisan/txt/{year}/{station}.txt"
+# 気象庁サイトは URL 再編で /gmd/ が外れた経緯があるため、新旧の順に試す
+JMA_TIDE_URL_TEMPLATES = (
+    "https://www.data.jma.go.jp/kaiyou/data/db/tide/suisan/txt/{year}/{station}.txt",
+    "https://www.data.jma.go.jp/gmd/kaiyou/data/db/tide/suisan/txt/{year}/{station}.txt",
+)
+
+
+def source_url(station: str, year: int) -> str:
+    return JMA_TIDE_URL_TEMPLATES[0].format(year=year, station=station)
 
 # 朔（新月）の基準時刻: 2000-01-06 18:14 UTC / 朔望月の平均周期
 _NEW_MOON_EPOCH = datetime(2000, 1, 6, 18, 14, tzinfo=timezone.utc)
@@ -112,10 +120,19 @@ def parse_line(line: str) -> Optional[TideDay]:
 
 
 def _default_fetch(station: str, year: int) -> str:
-    url = JMA_TIDE_URL.format(year=year, station=station)
-    response = httpx.get(url, timeout=15)
-    response.raise_for_status()
-    return response.text
+    last_error: Optional[httpx.HTTPStatusError] = None
+    for template in JMA_TIDE_URL_TEMPLATES:
+        url = template.format(year=year, station=station)
+        response = httpx.get(url, timeout=15, follow_redirects=True)
+        try:
+            response.raise_for_status()
+            return response.text
+        except httpx.HTTPStatusError as error:
+            if error.response.status_code == 404:
+                last_error = error
+                continue
+            raise
+    raise last_error
 
 
 @lru_cache(maxsize=8)

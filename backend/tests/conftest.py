@@ -4,7 +4,7 @@ Supabase には接続せず、リポジトリをインメモリ実装に差し�
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Optional
 from uuid import UUID, uuid4
 
@@ -13,8 +13,14 @@ from fastapi.testclient import TestClient
 
 from app.api import deps
 from app.main import app
+from app.timezone import JST
 
 TEST_USER_ID = "11111111-1111-1111-1111-111111111111"
+
+
+def _as_dt(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=JST)
 
 
 class FakeRecordsRepository:
@@ -47,12 +53,14 @@ class FakeRecordsRepository:
             rows = [r for r in rows if r.get("spot_id") == str(spot_id)]
         if is_skunked is not None:
             rows = [r for r in rows if r.get("is_skunked") == is_skunked]
+        # 実装（PostgREST クエリ）と同じく JST 境界で比較する
         if date_from is not None:
-            rows = [r for r in rows if r["fished_at"] >= date_from.isoformat()]
+            lower = datetime.combine(date_from, time.min, tzinfo=JST)
+            rows = [r for r in rows if _as_dt(r["fished_at"]) >= lower]
         if date_to is not None:
-            upper = (date_to + timedelta(days=1)).isoformat()
-            rows = [r for r in rows if r["fished_at"] < upper]
-        rows.sort(key=lambda r: r["fished_at"], reverse=True)
+            upper = datetime.combine(date_to + timedelta(days=1), time.min, tzinfo=JST)
+            rows = [r for r in rows if _as_dt(r["fished_at"]) < upper]
+        rows.sort(key=lambda r: _as_dt(r["fished_at"]), reverse=True)
         return rows[offset : offset + limit]
 
     def get(self, user_id: str, record_id: UUID) -> Optional[dict]:

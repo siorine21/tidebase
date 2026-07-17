@@ -41,10 +41,12 @@ class RecordsRepository:
             query = query.eq("spot_id", str(spot_id))
         if is_skunked is not None:
             query = query.eq("is_skunked", is_skunked)
+        # 日付境界は JST（DECISIONS D-011）
         if date_from is not None:
-            query = query.gte("fished_at", date_from.isoformat())
+            query = query.gte("fished_at", f"{date_from.isoformat()}T00:00:00+09:00")
         if date_to is not None:
-            query = query.lt("fished_at", (date_to + timedelta(days=1)).isoformat())
+            upper = date_to + timedelta(days=1)
+            query = query.lt("fished_at", f"{upper.isoformat()}T00:00:00+09:00")
         return query.execute().data
 
     def get(self, user_id: str, record_id: UUID) -> Optional[dict]:

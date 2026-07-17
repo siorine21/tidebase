@@ -6,9 +6,10 @@ import httpx
 
 
 def get_anon_key() -> str:
+    stage = os.getenv("STAGE", "dev")
     ssm = boto3.client("ssm", region_name=os.getenv("AWS_REGION", "ap-northeast-1"))
     response = ssm.get_parameter(
-        Name="/tidebase/dev/supabase_anon_key", WithDecryption=True
+        Name=f"/tidebase/{stage}/supabase_anon_key", WithDecryption=True
     )
     return response["Parameter"]["Value"]
 

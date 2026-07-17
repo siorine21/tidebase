@@ -26,14 +26,22 @@
 - **理由**: PoC として十分な精度で、外部依存ゼロ・計算コストゼロ。
 - **備考**: 厳密には潮回りは朔望ベース。精度が問題になった場合に見直す。
 
-### D-003: API 認証は Supabase JWT を FastAPI 依存で検証し、DB は RLS 前提でアクセス（2026-07-17）
+### D-003: API 認証は Supabase JWT を FastAPI 依存で検証し、DB は RLS 前提でアクセス（2026-07-17 / 改訂 2026-07-17）
 
-- **決定**: `Authorization: Bearer <Supabase JWT>` を PyJWT（HS256, aud=authenticated）で検証。
-  Supabase クライアントは anon キーで生成し、リクエストごとにユーザー JWT を
-  PostgREST に渡す（`client.postgrest.auth(token)`）ことで RLS を効かせる。
+- **決定**: `Authorization: Bearer <Supabase JWT>` を PyJWT で検証（aud=authenticated）。
+  - **第一**: JWKS エンドポイント（`{SUPABASE_URL}/auth/v1/.well-known/jwks.json`）
+    経由で ES256 / RS256 を検証（Supabase の JWT 署名鍵移行後の標準）。
+  - **フォールバック**: レガシープロジェクト向けに HS256 + `SUPABASE_JWT_SECRET`。
+  - DB アクセスはリクエストごとに PostgREST クライアントを生成し、
+    anon キー + ユーザー JWT で RLS を効かせる（共有クライアントのヘッダー
+    書き換え方式は並行リクエストで認証が混線しうるため廃止）。
 - **理由**: service_role キーの常用は RLS バイパスとなり事故リスクが高い
-  （ハンドオフ 8.1 章「RLS を必ず有効化」）。多層防御としてクエリ側でも
-  `user_id = auth.uid()` 相当のフィルタを常に付ける。
+  （ハンドオフ 8.1 章「RLS を必ず有効化」）。Supabase 公式も共有シークレットでの
+  検証を非推奨としており、新規プロジェクトのデフォルト署名は ES256。
+  多層防御としてクエリ側でも `user_id = auth.uid()` 相当のフィルタを常に付ける。
+- **備考**: supabase-py への依存を外し、postgrest + PyJWT[crypto] の直接利用に変更
+  （Lambda パッケージも軽量化）。Supabase ダッシュボード → JWT Keys で
+  プロジェクトの鍵タイプを確認すること。
 
 ### D-004: 釣果 API の部分更新は PATCH、更新時も作成時と同じ整合性検証を通す（2026-07-17）
 
@@ -97,3 +105,24 @@
     DNS 追加のみで既存構成の作り直しは発生しない。
   - `tidebase.app` を既に取得済みの場合: ホストゾーンだけ削除すれば $0.50/月 は
     即座に節約できる。ドメイン自体は次回更新時に継続可否を判断すればよい。
+
+### D-011: 日付境界はすべて JST 基準（2026-07-17）
+
+- **決定**: 釣果の日付フィルタ（`date_from` / `date_to`）と「1日1釣行」の日付集計は
+  `Asia/Tokyo`（+09:00）基準とする。naive な日時入力は JST とみなす。
+- **理由**: `fished_at` は timestamptz（UTC 保存）のため、素の `DATE()` 比較だと
+  JST 深夜 0〜9 時の釣行が前日扱いになり、潮汐相関の釣行回数がずれる。
+- **備考**: v1.1 の `tide_correlation` ビューが `DATE(fished_at)` を使っている場合、
+  `DATE(fished_at AT TIME ZONE 'Asia/Tokyo')` への修正が必要（v1.1 SQL 入手後に確認）。
+
+### D-012: 釣果作成時に潮汐スナップショットをサーバー側で自動付与（2026-07-17）
+
+- **決定**: `POST /api/v1/records` で `tide_snapshot` 未指定の場合、
+  fished_at（JST 日付）から `{tide_type, moon_age, method: "moon_age_approx"}` を
+  自動生成して保存する。クライアントが明示指定した場合はそちらを優先。
+  `fished_at` の更新時、自動付与分（method で判別）は再計算する。
+- **理由**: 潮汐相関分析（確定仕様書 13 章）の集計元となる潮回りデータを
+  登録時点で確定保存するため（F-01 STEP5「潮汐・天気は自動取得して保存」）。
+  月齢ベースなので観測点マッピング（未設計）に依存せず Phase 1 で成立する。
+- **備考**: 将来、最寄り観測点の潮位（JMA）や天気（Open-Meteo 予定）を
+  スナップショットに追加する際も `method` キーで世代を区別できる。

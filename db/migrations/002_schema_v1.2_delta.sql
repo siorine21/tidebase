@@ -44,13 +44,16 @@ CREATE TABLE IF NOT EXISTS public.group_invites (
 -- ------------------------------------------------------------
 -- ④ fish_species — 魚種マスタ（user_id NULL = システムデフォルト）
 -- ------------------------------------------------------------
+-- UNIQUE は NULLS NOT DISTINCT にする（PG15+）。
+-- 通常の UNIQUE は NULL 同士を別値と扱うため、システムデフォルト
+-- （user_id = NULL）の重複を防げず、seed の再実行で増殖する。
 CREATE TABLE IF NOT EXISTS public.fish_species (
   id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id     UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
   name        TEXT NOT NULL,
   category    TEXT,     -- 海水 / 淡水 / 汽水
   created_at  TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE (user_id, name)
+  UNIQUE NULLS NOT DISTINCT (user_id, name)
 );
 
 -- ------------------------------------------------------------
@@ -77,6 +80,27 @@ AS $$
     WHERE group_id = target_group_id AND user_id = auth.uid() AND role = 'owner'
   );
 $$;
+
+-- ------------------------------------------------------------
+-- グループ作成時にオーナーを group_members へ自動登録するトリガー
+-- （RLS だけだと「オーナー行がまだ無いので is_group_owner() が false →
+--   作成者本人が自分をメンバー登録できない」という鶏と卵になるため）
+-- ------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.handle_new_group()
+RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public
+AS $$
+BEGIN
+  INSERT INTO public.group_members (group_id, user_id, role)
+  VALUES (NEW.id, NEW.owner_id, 'owner');
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS on_group_created ON public.groups;
+CREATE TRIGGER on_group_created
+  AFTER INSERT ON public.groups
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_group();
 
 -- ------------------------------------------------------------
 -- RLS: groups

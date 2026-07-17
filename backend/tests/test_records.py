@@ -58,6 +58,21 @@ class TestCreateRecord:
         )
         assert response.status_code == 401
 
+    def test_tide_snapshot_is_auto_generated(self, client):
+        """潮汐スナップショットはサーバー側で自動付与（F-01 STEP5）。"""
+        response = _create(client)
+        snapshot = response.json()["tide_snapshot"]
+        assert snapshot["tide_type"] in {"大潮", "中潮", "小潮", "長潮", "若潮"}
+        assert snapshot["method"] == "moon_age_approx"
+        assert 0 <= snapshot["moon_age"] < 29.6
+
+    def test_explicit_tide_snapshot_is_preserved(self, client):
+        response = _create(client, tide_snapshot={"tide_type": "大潮", "source": "manual"})
+        assert response.json()["tide_snapshot"] == {
+            "tide_type": "大潮",
+            "source": "manual",
+        }
+
 
 class TestListRecords:
     def test_list_sorted_desc_and_filters(self, client):
@@ -87,6 +102,19 @@ class TestListRecords:
         response = client.get(
             "/api/v1/records",
             params={"date_from": "2026-07-16", "date_to": "2026-07-16"},
+        )
+        assert len(response.json()) == 1
+
+    def test_date_filter_uses_jst_boundary(self, client):
+        """JST 深夜の釣行が UTC 換算で前日に紛れないこと（D-011）。"""
+        _create(client, fished_at="2026-07-17T00:30:00+09:00")  # UTC では 07-16 15:30
+
+        response = client.get("/api/v1/records", params={"date_to": "2026-07-16"})
+        assert response.json() == []
+
+        response = client.get(
+            "/api/v1/records",
+            params={"date_from": "2026-07-17", "date_to": "2026-07-17"},
         )
         assert len(response.json()) == 1
 
@@ -141,6 +169,32 @@ class TestUpdateRecord:
     def test_update_missing_returns_404(self, client):
         response = client.patch(f"/api/v1/records/{uuid4()}", json={"memo": "x"})
         assert response.status_code == 404
+
+    def test_auto_snapshot_recomputed_when_fished_at_changes(self, client):
+        record = _create(client, fished_at="2026-07-10T06:00:00+09:00").json()
+        original = record["tide_snapshot"]
+        assert original["method"] == "moon_age_approx"
+
+        response = client.patch(
+            f"/api/v1/records/{record['id']}",
+            json={"fished_at": "2026-07-17T06:00:00+09:00"},
+        )
+        updated = response.json()["tide_snapshot"]
+        assert updated["method"] == "moon_age_approx"
+        assert updated["moon_age"] != original["moon_age"]
+
+    def test_manual_snapshot_not_touched_on_update(self, client):
+        record = _create(
+            client, tide_snapshot={"tide_type": "大潮", "source": "manual"}
+        ).json()
+        response = client.patch(
+            f"/api/v1/records/{record['id']}",
+            json={"fished_at": "2026-07-20T06:00:00+09:00"},
+        )
+        assert response.json()["tide_snapshot"] == {
+            "tide_type": "大潮",
+            "source": "manual",
+        }
 
 
 class TestDeleteRecord:

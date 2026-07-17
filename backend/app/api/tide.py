@@ -5,7 +5,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.models.tide import TideDayOut, TideEvent
-from app.services.tide import JMA_TIDE_URL, TideService, moon_age, tide_type
+from app.services.tide import TideService, moon_age, source_url, tide_type
 
 router = APIRouter(prefix="/api/v1/tide", tags=["tide"])
 
@@ -45,5 +45,5 @@ def get_tide(
         hourly_levels_cm=day.hourly_levels_cm,
         high_tides=[TideEvent(time=e.time, level_cm=e.level_cm) for e in day.high_tides],
         low_tides=[TideEvent(time=e.time, level_cm=e.level_cm) for e in day.low_tides],
-        source=JMA_TIDE_URL.format(year=date.year, station=station),
+        source=source_url(station, date.year),
     )
