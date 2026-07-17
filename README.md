@@ -31,9 +31,15 @@ make test                    # pytest
 | エンドポイント | 内容 |
 |--------------|------|
 | `POST /api/v1/records` ほか CRUD | 釣果記録（ボウズ記録・公開範囲対応） |
-| `POST /api/v1/spots` ほか CRUD | スポット（水域区分・削除ガード・一括変更） |
+| `POST /api/v1/spots` ほか CRUD | スポット（水域区分・種別・⚠️干潮警告・観測点自動設定・削除ガード） |
 | `POST /api/v1/spots/{id}/reassign` | 釣果スポット一括変更 |
-| `GET /api/v1/tide?station=TK&date=YYYY-MM-DD` | 潮汐データ PoC（気象庁 潮位表・潮回り判定付き） |
+| `GET /api/v1/spots/{id}/tide?date=` | スポットの最寄り観測点の潮汐 |
+| `GET /api/v1/tide?station=TK&date=YYYY-MM-DD` | 潮汐データ（気象庁 潮位表・潮回り判定付き） |
+| `GET /api/v1/fish-name/suggest?fish_species_id=&size_cm=` | 出世魚の呼称提案 |
 | `GET /health` | ヘルスチェック |
+
+> 潮汐観測点マスタ（`backend/app/data/jma_tide_stations.json`）は初期状態では東京（TK）のみ。
+> ネットワークに出られる環境で `python3 scripts/generate_tide_stations.py > backend/app/data/jma_tide_stations.json`
+> を実行して全地点に差し替えてください。
 
 認証: `Authorization: Bearer <Supabase JWT>`（潮汐 API と `/health` は認証不要）。

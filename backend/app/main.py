@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 from mangum import Mangum
 from postgrest.exceptions import APIError
 
-from app.api import records, spots, tide
+from app.api import fish, records, spots, tide
 
 app = FastAPI(
     title="TIDEBASE API",
@@ -15,6 +15,7 @@ app = FastAPI(
 app.include_router(records.router)
 app.include_router(spots.router)
 app.include_router(tide.router)
+app.include_router(fish.router)
 
 
 # PostgREST（Supabase）エラーの HTTP マッピング。

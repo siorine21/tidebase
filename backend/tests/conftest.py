@@ -152,6 +152,26 @@ class FakeSpotsRepository:
         return True
 
 
+class FakeFishRepository:
+    def __init__(self) -> None:
+        self.species: dict[str, dict] = {}
+        self.rules: list[dict] = []
+
+    def get_species(self, user_id: str, species_id: UUID) -> Optional[dict]:
+        row = self.species.get(str(species_id))
+        if row and (row.get("user_id") is None or row["user_id"] == user_id):
+            return row
+        return None
+
+    def list_rules(self, rule_group: str, region: str = "kanto") -> list[dict]:
+        rows = [
+            r
+            for r in self.rules
+            if r["rule_group"] == rule_group and r["region"] == region
+        ]
+        return sorted(rows, key=lambda r: r["sort_order"])
+
+
 @pytest.fixture
 def records_repo() -> FakeRecordsRepository:
     return FakeRecordsRepository()
@@ -163,10 +183,16 @@ def spots_repo() -> FakeSpotsRepository:
 
 
 @pytest.fixture
-def client(records_repo, spots_repo):
+def fish_repo() -> FakeFishRepository:
+    return FakeFishRepository()
+
+
+@pytest.fixture
+def client(records_repo, spots_repo, fish_repo):
     app.dependency_overrides[deps.get_current_user_id] = lambda: TEST_USER_ID
     app.dependency_overrides[deps.get_records_repo] = lambda: records_repo
     app.dependency_overrides[deps.get_spots_repo] = lambda: spots_repo
+    app.dependency_overrides[deps.get_fish_repo] = lambda: fish_repo
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()

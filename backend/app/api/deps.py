@@ -16,6 +16,7 @@ from jwt import PyJWKClient
 from jwt.exceptions import PyJWKClientError
 
 from app.config import get_settings
+from app.repositories.fish import FishRepository
 from app.repositories.records import RecordsRepository
 from app.repositories.spots import SpotsRepository
 
@@ -119,3 +120,7 @@ def get_records_repo(db=Depends(get_db)) -> RecordsRepository:
 
 def get_spots_repo(db=Depends(get_db)) -> SpotsRepository:
     return SpotsRepository(db)
+
+
+def get_fish_repo(db=Depends(get_db)) -> FishRepository:
+    return FishRepository(db)

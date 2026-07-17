@@ -44,6 +44,18 @@ class TestCreateRecord:
         assert body["fish_species_id"] is None
         assert body["size_cm"] is None
 
+    def test_fish_display_name_is_saved(self, client):
+        """出世魚の採用呼称は fish_display_name に保存（設計補完書 5 章）。"""
+        response = _create(client, fish_display_name="イナダ")
+        assert response.status_code == 201
+        assert response.json()["fish_display_name"] == "イナダ"
+
+    def test_skunked_clears_fish_display_name(self, client):
+        response = _create(
+            client, is_skunked=True, catch_count=0, fish_display_name="イナダ"
+        )
+        assert response.json()["fish_display_name"] is None
+
     def test_zero_catch_without_skunked_is_rejected(self, client):
         response = _create(client, catch_count=0)
         assert response.status_code == 422

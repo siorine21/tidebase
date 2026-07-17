@@ -1,4 +1,7 @@
-"""潮汐データ PoC API（US-002）。認証不要の公開データ（DECISIONS D-009）。"""
+"""潮汐データ PoC API（US-002）。認証不要の公開データ（DECISIONS D-009）。
+
+スポット紐付きの潮汐は GET /api/v1/spots/{spot_id}/tide（要認証）を参照。
+"""
 from datetime import date as date_type
 
 import httpx
@@ -14,15 +17,10 @@ def get_tide_service() -> TideService:
     return TideService()
 
 
-@router.get("", response_model=TideDayOut)
-def get_tide(
-    station: str = Query(
-        description="気象庁の潮位観測地点記号（2文字、例: TK=東京）",
-        pattern=r"^[A-Z0-9]{2}$",
-    ),
-    date: date_type = Query(description="対象日（YYYY-MM-DD）"),
-    service: TideService = Depends(get_tide_service),
-):
+def build_tide_response(
+    service: TideService, station: str, date: date_type
+) -> TideDayOut:
+    """観測点 + 日付から潮汐レスポンスを構築する（spots ルーターと共用）。"""
     try:
         day = service.get_day(station, date)
     except httpx.HTTPStatusError as exc:
@@ -47,3 +45,15 @@ def get_tide(
         low_tides=[TideEvent(time=e.time, level_cm=e.level_cm) for e in day.low_tides],
         source=source_url(station, date.year),
     )
+
+
+@router.get("", response_model=TideDayOut)
+def get_tide(
+    station: str = Query(
+        description="気象庁の潮位観測地点記号（2文字、例: TK=東京）",
+        pattern=r"^[A-Z0-9]{2}$",
+    ),
+    date: date_type = Query(description="対象日（YYYY-MM-DD）"),
+    service: TideService = Depends(get_tide_service),
+):
+    return build_tide_response(service, station, date)

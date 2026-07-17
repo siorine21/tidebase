@@ -17,6 +17,8 @@ class RecordBase(BaseModel):
     fished_at: datetime
     spot_id: Optional[UUID] = None
     fish_species_id: Optional[UUID] = None
+    # 出世魚の採用呼称（設計補完書 5 章）。集計は fish_species_id、表示はこちら
+    fish_display_name: Optional[str] = Field(default=None, max_length=50)
     size_cm: Optional[float] = Field(default=None, ge=0, le=999)
     catch_count: int = Field(default=1, ge=0)
     quantity_note: Optional[str] = Field(default=None, max_length=200)
@@ -36,6 +38,7 @@ class RecordCreate(RecordBase):
             # ボウズは catch_count = 0 で保存し、魚情報は持たない（確定仕様書 6.2 章）
             self.catch_count = 0
             self.fish_species_id = None
+            self.fish_display_name = None
             self.size_cm = None
         elif self.catch_count < 1:
             raise ValueError("ボウズでない場合、catch_count は 1 以上が必要です")
@@ -46,6 +49,7 @@ class RecordUpdate(BaseModel):
     fished_at: Optional[datetime] = None
     spot_id: Optional[UUID] = None
     fish_species_id: Optional[UUID] = None
+    fish_display_name: Optional[str] = Field(default=None, max_length=50)
     size_cm: Optional[float] = Field(default=None, ge=0, le=999)
     catch_count: Optional[int] = Field(default=None, ge=0)
     quantity_note: Optional[str] = Field(default=None, max_length=200)
