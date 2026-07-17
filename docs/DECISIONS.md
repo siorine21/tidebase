@@ -126,3 +126,51 @@
   月齢ベースなので観測点マッピング（未設計）に依存せず Phase 1 で成立する。
 - **備考**: 将来、最寄り観測点の潮位（JMA）や天気（Open-Meteo 予定）を
   スナップショットに追加する際も `method` キーで世代を区別できる。
+
+> 以下 D-013〜D-019 の詳細設計は `docs/design/TIDEBASE_設計補完_v1.0.md` を参照。
+
+### D-013: 天気・波高データソースは Open-Meteo（2026-07-17）
+
+- **決定**: OpenWeatherMap（確定仕様書 3 章）を Open-Meteo に置換。
+  天気/風は Forecast API、波高は Marine API、過去釣行は Historical API。
+- **理由**: OWM 無料プランに波高データが存在せず US-204 が実現不能。
+  Open-Meteo は無料・API キー不要（キー管理も消える）。設計補完書 1〜2 章。
+
+### D-014: スポット拡張フィールドの裁定（2026-07-17）
+
+- **決定**: 確定仕様書 15.3（最小）と要件定義書 2.3（リッチ）の矛盾を裁定。
+  Phase 1 で `spot_type` / `low_tide_only`（US-201 警告）/ `visibility` /
+  `tide_station_code` を追加、残り（水深・底質・メモ類・対象魚種）は Phase 2。
+  `spot_type` と `water_type` は独立。設計補完書 4 章。
+
+### D-015: 出世魚判定は fish_name_rules マスタ + 提案 API（2026-07-17）
+
+- **決定**: システムマスタ `fish_name_rules`（rule_group: buri/suzuki/sawara、関東呼称）
+  と `GET /api/v1/fish-name/suggest` で実装。提案のみで強制しない。
+  採用呼称は `fishing_records.fish_display_name` に保存し、`fish_species_id` は
+  親魚種のまま（集計は親魚種・表示は呼称）。設計補完書 5 章。
+
+### D-016: 写真は S3 署名付き URL 直アップロード方式（2026-07-17）
+
+- **決定**: presign 発行 API → クライアント直 PUT → `photo_key` 保存 →
+  取得時に署名付き GET URL を動的生成。バケット非公開・5MB 上限・
+  キーは `photos/{user_id}/{uuid}`。設計補完書 6 章。
+
+### D-017: 最寄り潮汐観測点は静的マスタ + 最近傍自動設定（2026-07-17）
+
+- **決定**: 気象庁観測点マスタをリポジトリ内 JSON で保持し、スポット作成・
+  座標更新時にハバーサイン距離で `tide_station_code` を自動設定（淡水は NULL）。
+  潮汐 API は `spot_id` 指定も受け付ける。設計補完書 3 章。
+
+### D-018: 釣行スコアの決定的アルゴリズム（2026-07-17）
+
+- **決定**: 悪条件（嵐→雨/強風）から順に評価し、若潮・長潮はスコア 3 グループに
+  含める。天気区分は Open-Meteo の WMO weather_code からマッピング。
+  設計補完書 7 章。
+
+### D-019: CI は GitHub Actions で pytest のみ、デプロイは当面手動（2026-07-17）
+
+- **決定**: push/PR で pytest を実行するワークフローを追加。`sam deploy` の
+  自動化（OIDC）は Phase 5 で検討。設計補完書 9 章。
+- **備考**: API Gateway オーソライザーは採用しない（FastAPI 依存での JWT 検証に
+  一本化。オーソライザー Lambda はコールドスタート二段化のデメリットのみ）。
