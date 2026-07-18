@@ -202,3 +202,16 @@
     .5 境界のみ相違、SQL/TS 実装で統一）
   - D-003 の JWT 検証層・D-016 の presign API・D-019 の pytest CI は本決定により失効
     （認証は supabase-js + RLS、写真は Storage SDK、CI は SQL/TS テストに置換）
+
+### D-022: フロントは GitHub Pages・リポジトリは public 化（2026-07-18）
+
+- **決定**: リポジトリを public にし、フロントは GitHub Pages（Actions デプロイ）で
+  ホスティングする。
+- **セキュリティ評価**（public 化の前提確認・2026-07-18 実施）:
+  - 全コミット履歴をスキャンし、シークレット（AWS キー・JWT・PAT 等のパターン）の
+    混入ゼロを確認済み
+  - anon キーは将来フロントコードに含まれるが公開前提の値（防壁は RLS）
+  - 釣果・スポット座標等の個人データは DB 側にありリポジトリに含まれない
+  - セキュリティは「コードの秘匿」に依存しない設計（RLS・トリガーは公開されても安全）
+- **運用**: public 化にあわせて GitHub の Secret scanning + Push protection を有効化し、
+  以後の誤コミットを入口で遮断する。
