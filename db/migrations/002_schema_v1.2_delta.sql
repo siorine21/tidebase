@@ -1,8 +1,8 @@
 -- ============================================================
 -- TIDEBASE DB スキーマ v1.1 → v1.2 差分
--- 適用方法: Supabase ダッシュボード → SQL Editor で実行
+-- 適用方法: scripts/supabase_admin.py apply（make db-migrate）
 -- 根拠: docs/handoff/TIDEBASE_開発ハンドオフ_v1.0.md 2章 / 確定仕様書 v2.4 19章
--- 前提: v1.1（9テーブル + 1ビュー）適用済み
+-- 前提: v1.1 実スキーマ（db/tests/baseline_v1.1_actual.sql、2026-07-18 突合済み）
 -- ============================================================
 
 BEGIN;
@@ -191,6 +191,24 @@ DROP POLICY IF EXISTS "methods_default: read all" ON public.methods_default;
 CREATE POLICY "methods_default: read all" ON public.methods_default
   FOR SELECT USING (true);
 
+-- 初期メソッド 10 件（確定仕様書 8.3 章）。
+-- v1.1 では空のままで、handle_new_user → copy_default_methods が
+-- 何もコピーしない状態だったため seed する。
+INSERT INTO public.methods_default (style, situation, action, sort_order)
+SELECT * FROM (VALUES
+  ('area_trout', '反応がない（全般）',       'ルアーの種類を変える（スプーン→クランク→プラグ）', 1),
+  ('area_trout', '反応がない（全般）',       'レンジを変える（表層→中層→ボトム）',             2),
+  ('area_trout', '反応がない（全般）',       'リトリーブ速度を変える（早巻き→デッドスロー）',   3),
+  ('area_trout', '反応がない（全般）',       'カラーを変える（派手→ナチュラル、またはその逆）', 4),
+  ('area_trout', 'チェイスはあるが食わない', 'ルアーサイズを下げる',                           5),
+  ('area_trout', 'チェイスはあるが食わない', 'ストップ&ゴーを入れる',                          6),
+  ('area_trout', 'チェイスはあるが食わない', 'フックをシャープなものに交換',                   7),
+  ('area_trout', '朝イチ・放流直後',         '表層の早巻きから試す',                           8),
+  ('area_trout', '時間が経って渋い',         'ボトムのデッドスロー・ステイ',                   9),
+  ('area_trout', '晴天・プレッシャー高',     'ナチュラルカラー・細軸フック・軽めのスプーン',   10)
+) AS seed(style, situation, action, sort_order)
+WHERE NOT EXISTS (SELECT 1 FROM public.methods_default);
+
 -- ------------------------------------------------------------
 -- ⑥ fishing_records.count → catch_count（予約語回避）
 -- ------------------------------------------------------------
@@ -198,13 +216,17 @@ ALTER TABLE public.fishing_records RENAME COLUMN count TO catch_count;
 
 -- ------------------------------------------------------------
 -- ⑦ fishing_records.fish_name → fish_species_id (FK)
---    ※ v1.1 に本番データがある場合は DROP 前に fish_species への
---      移行 INSERT + UPDATE でバックフィルすること（Phase 1 時点はデータなし想定）
+--    突合時点で fishing_records は 0 行のためバックフィル不要。
+--    出世魚の採用呼称は既存の fish_name_local を継続使用する。
 -- ------------------------------------------------------------
 ALTER TABLE public.fishing_records
   ADD COLUMN IF NOT EXISTS fish_species_id UUID REFERENCES public.fish_species(id);
 
 ALTER TABLE public.fishing_records DROP COLUMN IF EXISTS fish_name;
+
+-- トリガーの分岐を単純化するため NULL を排除（既定値は既に false）
+UPDATE public.fishing_records SET is_skunked = FALSE WHERE is_skunked IS NULL;
+ALTER TABLE public.fishing_records ALTER COLUMN is_skunked SET NOT NULL;
 
 -- ------------------------------------------------------------
 -- ⑧ インデックス追加

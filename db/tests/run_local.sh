@@ -11,7 +11,7 @@ DB_NAME="${TIDEBASE_TEST_DB:-tidebase_migration_test}"
 dropdb --if-exists "$DB_NAME"
 createdb "$DB_NAME"
 
-psql -v ON_ERROR_STOP=1 -d "$DB_NAME" -q -f db/tests/baseline_v1.1_synthetic.sql
+psql -v ON_ERROR_STOP=1 -d "$DB_NAME" -q -f db/tests/baseline_v1.1_actual.sql
 for migration in db/migrations/*.sql; do
   echo "applying: $migration"
   psql -v ON_ERROR_STOP=1 -d "$DB_NAME" -q -f "$migration"

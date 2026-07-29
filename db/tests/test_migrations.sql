@@ -1,15 +1,28 @@
 -- ============================================================
 -- マイグレーション適用後の動作テスト
--- （baseline_v1.1_synthetic.sql → 002 → 003 → 004 の順に適用後に実行）
+-- （baseline_v1.1_actual.sql → 002 → 003 → 004 の順に適用後に実行）
 -- 失敗時は RAISE EXCEPTION で異常終了する（run_local.sh / CI 用）
 -- ============================================================
 
 \set ON_ERROR_STOP on
 
--- テストユーザー
+-- テストユーザー（handle_new_user トリガーが profiles とメソッドを作る）
 INSERT INTO auth.users (id) VALUES ('11111111-1111-1111-1111-111111111111');
-INSERT INTO public.profiles (id, username) VALUES
-  ('11111111-1111-1111-1111-111111111111', 'tester');
+
+DO $$
+BEGIN
+  -- 会員登録トリガーの検証（確定仕様書 18.3 章: デフォルト 10 件のコピー）
+  IF (SELECT COUNT(*) FROM public.profiles
+      WHERE id = '11111111-1111-1111-1111-111111111111') <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL: handle_new_user が profiles を作らない';
+  END IF;
+  IF (SELECT COUNT(*) FROM public.methods
+      WHERE user_id = '11111111-1111-1111-1111-111111111111') <> 10 THEN
+    RAISE EXCEPTION 'TEST FAIL: 初期メソッド 10 件がコピーされない（実際: %）',
+      (SELECT COUNT(*) FROM public.methods);
+  END IF;
+END;
+$$;
 
 DO $$
 DECLARE
@@ -63,29 +76,41 @@ BEGIN
   -- 釣果: 潮汐スナップショット自動付与（D-012）
   ------------------------------------------------------------
   INSERT INTO public.fishing_records (user_id, spot_id, fished_at, catch_count)
-  VALUES (u, spot_tokyo, '2026-07-10T06:00:00+09:00', 2) RETURNING * INTO rec;
+  VALUES (u, spot_tokyo, '2026-07-10', 2) RETURNING * INTO rec;
   IF rec.tide_snapshot->>'method' IS DISTINCT FROM 'moon_age_approx'
      OR NOT (rec.tide_snapshot->>'tide_type' IN ('大潮','中潮','小潮','長潮','若潮')) THEN
     RAISE EXCEPTION 'TEST FAIL: tide_snapshot 自動付与が不正: %', rec.tide_snapshot;
   END IF;
+  -- 集計キー（ビューが参照）がスナップショットと一致すること
+  IF rec.tide_type IS DISTINCT FROM rec.tide_snapshot->>'tide_type' THEN
+    RAISE EXCEPTION 'TEST FAIL: tide_type カラムがスナップショットと不一致';
+  END IF;
   age1 := (rec.tide_snapshot->>'moon_age')::numeric;
 
   -- fished_at 変更 → 自動付与分は再計算
-  UPDATE public.fishing_records SET fished_at = '2026-07-17T06:00:00+09:00'
+  UPDATE public.fishing_records SET fished_at = '2026-07-17'
   WHERE id = rec.id RETURNING * INTO rec;
   age2 := (rec.tide_snapshot->>'moon_age')::numeric;
   IF age1 = age2 THEN
     RAISE EXCEPTION 'TEST FAIL: fished_at 変更で moon_age が再計算されない';
+  END IF;
+  IF rec.tide_type IS DISTINCT FROM rec.tide_snapshot->>'tide_type' THEN
+    RAISE EXCEPTION 'TEST FAIL: fished_at 変更後に tide_type が追従しない';
   END IF;
 
   -- 手動スナップショットは維持
   UPDATE public.fishing_records
   SET tide_snapshot = '{"tide_type": "大潮", "source": "manual"}'::jsonb
   WHERE id = rec.id;
-  UPDATE public.fishing_records SET fished_at = '2026-07-20T06:00:00+09:00'
+  UPDATE public.fishing_records SET fished_at = '2026-07-20'
   WHERE id = rec.id RETURNING * INTO rec;
   IF rec.tide_snapshot->>'source' IS DISTINCT FROM 'manual' THEN
     RAISE EXCEPTION 'TEST FAIL: 手動スナップショットが上書きされる';
+  END IF;
+
+  -- 潮汐×釣果相関ビュー（確定仕様書 14.3 章）が集計できること
+  IF NOT EXISTS (SELECT 1 FROM public.tide_correlation WHERE user_id = u) THEN
+    RAISE EXCEPTION 'TEST FAIL: tide_correlation ビューが集計しない';
   END IF;
 
   ------------------------------------------------------------
@@ -93,17 +118,24 @@ BEGIN
   ------------------------------------------------------------
   SELECT id INTO buri_id FROM public.fish_species WHERE user_id IS NULL AND name = 'ブリ';
   INSERT INTO public.fishing_records
-    (user_id, spot_id, fished_at, is_skunked, catch_count, fish_species_id, fish_display_name, size_cm)
-  VALUES (u, spot_tokyo, '2026-07-11T06:00:00+09:00', TRUE, 5, buri_id, 'イナダ', 42.5)
+    (user_id, spot_id, fished_at, is_skunked, catch_count, fish_species_id,
+     fish_name_local, length_cm, weight_g)
+  VALUES (u, spot_tokyo, '2026-07-11', TRUE, 5, buri_id, 'イナダ', 42.5, 1200)
   RETURNING * INTO rec;
   IF rec.catch_count <> 0 OR rec.fish_species_id IS NOT NULL
-     OR rec.fish_display_name IS NOT NULL OR rec.size_cm IS NOT NULL THEN
+     OR rec.fish_name_local IS NOT NULL OR rec.length_cm IS NOT NULL
+     OR rec.weight_g IS NOT NULL THEN
     RAISE EXCEPTION 'TEST FAIL: ボウズの正規化が効かない';
+  END IF;
+
+  -- 公開範囲のデフォルト（確定仕様書 5 章）
+  IF rec.visibility IS DISTINCT FROM 'group' THEN
+    RAISE EXCEPTION 'TEST FAIL: visibility のデフォルトが group でない';
   END IF;
 
   BEGIN
     INSERT INTO public.fishing_records (user_id, spot_id, fished_at, catch_count)
-    VALUES (u, spot_tokyo, '2026-07-12T06:00:00+09:00', 0);
+    VALUES (u, spot_tokyo, '2026-07-12', 0);
     failed := TRUE;
   EXCEPTION WHEN check_violation THEN
     NULL;  -- 期待どおり
