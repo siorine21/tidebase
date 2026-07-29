@@ -70,6 +70,24 @@ export function toJstDateString(date) {
   return jst.toISOString().slice(0, 10);
 }
 
+/**
+ * 現在時刻を JST で返す。端末のタイムゾーンが JST でなくても同じ結果になる。
+ * @returns {{date: string, hour: number, minute: number, hours: number, hhmm: string}}
+ *          hours は小数（14:30 なら 14.5）で、グラフの横位置計算に使う。
+ */
+export function nowInJst(base = new Date()) {
+  const jst = new Date(base.getTime() + 9 * 60 * 60 * 1000);
+  const hour = jst.getUTCHours();
+  const minute = jst.getUTCMinutes();
+  return {
+    date: jst.toISOString().slice(0, 10),
+    hour,
+    minute,
+    hours: hour + minute / 60,
+    hhmm: `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`,
+  };
+}
+
 const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 
 export function formatJstDate(isoDate, { weekday = false } = {}) {
@@ -136,8 +154,10 @@ export function windDirection(degrees) {
 }
 
 /**
- * 指定座標・指定日の 3 時間刻み予報（0時〜24時間後の 9 点）。
+ * 指定座標・指定日の 1 時間刻み予報と、その日の日の出・日没。
  * 波高は海上グリッド外だと null になる（設計補完書 1.1 章）。
+ * @returns {{hours: object[], sun: {rise: string, set: string}|null}}
+ *          sun の時刻は "HH:MM"（JST）。極夜・白夜では null になり得る。
  */
 export async function fetchWeather(lat, lng, date) {
   // 「0 時から 24 時間後まで」を満たすため翌日 0 時まで取得する（確定仕様書 2.2 章）
@@ -145,7 +165,8 @@ export async function fetchWeather(lat, lng, date) {
   const base = `latitude=${lat}&longitude=${lng}&timezone=Asia%2FTokyo`
     + `&start_date=${date}&end_date=${nextDay}`;
   const forecastUrl = "https://api.open-meteo.com/v1/forecast?" + base
-    + "&hourly=temperature_2m,weather_code,wind_speed_10m,wind_direction_10m&wind_speed_unit=ms";
+    + "&hourly=temperature_2m,weather_code,wind_speed_10m,wind_direction_10m&wind_speed_unit=ms"
+    + "&daily=sunrise,sunset";
   const marineUrl = "https://marine-api.open-meteo.com/v1/marine?" + base + "&hourly=wave_height";
 
   const [forecastRes, marineRes] = await Promise.all([
@@ -162,7 +183,7 @@ export async function fetchWeather(lat, lng, date) {
   }
 
   const h = forecast.hourly;
-  return h.time.map((time, i) => ({
+  const hours = h.time.map((time, i) => ({
     time,
     hour: Number(time.slice(11, 13)),
     temp_c: h.temperature_2m[i],
@@ -171,6 +192,19 @@ export async function fetchWeather(lat, lng, date) {
     wind_dir_deg: h.wind_direction_10m[i],
     wave_height_m: waves ? waves[i] : null,
   }));
+
+  // daily は start_date から並ぶので 0 番目が対象日。値は "YYYY-MM-DDTHH:MM"（JST）
+  const daily = forecast.daily ?? {};
+  const rise = daily.sunrise?.[0]?.slice(11, 16) ?? null;
+  const set = daily.sunset?.[0]?.slice(11, 16) ?? null;
+  return { hours, sun: rise && set ? { rise, set } : null };
+}
+
+/** "HH:MM" を小数の時刻に変換する（グラフの横位置計算用）。 */
+export function hoursFromHhmm(hhmm) {
+  if (!hhmm) return null;
+  const [h, m] = hhmm.split(":").map(Number);
+  return Number.isFinite(h) && Number.isFinite(m) ? h + m / 60 : null;
 }
 
 /* ---------------- 釣行スコア（設計補完書 7 章・D-018） ---------------- */

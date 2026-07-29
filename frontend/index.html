@@ -58,7 +58,7 @@
     client, requireSession, renderNav, escapeHtml,
     fetchTide, fetchWeather, todayInJst, formatJstDate, formatShortDate, relativeDays,
     describeWeather, windDirection, fishingScore, listSpots, listRecords, tideCorrelation, icon,
-    recordFishName,
+    recordFishName, nowInJst, hoursFromHhmm,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -71,13 +71,14 @@
     const spots = await listSpots().catch(() => []);
     const baseSpot = spots.find((s) => s.water_type !== "freshwater") ?? spots[0] ?? null;
 
-    const [tide, weather] = await Promise.all([
+    const [tide, forecast] = await Promise.all([
       loadTide(baseSpot, today),
       baseSpot ? fetchWeather(baseSpot.latitude, baseSpot.longitude, today).catch(() => null) : null,
     ]);
+    const weather = forecast?.hours ?? null;
 
     renderHero(baseSpot, tide, weather);
-    renderTideGraph(tide);
+    renderTideGraph(tide, forecast?.sun ?? null);
     renderHourly(weather);
 
     const [recent, correlation] = await Promise.all([
@@ -96,7 +97,7 @@
   function renderHero(spot, tide, weather) {
     const meta = document.getElementById("hero-meta");
     const tags = document.getElementById("hero-tags");
-    const now = weather?.find((w) => w.hour === new Date().getHours()) ?? weather?.[0] ?? null;
+    const now = weather?.find((w) => w.hour === nowInJst().hour) ?? weather?.[0] ?? null;
 
     const parts = [];
     parts.push(`${icon("map-pin", { size: 13 })} `
@@ -123,7 +124,7 @@
     }
   }
 
-  function renderTideGraph(tide) {
+  function renderTideGraph(tide, sun) {
     const card = document.getElementById("tide-card");
     if (!tide) { document.getElementById("tide-empty").textContent = "潮汐データを取得できませんでした"; return; }
     document.getElementById("tide-station").textContent = `${tide.station} / ${tide.date}`;
@@ -137,7 +138,24 @@
 
     const points = levels.map((v, i) => (v == null ? null : `${x(i)},${y(v)}`)).filter(Boolean);
     const area = `M${padX},${H - padY} L${points.join(" L")} L${W - padX},${H - padY} Z`;
-    const nowX = x(new Date().getHours());
+
+    const now = nowInJst();
+    // 表示中の日付が今日でなければ現在時刻の線は出さない
+    const showNow = tide.date === now.date;
+    const nowLevel = levelAt(levels, now.hours);
+
+    const riseH = hoursFromHhmm(sun?.rise);
+    const setH = hoursFromHhmm(sun?.set);
+
+    // 夜間（日の出前・日没後）を薄く塗って昼夜を一目で分かるようにする
+    const night = riseH != null && setH != null
+      ? `<rect class="night" x="${padX}" y="8" width="${Math.max(0, x(riseH) - padX)}" height="${H - padY - 8}"/>
+         <rect class="night" x="${x(setH)}" y="8" width="${Math.max(0, W - padX - x(setH))}" height="${H - padY - 8}"/>`
+      : "";
+
+    const sunLine = (hours, label) => hours == null ? "" : `
+      <line class="sun-line" x1="${x(hours)}" y1="8" x2="${x(hours)}" y2="${H - padY}"/>
+      <text class="sun-time" x="${x(hours)}" y="${H - padY - 5}" text-anchor="middle">${label}</text>`;
 
     const peaks = [
       ...tide.high_tides.map((e) => ({ ...e, mark: "満" })),
@@ -146,10 +164,15 @@
 
     card.innerHTML = `
       <svg class="tide-graph" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
-           aria-label="本日の潮位グラフ">
+           aria-label="本日の潮位グラフ（日の出・日没・現在時刻つき）">
+        ${night}
         <line class="axis" x1="${padX}" y1="${H - padY}" x2="${W - padX}" y2="${H - padY}"/>
+        ${sunLine(riseH, sun?.rise ?? "")}
+        ${sunLine(setH, sun?.set ?? "")}
         <path class="curve" d="${area}"/>
-        <line class="now" x1="${nowX}" y1="8" x2="${nowX}" y2="${H - padY}"/>
+        ${showNow ? `
+          <line class="now" x1="${x(now.hours)}" y1="8" x2="${x(now.hours)}" y2="${H - padY}"/>
+          ${nowLevel != null ? `<circle class="now-dot" cx="${x(now.hours)}" cy="${y(nowLevel)}" r="3.5"/>` : ""}` : ""}
         ${[0, 6, 12, 18].map((h) => `<text x="${x(h)}" y="${H - 8}">${h}:00</text>`).join("")}
         <text x="${W - padX}" y="${H - 8}" text-anchor="end">24:00</text>
         ${peaks.map((e) => {
@@ -161,7 +184,22 @@
           return `<text class="peak" x="${px}" y="${e.mark === "満" ? 12 : 22}"
                         text-anchor="${anchor}">${e.mark} ${e.time}</text>`;
         }).join("")}
-      </svg>`;
+      </svg>
+      <div class="tide-legend">
+        ${sun ? `<span class="lg lg-sun">${icon("sunrise", { size: 13 })} 日の出 ${sun.rise}</span>
+                 <span class="lg lg-sun">${icon("sunset", { size: 13 })} 日没 ${sun.set}</span>` : ""}
+        ${showNow ? `<span class="lg lg-now">${icon("clock", { size: 13 })} 現在 ${now.hhmm}${
+          nowLevel != null ? ` · 潮位 ${Math.round(nowLevel)}cm` : ""}</span>` : ""}
+      </div>`;
+  }
+
+  /** 毎時の潮位を線形補間して、任意の時刻の潮位を求める。 */
+  function levelAt(levels, hours) {
+    const i = Math.floor(hours);
+    const a = levels[Math.min(i, 23)], b = levels[Math.min(i + 1, 23)];
+    if (a == null) return null;
+    if (b == null) return a;
+    return a + (b - a) * (hours - i);
   }
 
   function renderHourly(weather) {

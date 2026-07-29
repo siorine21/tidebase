@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>レシピ作成 | TIDEBASE</title>
+<title>NEW RECIPE | TIDEBASE</title>
 <link rel="stylesheet" href="vendor/fonts/fonts.css">
 <link rel="stylesheet" href="assets/theme.css">
 </head>
@@ -11,7 +11,7 @@
 <!-- SCR-015 レシピ作成・編集 -->
 <header class="page-head">
   <button type="button" class="back" id="close" aria-label="閉じる" data-icon="close"></button>
-  <div class="page-title" id="page-title">レシピ作成</div>
+  <div class="page-title" id="page-title">NEW RECIPE</div>
 </header>
 
 <main>
@@ -91,7 +91,7 @@
   renderMakers(); renderTags(); renderLargeCategories();
 
   if (recipeId) {
-    document.getElementById("page-title").textContent = "レシピ編集";
+    document.getElementById("page-title").textContent = "EDIT RECIPE";
     document.title = "レシピ編集 | TIDEBASE";
     const { data, error } = await client
       .from("lure_recipes")

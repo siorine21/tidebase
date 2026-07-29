@@ -3,8 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>釣果を記録 | TIDEBASE</title>
+<title>NEW CATCH | TIDEBASE</title>
 <link rel="stylesheet" href="vendor/fonts/fonts.css">
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="assets/theme.css">
 </head>
 <body class="app-body">
@@ -12,7 +13,7 @@
 <header class="page-head">
   <button type="button" class="back" id="back" aria-label="戻る">←</button>
   <div>
-    <div class="page-title" id="mode-title">釣果を記録</div>
+    <div class="page-title" id="mode-title">NEW CATCH</div>
     <div class="page-sub" id="step-sub">STEP 1/5</div>
   </div>
 </header>
@@ -91,9 +92,10 @@
       <summary style="cursor:pointer;color:var(--mustard);font-size:13px">新しいスポットを登録</summary>
       <div style="margin-top:12px">
         <div class="field"><label for="spot-name">スポット名</label><input type="text" id="spot-name" maxlength="100"></div>
-        <div class="row-2">
-          <div class="field"><label for="spot-lat">緯度</label><input type="number" id="spot-lat" step="0.000001"></div>
-          <div class="field"><label for="spot-lng">経度</label><input type="number" id="spot-lng" step="0.000001"></div>
+        <div class="field">
+          <label>位置（地図をタップしてピンを立てる）</label>
+          <div class="map-box" id="spot-map" style="height:220px;margin-bottom:6px"></div>
+          <div class="page-sub" id="spot-coords">地図をタップすると、その場所にピンが立ちます。</div>
         </div>
         <div class="field">
           <label>水域区分</label>
@@ -104,7 +106,7 @@
           </div>
         </div>
         <div class="actions" style="margin-top:12px">
-          <button type="button" class="btn btn-quiet" id="use-gps" data-icon="locate">現在地を取得</button>
+          <button type="button" class="btn btn-quiet" id="use-gps" data-icon="locate">現在地にピン</button>
           <button type="button" class="btn" id="save-spot">スポットを登録</button>
         </div>
       </div>
@@ -144,13 +146,14 @@
   </div>
 </main>
 
+<script src="vendor/leaflet/leaflet.js"></script>
 <script src="vendor/supabase.js"></script>
 <script src="assets/config.js"></script>
 <script type="module">
   import {
     client, requireSession, renderNav, escapeHtml, toJapaneseError, currentUserId,
     todayInJst, listSpots, listSpecies, listRecipes, suggestFishName, icon,
-    groupSpeciesByCategory,
+    groupSpeciesByCategory, createMap, spotMarker,
   } from "./assets/app.js";
 
   const STEPS = ["魚種", "タックル", "スポット", "写真", "メモ"];
@@ -227,7 +230,7 @@
 
   document.getElementById("skunk-btn").addEventListener("click", () => {
     state.isSkunked = true;
-    document.getElementById("mode-title").textContent = "ボウズで記録";
+    document.getElementById("mode-title").textContent = "NEW CATCH — SKUNK";
     show(3);
   });
 
@@ -323,35 +326,87 @@
     item.querySelector(".select-mark").innerHTML = icon("check", { size: 16 });
   });
 
+  /* ---------- 新規スポットは地図でピンを立てて登録する ---------- */
+  const draft = { lat: null, lng: null };
+  let spotMap = null;
+  let spotPin = null;
+
+  // details を開いたときに初期化する（非表示のままだと Leaflet がサイズを測れない）
+  document.getElementById("new-spot").addEventListener("toggle", (e) => {
+    if (e.currentTarget.open) initSpotMap();
+  });
+
+  function initSpotMap() {
+    if (spotMap) { setTimeout(() => spotMap.invalidateSize(), 50); return; }
+    const base = spots[0];
+    const created = createMap("spot-map", {
+      center: base ? [base.latitude, base.longitude] : [35.6544, 139.7708],
+      zoom: base ? 13 : 10,
+    });
+    spotMap = created.map;
+    // 登録済みスポットも表示して、同じ場所を重複登録しにくくする
+    for (const s of spots) {
+      L.marker([s.latitude, s.longitude], { icon: spotMarker(s, { label: false }) }).addTo(spotMap);
+    }
+    spotMap.on("click", (e) => placePin(e.latlng.lat, e.latlng.lng));
+    setTimeout(() => spotMap.invalidateSize(), 50);
+  }
+
+  function placePin(lat, lng) {
+    draft.lat = Number(Number(lat).toFixed(6));
+    draft.lng = Number(Number(lng).toFixed(6));
+    const pinIcon = spotMarker({ spot_type: null, name: null, low_tide_only: false }, { label: false });
+    if (spotPin) spotPin.setLatLng([draft.lat, draft.lng]);
+    else spotPin = L.marker([draft.lat, draft.lng], { icon: pinIcon }).addTo(spotMap);
+    document.getElementById("spot-coords").textContent =
+      `緯度 ${draft.lat} / 経度 ${draft.lng}`;
+  }
+
+  function clearPin() {
+    draft.lat = null; draft.lng = null;
+    if (spotPin) { spotPin.remove(); spotPin = null; }
+    document.getElementById("spot-coords").textContent =
+      "地図をタップすると、その場所にピンが立ちます。";
+  }
+
   document.getElementById("use-gps").addEventListener("click", () => {
     if (!navigator.geolocation) return message("この端末では現在地を取得できません。", "error");
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        document.getElementById("spot-lat").value = pos.coords.latitude.toFixed(6);
-        document.getElementById("spot-lng").value = pos.coords.longitude.toFixed(6);
-        message("現在地を取得しました。", "success");
+        initSpotMap();
+        spotMap.setView([pos.coords.latitude, pos.coords.longitude], 16);
+        placePin(pos.coords.latitude, pos.coords.longitude);
+        message("現在地にピンを立てました。ずれていれば地図をタップして調整できます。", "success");
       },
-      () => message("現在地を取得できませんでした。手動で入力してください。", "error"),
+      () => message("現在地を取得できませんでした。地図をタップして指定してください。", "error"),
     );
   });
 
-  document.getElementById("save-spot").addEventListener("click", async () => {
+  document.getElementById("save-spot").addEventListener("click", async (e) => {
     const name = document.getElementById("spot-name").value.trim();
-    const lat = Number(document.getElementById("spot-lat").value);
-    const lng = Number(document.getElementById("spot-lng").value);
     const waterType = document.querySelector("#water-chips .chip.selected")?.dataset.value ?? "saltwater";
-    if (!name || !Number.isFinite(lat) || !Number.isFinite(lng)) {
-      return message("スポット名と座標を入力してください。", "error");
-    }
+    if (!name) return message("スポット名を入力してください。", "error");
+    if (draft.lat == null) return message("地図をタップしてピンを立ててください。", "error");
+
+    const button = e.currentTarget;
+    button.disabled = true; button.textContent = "登録中…";
     const { data, error } = await client.from("spots")
-      .insert({ user_id: await currentUserId(), name, latitude: lat, longitude: lng, water_type: waterType })
+      .insert({
+        user_id: await currentUserId(), name,
+        latitude: draft.lat, longitude: draft.lng, water_type: waterType,
+      })
       .select().single();
+    button.disabled = false; button.textContent = "スポットを登録";
     if (error) return message(toJapaneseError(error), "error");
 
     const updated = await listSpots();
     renderSpots(updated);
     state.spotId = data.id;
     document.querySelector(`.spot-option[data-id="${data.id}"]`)?.click();
+    document.getElementById("spot-name").value = "";
+    clearPin();
+    // 登録済みとして地図に残す（次に開いたときも見える）
+    L.marker([data.latitude, data.longitude], { icon: spotMarker(data, { label: false }) }).addTo(spotMap);
     document.getElementById("new-spot").open = false;
     message("スポットを登録しました。", "success");
   });
