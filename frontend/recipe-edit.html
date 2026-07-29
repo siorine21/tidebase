@@ -4,15 +4,13 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>レシピ作成 | TIDEBASE</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@400;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="vendor/fonts/fonts.css">
 <link rel="stylesheet" href="assets/theme.css">
 </head>
 <body class="app-body">
 <!-- SCR-015 レシピ作成・編集 -->
 <header class="page-head">
-  <button type="button" class="back" id="close" aria-label="閉じる">✕</button>
+  <button type="button" class="back" id="close" aria-label="閉じる" data-icon="close"></button>
   <div class="page-title" id="page-title">レシピ作成</div>
 </header>
 
@@ -21,21 +19,21 @@
 
   <div class="card">
     <div class="field">
-      <label>🏭 メーカー名</label>
+      <label>メーカー名</label>
       <div class="chips" id="maker-chips"></div>
       <div class="row-2" style="margin-top:8px">
         <input type="text" id="new-maker" placeholder="新しいメーカー名" maxlength="60">
-        <button type="button" class="btn btn-quiet" id="add-maker">＋ 追加</button>
+        <button type="button" class="btn btn-quiet" id="add-maker"><span data-icon="plus"></span>追加</button>
       </div>
     </div>
 
     <div class="field">
-      <label for="name">🎣 ルアー名 <span style="color:var(--red)">*</span></label>
+      <label for="name">ルアー名 <span style="color:var(--red)">*</span></label>
       <input type="text" id="name" maxlength="100" required>
     </div>
 
     <div class="field">
-      <label>📂 カテゴリ <span style="color:var(--red)">*</span></label>
+      <label>カテゴリ <span style="color:var(--red)">*</span></label>
       <div class="chips" id="cat-large"></div>
       <div id="cat-small-wrap" hidden style="margin-top:8px">
         <div class="chips" id="cat-small"></div>
@@ -43,34 +41,34 @@
     </div>
 
     <div class="row-2">
-      <div class="field"><label for="color">🎨 カラー</label><input type="text" id="color" maxlength="60"></div>
-      <div class="field"><label for="weight">⚖️ 重量（g）</label><input type="number" id="weight" step="0.1" min="0" inputmode="decimal"></div>
+      <div class="field"><label for="color">カラー</label><input type="text" id="color" maxlength="60"></div>
+      <div class="field"><label for="weight">重量（g）</label><input type="number" id="weight" step="0.1" min="0" inputmode="decimal"></div>
     </div>
 
-    <div class="field"><label for="hook">🪝 フック</label><input type="text" id="hook" maxlength="60"></div>
+    <div class="field"><label for="hook">フック</label><input type="text" id="hook" maxlength="60"></div>
 
     <div class="field">
-      <label for="condition-memo">📝 使用条件メモ</label>
+      <label for="condition-memo">使用条件メモ</label>
       <textarea id="condition-memo" maxlength="1000" placeholder="効く状況・アクションなど"></textarea>
     </div>
 
     <div class="field">
-      <label>🏷️ タグ</label>
+      <label>タグ</label>
       <div class="chips" id="tag-chips"></div>
       <div class="row-2" style="margin-top:8px">
         <input type="text" id="new-tag" placeholder="新しいタグ名" maxlength="40">
-        <button type="button" class="btn btn-quiet" id="add-tag">＋ 追加</button>
+        <button type="button" class="btn btn-quiet" id="add-tag"><span data-icon="plus"></span>追加</button>
       </div>
     </div>
 
     <div class="field toggle-row" style="margin-bottom:0">
-      <label for="favorite" style="margin:0">⭐ お気に入りに登録</label>
+      <label for="favorite" style="margin:0">お気に入りに登録</label>
       <input type="checkbox" id="favorite" style="width:auto">
     </div>
   </div>
 
   <div class="actions">
-    <button type="button" class="btn" id="save">💾 レシピを保存</button>
+    <button type="button" class="btn" id="save">レシピを保存</button>
   </div>
 </main>
 
@@ -260,7 +258,7 @@
   function fail(button, error) {
     message(toJapaneseError(error), "error");
     button.disabled = false;
-    button.textContent = "💾 レシピを保存";
+    button.textContent = "レシピを保存";
   }
 
   function message(text, kind) {

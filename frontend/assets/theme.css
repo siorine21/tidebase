@@ -46,7 +46,9 @@ body {
   min-height: 100vh;
   background: var(--bg-deep);
   color: var(--text-primary);
-  font-family: 'Noto Sans JP', system-ui, sans-serif;
+  /* 日本語は端末標準フォント（外部フォント配信への通信をなくすため） */
+  font-family: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP",
+               "Yu Gothic UI", "Meiryo", sans-serif;
   font-size: 15px;
   line-height: 1.7;
 }
@@ -523,3 +525,38 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 }
 
 .actions .btn { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+
+/* ---------- アイコン（Lucide 線画・絵文字は使わない） ---------- */
+.icon {
+  display: inline-block; vertical-align: -0.18em; flex-shrink: 0;
+}
+.icon.filled { fill: currentColor; fill-opacity: 0.22; }
+
+/* ラベルとアイコンの間隔 */
+.btn .icon, .chip .icon, .tag .icon, .filter-btn .icon { margin-right: 5px; }
+.tag .icon { vertical-align: -0.15em; }
+
+.thumb .icon { color: var(--mustard); }
+.list-item .thumb .icon { opacity: 0.9; }
+
+.nav-item .icon { margin: 0; }
+.nav-icon { display: block; }
+
+.map-tools button { display: flex; align-items: center; gap: 5px; }
+.map-tools button .icon { margin: 0; }
+
+.fab .icon { width: 26px; height: 26px; stroke-width: 2; }
+
+/* お気に入りボタン */
+#fav { display: flex; align-items: center; justify-content: center; padding: 4px; }
+#fav .icon { color: var(--mustard); }
+#fav .icon:not(.filled) { color: var(--text-muted); }
+
+/* 天気カードのアイコン */
+.hour-card .icon-wrap { line-height: 1; margin: 3px 0; }
+.hour-card .icon { color: var(--blue); }
+
+/* 地図ピン内のアイコン */
+.spot-pin .icon { color: rgba(10,21,32,0.85); stroke-width: 2.2; }
+.pin-warn .icon { color: #E8C76A; stroke-width: 2.4; }

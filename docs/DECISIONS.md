@@ -244,6 +244,23 @@
 - **テスト基盤**: `db/tests/baseline_v1.1_synthetic.sql`（想定ベース）を
   `baseline_v1.1_actual.sql`（実スキーマ）に置き換え、以後は実態に対して検証する。
 
+### D-027: フォント同梱と線画アイコン統一（2026-07-29）
+
+- **決定**:
+  - Google Fonts の読み込みを廃止し、Bebas Neue（見出し）と JetBrains Mono（数値）の
+    latin サブセットを `frontend/vendor/fonts/` に同梱する（計 76KB）。
+    **日本語は端末標準フォント**（Hiragino / Noto Sans JP / Yu Gothic 等）を使う。
+  - UI の絵文字を全廃し、**Lucide（ISC License）の線画アイコン**に統一する。
+    使用アイコンのみを `frontend/assets/icons.js` にインライン SVG として展開し、
+    色は `currentColor` でテーマに追従させる。
+- **理由**:
+  - フォント: アプリを開くたびに Google へ IP が送られる状態を解消する。
+    日本語フォントは端末標準で十分な品質があり、数 MB の配信も不要になる。
+  - アイコン: 絵文字は OS ごとに描画が変わり、カラフルでカラシ×ネイビーの
+    デザインと調和しないため。線画アイコンはサイズ・色・線幅を統一できる。
+- **備考**: 外部への通信は Supabase・Open-Meteo・国土地理院タイルのみになった
+  （実ブラウザで通信先を検証済み）。
+
 ### D-026: 地図は Leaflet + 地理院タイル、経路案内は Google マップへ連携（2026-07-29）
 
 - **決定**: 確定仕様書の「Google Maps JS API」を **Leaflet 1.9 + 国土地理院タイル**に置き換える。

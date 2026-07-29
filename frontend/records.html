@@ -4,9 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>釣果日誌 | TIDEBASE</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@400;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="vendor/fonts/fonts.css">
 <link rel="stylesheet" href="assets/theme.css">
 </head>
 <body class="app-body">
@@ -36,21 +34,21 @@
     </div>
     <div id="recipe-filter" hidden style="margin-top:10px">
       <span class="tag tag-mustard" id="recipe-filter-label"></span>
-      <button type="button" class="chip" id="clear-recipe" style="margin-left:6px">解除 ✕</button>
+      <button type="button" class="chip" id="clear-recipe" style="margin-left:6px" data-icon="close">解除</button>
     </div>
   </div>
 
   <div id="list"><div class="empty">読み込み中…</div></div>
 </main>
 
-<a class="fab" href="record-new.html" title="釣果を記録">＋</a>
+<a class="fab" href="record-new.html" title="釣果を記録" data-icon="plus"></a>
 
 <script src="vendor/supabase.js"></script>
 <script src="assets/config.js"></script>
 <script type="module">
   import {
     requireSession, renderNav, escapeHtml, listRecords, listSpots,
-    formatJstDate, relativeDays,
+    formatJstDate, relativeDays, icon,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -82,7 +80,7 @@
   if (recipeId) {
     const name = records.find((r) => r.recipe_id === recipeId)?.lure_recipes?.name;
     document.getElementById("recipe-filter").hidden = false;
-    document.getElementById("recipe-filter-label").textContent = `🎣 ${name ?? "指定レシピ"}`;
+    document.getElementById("recipe-filter-label").textContent = `${name ?? "指定レシピ"}`;
   }
   document.getElementById("clear-recipe").addEventListener("click", () => {
     recipeId = null;
@@ -125,7 +123,7 @@
       currentMonth = month;
 
       const title = r.is_skunked
-        ? "😞 ボウズ"
+        ? `${icon("skunk", { size: 15 })} ボウズ`
         : `${escapeHtml(r.fish_name_local ?? "釣果")}${r.length_cm ? ` ${r.length_cm}cm` : ""}`
           + (r.catch_count > 1 ? ` ×${r.catch_count}` : "");
       const sub = [
@@ -135,7 +133,7 @@
 
       return `${header}
         <a class="list-item" href="record.html?id=${r.id}">
-          <div class="thumb">${r.is_skunked ? "😞" : "🐟"}</div>
+          <div class="thumb">${icon(r.is_skunked ? "skunk" : "fish", { size: 20 })}</div>
           <div class="list-body">
             <div class="list-title">${title}</div>
             <div class="list-sub">${escapeHtml(formatJstDate(r.fished_at))}${sub ? " · " + sub : ""}</div>

@@ -4,9 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ルアーレシピ | TIDEBASE</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@400;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="vendor/fonts/fonts.css">
 <link rel="stylesheet" href="assets/theme.css">
 </head>
 <body class="app-body">
@@ -19,12 +17,12 @@
 <main>
   <div id="message" class="message" hidden role="alert"></div>
 
-  <!-- 3 ドロップダウン（AND 条件）+ ⭐（独立フィルタ）確定仕様書 12 章 -->
+  <!-- 3 ドロップダウン（AND 条件）+ お気に入り（独立フィルタ）確定仕様書 12 章 -->
   <div class="filter-bar">
-    <button type="button" class="filter-btn" data-panel="category" id="btn-category">📂 カテゴリ</button>
-    <button type="button" class="filter-btn" data-panel="maker" id="btn-maker">🏭 メーカー</button>
-    <button type="button" class="filter-btn" data-panel="tag" id="btn-tag">🏷️ タグ</button>
-    <button type="button" class="filter-btn star" id="btn-star" title="お気に入りのみ">☆</button>
+    <button type="button" class="filter-btn" data-panel="category" id="btn-category"><span data-icon="folder"></span>カテゴリ</button>
+    <button type="button" class="filter-btn" data-panel="maker" id="btn-maker"><span data-icon="factory"></span>メーカー</button>
+    <button type="button" class="filter-btn" data-panel="tag" id="btn-tag"><span data-icon="tag"></span>タグ</button>
+    <button type="button" class="filter-btn star" id="btn-star" title="お気に入りのみ" data-icon="star">
   </div>
 
   <div class="filter-panel" id="panel-category" hidden>
@@ -50,14 +48,14 @@
   <div id="list"><div class="empty">読み込み中…</div></div>
 </main>
 
-<a class="fab" href="recipe-edit.html" title="レシピを登録">＋</a>
+<a class="fab" href="recipe-edit.html" title="レシピを登録" data-icon="plus"></a>
 
 <script src="vendor/supabase.js"></script>
 <script src="assets/config.js"></script>
 <script type="module">
   import {
     requireSession, renderNav, escapeHtml, LURE_CATEGORIES, categoryLabel, categoryTagClass,
-    listRecipesDetailed, listMakers, listTags, recipeCatchCounts,
+    listRecipesDetailed, listMakers, listTags, recipeCatchCounts, icon,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -156,7 +154,7 @@
 
   document.getElementById("btn-star").addEventListener("click", (e) => {
     filters.favorite = !filters.favorite;
-    e.currentTarget.textContent = filters.favorite ? "⭐" : "☆";
+    e.currentTarget.innerHTML = icon("star", { size: 16, className: filters.favorite ? "filled" : "" });
     e.currentTarget.classList.toggle("on", filters.favorite);
     render();
   });
@@ -194,9 +192,9 @@
       const specs = [r.weight_g ? `${r.weight_g}g` : null, r.color].filter(Boolean).join(" / ");
       return `
         <a class="recipe-card" href="recipe.html?id=${r.id}">
-          <div class="thumb">🎣</div>
+          <div class="thumb">${icon("recipes", { size: 20 })}</div>
           <div class="body">
-            <div class="name">${escapeHtml(r.name)}${r.is_favorite ? " <span>⭐</span>" : ""}</div>
+            <div class="name">${escapeHtml(r.name)}${r.is_favorite ? ` ${icon("star", { size: 14, className: "filled" })}` : ""}</div>
             ${r.makers?.name ? `<div class="maker">${escapeHtml(r.makers.name)}</div>` : ""}
             <div class="tags">
               ${r.category_large ? `<span class="tag ${categoryTagClass(r.category_large)}">${escapeHtml(r.category_small || categoryLabel(r.category_large))}</span>` : ""}
@@ -213,16 +211,16 @@
   function updateFilterButtons() {
     const category = filters.large === "all" ? "カテゴリ"
       : filters.small !== "all" ? filters.small : categoryLabel(filters.large);
-    setButton("btn-category", `📂 ${category}`, filters.large !== "all");
+    setButton("btn-category", category, "folder", filters.large !== "all");
     const maker = makers.find((m) => m.id === filters.makerId);
-    setButton("btn-maker", `🏭 ${maker ? maker.name : "メーカー"}`, Boolean(filters.makerId));
-    setButton("btn-tag", `🏷️ タグ${filters.tagIds.length ? ` ${filters.tagIds.length}` : ""}`,
-      filters.tagIds.length > 0);
+    setButton("btn-maker", maker ? maker.name : "メーカー", "factory", Boolean(filters.makerId));
+    setButton("btn-tag", `タグ${filters.tagIds.length ? ` ${filters.tagIds.length}` : ""}`,
+      "tag", filters.tagIds.length > 0);
   }
 
-  function setButton(id, label, on) {
+  function setButton(id, label, iconName, on) {
     const button = document.getElementById(id);
-    button.textContent = label;
+    button.innerHTML = `${icon(iconName, { size: 14 })}${escapeHtml(label)}`;
     button.classList.toggle("on", on);
   }
 </script>

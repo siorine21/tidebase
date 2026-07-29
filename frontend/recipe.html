@@ -4,9 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>レシピ詳細 | TIDEBASE</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@400;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="vendor/fonts/fonts.css">
 <link rel="stylesheet" href="assets/theme.css">
 </head>
 <body class="app-body">
@@ -26,7 +24,7 @@
 <script type="module">
   import {
     client, requireSession, renderNav, escapeHtml, toJapaneseError,
-    categoryLabel, categoryTagClass, toggleFavorite, formatJstDate,
+    categoryLabel, categoryTagClass, toggleFavorite, formatJstDate, icon,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -75,7 +73,7 @@
     box.innerHTML = `
       <div class="card">
         <div style="display:flex;gap:12px;align-items:flex-start">
-          <div class="thumb">🎣</div>
+          <div class="thumb">${icon("recipes", { size: 20 })}</div>
           <div style="flex:1;min-width:0">
             <div class="list-title" style="font-size:16px">${escapeHtml(r.name)}</div>
             <div class="tags" style="margin-top:8px">
@@ -85,7 +83,7 @@
             ${tags.length ? `<div style="margin-top:8px">${tags.map((t) => `<span class="hash"># ${escapeHtml(t.name)}</span>`).join("")}</div>` : ""}
           </div>
           <button type="button" class="back" id="fav" title="お気に入り"
-                  style="font-size:22px">${r.is_favorite ? "⭐" : "☆"}</button>
+                  style="font-size:22px">${icon("star", { size: 20, className: r.is_favorite ? "filled" : "" })}</button>
         </div>
       </div>
 
@@ -108,7 +106,7 @@
 
       <div class="actions">
         <a class="btn btn-quiet" href="recipe-edit.html?id=${r.id}"
-           style="text-align:center;text-decoration:none;line-height:1.6">✏️ 編集</a>
+           style="text-align:center;text-decoration:none;line-height:1.6">${icon("edit", { size: 15 })} 編集</a>
         <button type="button" class="btn btn-quiet" id="delete">削除する</button>
       </div>`;
 
@@ -120,7 +118,7 @@
       try {
         await toggleFavorite(r.id, next);
         r.is_favorite = next;
-        favButton.textContent = next ? "⭐" : "☆";
+        favButton.innerHTML = icon("star", { size: 20, className: next ? "filled" : "" });
       } catch (favError) {
         showMessage(toJapaneseError(favError), "error");
       } finally {
@@ -143,11 +141,11 @@
     }
     return records.map((rec) => {
       const title = rec.is_skunked
-        ? "😞 ボウズ"
+        ? `${icon("skunk", { size: 15 })} ボウズ`
         : `${escapeHtml(rec.fish_name_local ?? "釣果")}${rec.catch_count > 1 ? ` ×${rec.catch_count}` : ""}`;
       return `
         <a class="list-item" href="record.html?id=${rec.id}">
-          <div class="thumb">${rec.is_skunked ? "😞" : "🐟"}</div>
+          <div class="thumb">${icon(rec.is_skunked ? "skunk" : "fish", { size: 20 })}</div>
           <div class="list-body">
             <div class="list-title">${title}</div>
             <div class="list-sub">${escapeHtml(formatJstDate(rec.fished_at))}${rec.spots?.name ? " " + escapeHtml(rec.spots.name) : ""}</div>

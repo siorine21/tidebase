@@ -4,9 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>スポット詳細 | TIDEBASE</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@400;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="vendor/fonts/fonts.css">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="assets/theme.css">
 </head>
@@ -29,7 +27,7 @@
   import {
     client, requireSession, renderNav, escapeHtml, toJapaneseError,
     listSpots, listRecords, createMap, spotMarker, spotType, waterLabel,
-    SPOT_TYPES, WATER_TYPES, googleMapsUrl, googleDirectionsUrl, formatJstDate,
+    SPOT_TYPES, WATER_TYPES, googleMapsUrl, googleDirectionsUrl, formatJstDate, icon,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -80,9 +78,9 @@
 
       <div class="card">
         <div class="tags" style="margin-top:0">
-          <span class="tag tag-gray">${type.icon} ${type.label}</span>
+          <span class="tag tag-gray">${icon(type.iconName, { size: 12 })} ${type.label}</span>
           <span class="tag tag-blue">${waterLabel(spot.water_type)}</span>
-          ${spot.low_tide_only ? `<span class="tag tag-mustard">⚠️ 干潮時のみアクセス可</span>` : ""}
+          ${spot.low_tide_only ? `<span class="tag tag-mustard">${icon("warning", { size: 12 })} 干潮時のみアクセス可</span>` : ""}
           ${spot.tide_station_code ? `<span class="tag tag-gray">潮汐観測点 ${escapeHtml(spot.tide_station_code)}</span>` : ""}
         </div>
         <div class="rows" style="margin-top:12px">
@@ -97,8 +95,8 @@
       </div>
 
       <div class="actions" style="margin-top:0">
-        <a class="btn btn-quiet link-btn" href="${googleMapsUrl(spot)}" target="_blank" rel="noopener">🗺️ Google マップ</a>
-        <a class="btn link-btn" href="${googleDirectionsUrl(spot)}" target="_blank" rel="noopener">🚗 経路案内</a>
+        <a class="btn btn-quiet link-btn" href="${googleMapsUrl(spot)}" target="_blank" rel="noopener">${icon("map", { size: 15 })} Google マップ</a>
+        <a class="btn link-btn" href="${googleDirectionsUrl(spot)}" target="_blank" rel="noopener">${icon("navigation", { size: 15 })} 経路案内</a>
       </div>
 
       <div class="section-label">
@@ -108,7 +106,7 @@
       <div>${renderRecords()}</div>
 
       <div class="actions">
-        <button type="button" class="btn btn-quiet" id="edit-toggle">✏️ 編集</button>
+        <button type="button" class="btn btn-quiet" id="edit-toggle">${icon("edit", { size: 15 })} 編集</button>
         <button type="button" class="btn btn-quiet" id="delete">削除する</button>
       </div>
 
@@ -119,7 +117,7 @@
         <div class="field"><label>水域区分</label><div class="chips" id="e-water"></div></div>
         <div class="field"><label>スポット種別</label><div class="chips" id="e-type"></div></div>
         <div class="field toggle-row">
-          <label for="e-lowtide" style="margin:0">⚠️ 干潮時のみアクセス可</label>
+          <label for="e-lowtide" style="margin:0">干潮時のみアクセス可</label>
           <input type="checkbox" id="e-lowtide" style="width:auto">
         </div>
         <div class="field"><label for="e-memo">メモ</label><textarea id="e-memo" maxlength="2000"></textarea></div>
@@ -158,11 +156,11 @@
     if (!records.length) return `<div class="empty">このスポットでの釣果はまだありません。</div>`;
     return records.slice(0, 5).map((r) => {
       const title = r.is_skunked
-        ? "😞 ボウズ"
+        ? `${icon("skunk", { size: 15 })} ボウズ`
         : `${escapeHtml(r.fish_name_local ?? "釣果")}${r.catch_count > 1 ? ` ×${r.catch_count}` : ""}`;
       return `
         <a class="list-item" href="record.html?id=${r.id}">
-          <div class="thumb">${r.is_skunked ? "😞" : "🐟"}</div>
+          <div class="thumb">${icon(r.is_skunked ? "skunk" : "fish", { size: 20 })}</div>
           <div class="list-body">
             <div class="list-title">${title}</div>
             <div class="list-sub">${escapeHtml(formatJstDate(r.fished_at))}</div>
@@ -230,7 +228,7 @@
                          data-value="${w.value}">${w.label}</span>`).join("");
     document.getElementById("e-type").innerHTML = SPOT_TYPES
       .map((t) => `<span class="chip${t.value === edit.type ? " selected" : ""}"
-                         data-value="${t.value}">${t.icon} ${t.label}</span>`).join("");
+                         data-value="${t.value}">${icon(t.iconName, { size: 13 })} ${t.label}</span>`).join("");
   }
 
   document.addEventListener("click", (e) => {

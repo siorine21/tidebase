@@ -4,9 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>釣果を記録 | TIDEBASE</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@400;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="vendor/fonts/fonts.css">
 <link rel="stylesheet" href="assets/theme.css">
 </head>
 <body class="app-body">
@@ -27,7 +25,7 @@
   <!-- STEP 1: 魚種・サイズ・匹数 -->
   <section class="card step-panel" data-step="1">
     <div class="actions" style="margin:0 0 14px">
-      <button type="button" class="btn btn-quiet" id="skunk-btn">😞 ボウズで記録</button>
+      <button type="button" class="btn btn-quiet" id="skunk-btn" data-icon="skunk">ボウズで記録</button>
     </div>
     <div class="field">
       <label for="species">魚種（任意）</label>
@@ -57,11 +55,11 @@
   <!-- STEP 2: タックル・ルアー -->
   <section class="card step-panel" data-step="2" hidden>
     <div class="field">
-      <label for="recipe">🎣 使用ルアー / レシピ</label>
+      <label for="recipe">使用ルアー / レシピ</label>
       <select id="recipe"><option value="">選択しない</option></select>
     </div>
     <div class="field">
-      <label>📍 ヒットレンジ</label>
+      <label>ヒットレンジ</label>
       <div class="chips" id="layer-chips">
         <span class="chip" data-value="表層">表層</span>
         <span class="chip" data-value="中層">中層</span>
@@ -86,11 +84,11 @@
       <input type="date" id="fished-at">
     </div>
     <div class="field">
-      <label>📍 スポット</label>
+      <label>スポット</label>
       <div id="spot-list"><div class="empty">読み込み中…</div></div>
     </div>
     <details id="new-spot">
-      <summary style="cursor:pointer;color:var(--mustard);font-size:13px">＋ 新しいスポットを登録</summary>
+      <summary style="cursor:pointer;color:var(--mustard);font-size:13px">新しいスポットを登録</summary>
       <div style="margin-top:12px">
         <div class="field"><label for="spot-name">スポット名</label><input type="text" id="spot-name" maxlength="100"></div>
         <div class="row-2">
@@ -106,7 +104,7 @@
           </div>
         </div>
         <div class="actions" style="margin-top:12px">
-          <button type="button" class="btn btn-quiet" id="use-gps">📡 現在地を取得</button>
+          <button type="button" class="btn btn-quiet" id="use-gps"> data-icon="locate">現在地を取得</button>
           <button type="button" class="btn" id="save-spot">スポットを登録</button>
         </div>
       </div>
@@ -129,8 +127,8 @@
     <div class="field">
       <label>公開範囲</label>
       <div class="chips" id="visibility-chips">
-        <span class="chip selected" data-value="group">👥 グループ</span>
-        <span class="chip" data-value="private">🔒 自分のみ</span>
+        <span class="chip selected" data-value="group">グループ</span>
+        <span class="chip" data-value="private">自分のみ</span>
       </div>
     </div>
     <div class="card" style="background:var(--bg-deep);margin-top:12px">
@@ -151,7 +149,7 @@
 <script type="module">
   import {
     client, requireSession, renderNav, escapeHtml, toJapaneseError, currentUserId,
-    todayInJst, listSpots, listSpecies, listRecipes, suggestFishName,
+    todayInJst, listSpots, listSpecies, listRecipes, suggestFishName, icon,
   } from "./assets/app.js";
 
   const STEPS = ["魚種", "タックル", "スポット", "写真", "メモ"];
@@ -173,7 +171,7 @@
   document.getElementById("species").insertAdjacentHTML("beforeend",
     species.map((s) => `<option value="${s.id}" data-rule="${s.name_rule_group ?? ""}">${escapeHtml(s.name)}</option>`).join(""));
   document.getElementById("recipe").insertAdjacentHTML("beforeend",
-    recipes.map((r) => `<option value="${r.id}">${r.is_favorite ? "⭐ " : ""}${escapeHtml(r.name)}</option>`).join(""));
+    recipes.map((r) => `<option value="${r.id}">${r.is_favorite ? "[お気に入り] " : ""}${escapeHtml(r.name)}</option>`).join(""));
   renderSpots(spots);
 
   /* ---------- ステップ制御 ---------- */
@@ -184,7 +182,7 @@
       const skipped = state.isSkunked && (n === 1 || n === 2);
       return `
         <div class="step">
-          <div class="step-dot ${cls}">${skipped ? "–" : n < state.step ? "✓" : n}</div>
+          <div class="step-dot ${cls}">${skipped ? "–" : n < state.step ? "&#10003;" : n}</div>
           <div class="step-label ${n === state.step ? "active" : ""}">${label}</div>
         </div>`;
     }).join("");
@@ -223,7 +221,7 @@
 
   document.getElementById("skunk-btn").addEventListener("click", () => {
     state.isSkunked = true;
-    document.getElementById("mode-title").textContent = "😞 ボウズで記録";
+    document.getElementById("mode-title").textContent = "ボウズで記録";
     show(3);
   });
 
@@ -291,15 +289,15 @@
       box.innerHTML = `<div class="empty">登録済みスポットがありません。下から登録してください。</div>`;
       return;
     }
-    const WATER = { saltwater: ["海水", "⚓"], brackish: ["汽水", "🌊"], freshwater: ["淡水", "🏞️"] };
+    const WATER = { saltwater: ["海水", "port"], brackish: ["汽水", "surf"], freshwater: ["淡水", "river"] };
     box.innerHTML = list.map((s) => {
-      const [label, icon] = WATER[s.water_type] ?? ["—", "📍"];
+      const [label, iconName] = WATER[s.water_type] ?? ["—", "map-pin"];
       return `
         <div class="list-item spot-option" data-id="${s.id}" role="button" tabindex="0">
-          <div class="thumb">${icon}</div>
+          <div class="thumb">${icon(iconName, { size: 19 })}</div>
           <div class="list-body">
             <div class="list-title">${escapeHtml(s.name ?? "無名スポット")}</div>
-            <div class="list-sub">${label}${s.low_tide_only ? " · ⚠️ 干潮時のみ" : ""}</div>
+            <div class="list-sub">${label}${s.low_tide_only ? ` · ${icon("warning", { size: 12 })} 干潮時のみ` : ""}</div>
           </div>
           <div class="list-aside select-mark"></div>
         </div>`;
@@ -315,7 +313,7 @@
       el.querySelector(".select-mark").textContent = "";
     });
     item.style.borderColor = "var(--mustard)";
-    item.querySelector(".select-mark").textContent = "✓";
+    item.querySelector(".select-mark").innerHTML = icon("check", { size: 16 });
   });
 
   document.getElementById("use-gps").addEventListener("click", () => {
@@ -356,7 +354,7 @@
     const spot = document.querySelector(`.spot-option[data-id="${state.spotId}"] .list-title`)?.textContent;
     const speciesName = document.getElementById("species").selectedOptions[0]?.textContent;
     const rows = state.isSkunked
-      ? [["記録", "😞 ボウズ"], ["釣行日", document.getElementById("fished-at").value], ["スポット", spot]]
+      ? [["記録", "ボウズ"], ["釣行日", document.getElementById("fished-at").value], ["スポット", spot]]
       : [
           ["魚種", state.displayName ?? (speciesName === "選択しない" ? "—" : speciesName)],
           ["サイズ", document.getElementById("length").value ? `${document.getElementById("length").value} cm` : "—"],

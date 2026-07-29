@@ -4,9 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>スポットマップ | TIDEBASE</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@400;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="vendor/fonts/fonts.css">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="assets/theme.css">
 </head>
@@ -20,10 +18,10 @@
 <div class="map-wrap">
   <div id="map"></div>
   <div class="map-tools">
-    <button type="button" id="layer-toggle">🛰️ 航空写真</button>
-    <button type="button" id="night">🌙 夜間</button>
-    <button type="button" id="locate">📡 現在地</button>
-    <button type="button" id="add-mode">＋ 追加</button>
+    <button type="button" id="layer-toggle"><span data-icon="satellite"></span>航空写真</button>
+    <button type="button" id="night"><span data-icon="night"></span>夜間</button>
+    <button type="button" id="locate"><span data-icon="locate"></span>現在地</button>
+    <button type="button" id="add-mode"><span data-icon="plus"></span>追加</button>
   </div>
 </div>
 
@@ -36,13 +34,13 @@
 
 <!-- スポット概要（ピンタップ時） -->
 <section class="sheet" id="sheet" hidden>
-  <button type="button" class="back close" id="sheet-close" aria-label="閉じる">✕</button>
+  <button type="button" class="back close" id="sheet-close" aria-label="閉じる" data-icon="close"></button>
   <div id="sheet-body"></div>
 </section>
 
 <!-- 新規登録（地図タップ後） -->
 <section class="sheet" id="new-sheet" hidden>
-  <button type="button" class="back close" id="new-close" aria-label="閉じる">✕</button>
+  <button type="button" class="back close" id="new-close" aria-label="閉じる" data-icon="close"></button>
   <div class="page-sub" style="margin-bottom:10px">新しいスポット</div>
   <div class="field">
     <label for="new-name">スポット名</label>
@@ -57,7 +55,7 @@
     <div class="chips" id="new-type"></div>
   </div>
   <div class="field toggle-row">
-    <label for="new-lowtide" style="margin:0">⚠️ 干潮時のみアクセス可</label>
+    <label for="new-lowtide" style="margin:0">干潮時のみアクセス可</label>
     <input type="checkbox" id="new-lowtide" style="width:auto">
   </div>
   <div class="page-sub" id="new-coords"></div>
@@ -73,7 +71,7 @@
   import {
     client, requireSession, renderNav, escapeHtml, toJapaneseError, currentUserId,
     listSpots, createMap, spotMarker, spotType, waterLabel,
-    SPOT_TYPES, WATER_TYPES, googleMapsUrl, googleDirectionsUrl, isNightMap, setNightMap,
+    SPOT_TYPES, WATER_TYPES, googleMapsUrl, googleDirectionsUrl, isNightMap, setNightMap, icon,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -130,9 +128,9 @@
       const type = spotType(s.spot_type);
       return `
         <a class="list-item" href="spot.html?id=${s.id}">
-          <div class="thumb" style="background:${type.color}22">${type.icon}</div>
+          <div class="thumb" style="background:${type.color}22;color:${type.color}">${icon(type.iconName, { size: 19 })}</div>
           <div class="list-body">
-            <div class="list-title">${escapeHtml(s.name ?? "無名スポット")}${s.low_tide_only ? " ⚠️" : ""}</div>
+            <div class="list-title">${escapeHtml(s.name ?? "無名スポット")}${s.low_tide_only ? ` ${icon("warning", { size: 13 })}` : ""}</div>
             <div class="list-sub">${type.label} · ${waterLabel(s.water_type)}${s.tide_station_code ? ` · 潮汐 ${s.tide_station_code}` : ""}</div>
           </div>
           <div class="list-aside">→</div>
@@ -146,12 +144,12 @@
     document.getElementById("sheet-body").innerHTML = `
       <div class="list-title" style="font-size:16px">${escapeHtml(spot.name ?? "無名スポット")}</div>
       <div class="list-sub" style="margin-bottom:10px">
-        ${type.label} · ${waterLabel(spot.water_type)}${spot.low_tide_only ? " · ⚠️ 干潮時のみアクセス可" : ""}
+        ${type.label} · ${waterLabel(spot.water_type)}${spot.low_tide_only ? ` · ${icon("warning", { size: 12 })} 干潮時のみアクセス可` : ""}
       </div>
       <div class="actions" style="margin-top:0">
         <a class="btn btn-quiet link-btn" href="spot.html?id=${spot.id}">詳細</a>
-        <a class="btn btn-quiet link-btn" href="${googleMapsUrl(spot)}" target="_blank" rel="noopener">🗺️ Google マップ</a>
-        <a class="btn link-btn" href="${googleDirectionsUrl(spot)}" target="_blank" rel="noopener">🚗 経路案内</a>
+        <a class="btn btn-quiet link-btn" href="${googleMapsUrl(spot)}" target="_blank" rel="noopener">${icon("map", { size: 15 })} Google マップ</a>
+        <a class="btn link-btn" href="${googleDirectionsUrl(spot)}" target="_blank" rel="noopener">${icon("navigation", { size: 15 })} 経路案内</a>
       </div>`;
     document.getElementById("sheet").hidden = false;
     document.getElementById("new-sheet").hidden = true;
@@ -166,7 +164,8 @@
     map.removeLayer(toPhoto ? layers.pale : layers.photo);
     (toPhoto ? layers.photo : layers.pale).addTo(map);
     e.currentTarget.classList.toggle("on", toPhoto);
-    e.currentTarget.textContent = toPhoto ? "🗺️ 標準地図" : "🛰️ 航空写真";
+    e.currentTarget.innerHTML = icon(toPhoto ? "map" : "satellite", { size: 14 })
+      + (toPhoto ? "標準地図" : "航空写真");
   });
 
   // 夜間モード（暗い場所でまぶしくないように地図を落とす）。端末内にのみ保存
@@ -190,7 +189,8 @@
   document.getElementById("add-mode").addEventListener("click", (e) => {
     state.addMode = !state.addMode;
     e.currentTarget.classList.toggle("on", state.addMode);
-    e.currentTarget.textContent = state.addMode ? "✕ 追加をやめる" : "＋ 追加";
+    e.currentTarget.innerHTML = icon(state.addMode ? "close" : "plus", { size: 14 })
+      + (state.addMode ? "やめる" : "追加");
     message(state.addMode ? "地図をタップしてスポットの位置を指定してください。" : "", state.addMode ? "success" : null);
     if (!state.addMode) clearDraft();
   });
@@ -214,7 +214,7 @@
                          data-value="${w.value}">${w.label}</span>`).join("");
     document.getElementById("new-type").innerHTML = SPOT_TYPES
       .map((t) => `<span class="chip${t.value === state.type ? " selected" : ""}"
-                         data-value="${t.value}">${t.icon} ${t.label}</span>`).join("");
+                         data-value="${t.value}">${icon(t.iconName, { size: 13 })} ${t.label}</span>`).join("");
   }
 
   document.getElementById("new-water").addEventListener("click", (e) => {

@@ -1,6 +1,10 @@
 /* TIDEBASE 共通クライアント（認証・API アクセス・共通ロジック）。
    データアクセスは PostgREST + RLS、潮汐は Edge Function、天気は Open-Meteo（D-013・D-021）。 */
 
+import { icon } from "./icons.js";
+
+export { icon };
+
 const config = window.TIDEBASE_CONFIG;
 
 export const client = window.supabase.createClient(
@@ -104,18 +108,18 @@ export async function fetchTide(station, date) {
 /* ---------------- 天気（Open-Meteo・API キー不要） ---------------- */
 
 const WMO = {
-  0: ["快晴", "☀️"], 1: ["晴れ", "🌤️"], 2: ["一部曇り", "⛅"], 3: ["曇り", "☁️"],
-  45: ["霧", "🌫️"], 48: ["霧", "🌫️"],
-  51: ["霧雨", "🌦️"], 53: ["霧雨", "🌦️"], 55: ["霧雨", "🌦️"],
-  61: ["小雨", "🌧️"], 63: ["雨", "🌧️"], 65: ["大雨", "🌧️"],
-  71: ["雪", "🌨️"], 73: ["雪", "🌨️"], 75: ["大雪", "🌨️"],
-  80: ["にわか雨", "🌦️"], 81: ["にわか雨", "🌧️"], 82: ["激しい雨", "🌧️"],
-  95: ["雷雨", "⛈️"], 96: ["雷雨", "⛈️"], 99: ["雷雨", "⛈️"],
+  0: ["快晴", "sun"], 1: ["晴れ", "cloud-sun"], 2: ["一部曇り", "cloud-sun"], 3: ["曇り", "cloud"],
+  45: ["霧", "fog"], 48: ["霧", "fog"],
+  51: ["霧雨", "rain"], 53: ["霧雨", "rain"], 55: ["霧雨", "rain"],
+  61: ["小雨", "rain"], 63: ["雨", "rain"], 65: ["大雨", "rain"],
+  71: ["雪", "snow"], 73: ["雪", "snow"], 75: ["大雪", "snow"],
+  80: ["にわか雨", "rain"], 81: ["にわか雨", "rain"], 82: ["激しい雨", "rain"],
+  95: ["雷雨", "storm"], 96: ["雷雨", "storm"], 99: ["雷雨", "storm"],
 };
 
 export function describeWeather(code) {
-  const [label, icon] = WMO[code] ?? ["—", "🌡️"];
-  return { label, icon };
+  const [label, iconName] = WMO[code] ?? ["—", "thermometer"];
+  return { label, iconName, icon: icon(iconName, { size: 20 }) };
 }
 
 /** WMO コード → 釣行スコア用の天気区分（設計補完書 7 章）。 */
@@ -253,20 +257,30 @@ export async function tideCorrelation() {
 /** ボトムナビを描画する。current は home / map / records / recipes / groups。 */
 export function renderNav(current) {
   const items = [
-    ["home", "index.html", "🏠", "ホーム"],
-    ["map", "spots.html", "🗺️", "マップ"],
-    ["records", "records.html", "📋", "釣果"],
-    ["recipes", "recipes.html", "🎣", "レシピ"],
-    ["groups", "#", "👥", "グループ"],
+    ["home", "index.html", "home", "ホーム"],
+    ["map", "spots.html", "map", "マップ"],
+    ["records", "records.html", "records", "釣果"],
+    ["recipes", "recipes.html", "recipes", "レシピ"],
+    ["groups", "#", "groups", "グループ"],
   ];
   document.body.insertAdjacentHTML("beforeend", `
     <nav class="bottom-nav">
-      ${items.map(([key, href, icon, label]) => `
+      ${items.map(([key, href, iconName, label]) => `
         <a class="nav-item${key === current ? " active" : ""}"
            href="${href}"${href === "#" ? ' aria-disabled="true"' : ""}>
-          <span class="nav-icon">${icon}</span><span>${label}</span>
+          ${icon(iconName, { size: 21, className: "nav-icon" })}<span>${label}</span>
         </a>`).join("")}
     </nav>`);
+  renderIcons();
+}
+
+/** data-icon 属性を持つ要素にアイコンを描画する。 */
+export function renderIcons(root = document) {
+  root.querySelectorAll("[data-icon]").forEach((el) => {
+    if (el.dataset.iconDone) return;
+    el.insertAdjacentHTML("afterbegin", icon(el.dataset.icon, { size: Number(el.dataset.iconSize) || 18 }));
+    el.dataset.iconDone = "1";
+  });
 }
 
 export function escapeHtml(value) {
@@ -356,11 +370,11 @@ export async function setRecipeTags(recipeId, tagIds) {
 /* ---------------- スポット（設計補完書 4 章） ---------------- */
 
 export const SPOT_TYPES = [
-  { value: "surf",    label: "サーフ",   color: "#4A9ECC", icon: "🏖️" },
-  { value: "rock",    label: "磯",       color: "#4CAF50", icon: "🪨" },
-  { value: "port",    label: "港湾",     color: "#C9A84C", icon: "⚓" },
-  { value: "managed", label: "管理釣り場", color: "#4CAF50", icon: "🎣" },
-  { value: "river",   label: "河川",     color: "#6E9ECF", icon: "🏞️" },
+  { value: "surf",    label: "サーフ",   color: "#4A9ECC", iconName: "surf" },
+  { value: "rock",    label: "磯",       color: "#4CAF50", iconName: "rock" },
+  { value: "port",    label: "港湾",     color: "#C9A84C", iconName: "port" },
+  { value: "managed", label: "管理釣り場", color: "#4CAF50", iconName: "managed" },
+  { value: "river",   label: "河川",     color: "#6E9ECF", iconName: "river" },
 ];
 
 export const WATER_TYPES = [
@@ -371,7 +385,7 @@ export const WATER_TYPES = [
 
 export function spotType(value) {
   return SPOT_TYPES.find((t) => t.value === value)
-    ?? { value: null, label: "未設定", color: "#9AA5B1", icon: "📍" };
+    ?? { value: null, label: "未設定", color: "#9AA5B1", iconName: "map-pin" };
 }
 
 export function waterLabel(value) {
@@ -424,12 +438,14 @@ export function createMap(element, { center = [35.6544, 139.7708], zoom = 12 } =
 /** スポット種別の色を反映した HTML マーカー（外部画像に依存しない）。 */
 export function spotMarker(spot, { label = true } = {}) {
   const type = spotType(spot.spot_type);
-  const warn = spot.low_tide_only ? '<span class="pin-warn">⚠️</span>' : "";
+  const warn = spot.low_tide_only
+    ? `<span class="pin-warn">${icon("warning", { size: 13 })}</span>` : "";
   const name = label && spot.name
     ? `<span class="pin-label">${escapeHtml(spot.name)}</span>` : "";
   return L.divIcon({
     className: "spot-pin-wrap",
-    html: `<span class="spot-pin" style="--pin:${type.color}">${type.icon}${warn}</span>${name}`,
+    html: `<span class="spot-pin" style="--pin:${type.color}">`
+        + `${icon(type.iconName, { size: 14 })}${warn}</span>${name}`,
     iconSize: [26, 26],
     iconAnchor: [13, 26],
   });

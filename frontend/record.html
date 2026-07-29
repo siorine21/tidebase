@@ -4,9 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>釣果詳細 | TIDEBASE</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@400;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="vendor/fonts/fonts.css">
 <link rel="stylesheet" href="assets/theme.css">
 </head>
 <body class="app-body">
@@ -25,7 +23,7 @@
 <script src="assets/config.js"></script>
 <script type="module">
   import {
-    client, requireSession, renderNav, escapeHtml, toJapaneseError, formatJstDate,
+    client, requireSession, renderNav, escapeHtml, toJapaneseError, formatJstDate, icon,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -55,7 +53,7 @@
   }
 
   function render(r) {
-    document.getElementById("title").textContent = r.is_skunked ? "😞 ボウズ" : "釣果詳細";
+    document.getElementById("title").textContent = r.is_skunked ? `${icon("skunk", { size: 15 })} ボウズ` : "釣果詳細";
     const WATER = { saltwater: "海水", brackish: "汽水", freshwater: "淡水" };
     const rows = [
       ["釣行日", formatJstDate(r.fished_at, { weekday: true })],
@@ -71,7 +69,7 @@
       ["ルアー", r.lure_recipes?.name],
       ["ヒットレンジ", r.water_layer],
       ["ロッド", r.rod], ["リール", r.reel], ["ライン", r.line], ["リーダー", r.leader],
-      ["公開範囲", r.visibility === "private" ? "🔒 自分のみ" : "👥 グループ"],
+      ["公開範囲", r.visibility === "private" ? "自分のみ" : "グループ"],
     ].filter(([, v]) => v != null && v !== "");
 
     box.innerHTML = `
