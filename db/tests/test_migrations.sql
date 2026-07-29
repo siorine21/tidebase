@@ -190,6 +190,43 @@ BEGIN
   DELETE FROM public.spots WHERE id = spot_tokyo;  -- 今度は成功するはず
 
   ------------------------------------------------------------
+  -- 退会（アカウント削除）で個人データが消せること（005）
+  -- 釣果が紐付いたスポットがあってもガードに阻まれない
+  ------------------------------------------------------------
+  INSERT INTO auth.users (id) VALUES ('22222222-2222-2222-2222-222222222222');
+  INSERT INTO public.spots (id, user_id, name, latitude, longitude)
+  VALUES ('33333333-3333-3333-3333-333333333333',
+          '22222222-2222-2222-2222-222222222222', '退会テスト', 35.1, 139.5);
+  INSERT INTO public.fishing_records (user_id, spot_id, fished_at, catch_count)
+  VALUES ('22222222-2222-2222-2222-222222222222',
+          '33333333-3333-3333-3333-333333333333', '2026-07-29', 1);
+
+  DELETE FROM auth.users WHERE id = '22222222-2222-2222-2222-222222222222';
+
+  IF EXISTS (SELECT 1 FROM public.profiles WHERE id = '22222222-2222-2222-2222-222222222222')
+     OR EXISTS (SELECT 1 FROM public.spots WHERE user_id = '22222222-2222-2222-2222-222222222222')
+     OR EXISTS (SELECT 1 FROM public.fishing_records WHERE user_id = '22222222-2222-2222-2222-222222222222')
+     OR EXISTS (SELECT 1 FROM public.methods WHERE user_id = '22222222-2222-2222-2222-222222222222')
+  THEN
+    RAISE EXCEPTION 'TEST FAIL: 退会後に個人データが残っている';
+  END IF;
+
+  -- 通常のスポット削除ガードは維持されていること（確定仕様書 17.2 章）
+  INSERT INTO public.spots (user_id, name, latitude, longitude)
+  VALUES (u, 'ガード再確認', 35.2, 139.6) RETURNING id INTO spot_tokyo;
+  INSERT INTO public.fishing_records (user_id, spot_id, fished_at, catch_count)
+  VALUES (u, spot_tokyo, '2026-07-13', 1);
+  BEGIN
+    DELETE FROM public.spots WHERE id = spot_tokyo;
+    failed := TRUE;
+  EXCEPTION WHEN foreign_key_violation THEN
+    NULL;
+  END;
+  IF failed THEN
+    RAISE EXCEPTION 'TEST FAIL: 退会対応後にスポット削除ガードが効かなくなった';
+  END IF;
+
+  ------------------------------------------------------------
   -- 魚種 seed の冪等性（002 の再実行相当）
   ------------------------------------------------------------
   INSERT INTO public.fish_species (user_id, name, category)
