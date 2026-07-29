@@ -21,6 +21,7 @@
   <div id="map"></div>
   <div class="map-tools">
     <button type="button" id="layer-toggle">🛰️ 航空写真</button>
+    <button type="button" id="night">🌙 夜間</button>
     <button type="button" id="locate">📡 現在地</button>
     <button type="button" id="add-mode">＋ 追加</button>
   </div>
@@ -72,7 +73,7 @@
   import {
     client, requireSession, renderNav, escapeHtml, toJapaneseError, currentUserId,
     listSpots, createMap, spotMarker, spotType, waterLabel,
-    SPOT_TYPES, WATER_TYPES, googleMapsUrl, googleDirectionsUrl,
+    SPOT_TYPES, WATER_TYPES, googleMapsUrl, googleDirectionsUrl, isNightMap, setNightMap,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -166,6 +167,15 @@
     (toPhoto ? layers.photo : layers.pale).addTo(map);
     e.currentTarget.classList.toggle("on", toPhoto);
     e.currentTarget.textContent = toPhoto ? "🗺️ 標準地図" : "🛰️ 航空写真";
+  });
+
+  // 夜間モード（暗い場所でまぶしくないように地図を落とす）。端末内にのみ保存
+  const nightButton = document.getElementById("night");
+  nightButton.classList.toggle("on", isNightMap());
+  nightButton.addEventListener("click", () => {
+    const on = !isNightMap();
+    setNightMap(on);
+    nightButton.classList.toggle("on", on);
   });
 
   document.getElementById("locate").addEventListener("click", () => {

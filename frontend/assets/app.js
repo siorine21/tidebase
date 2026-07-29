@@ -393,9 +393,22 @@ export function googleDirectionsUrl(spot) {
 const GSI_ATTRIBUTION =
   '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a>';
 
+/** 夜間モード（地図を暗く表示）の設定。端末内にのみ保存する。 */
+export function isNightMap() {
+  return localStorage.getItem("tidebase.nightMap") === "1";
+}
+
+export function setNightMap(on) {
+  localStorage.setItem("tidebase.nightMap", on ? "1" : "0");
+  document.querySelectorAll(".leaflet-container").forEach((el) => {
+    el.classList.toggle("night-map", on);
+  });
+}
+
 /** 地図を生成する。tiles: "pale"（淡色・既定）/ "photo"（航空写真）。 */
 export function createMap(element, { center = [35.6544, 139.7708], zoom = 12 } = {}) {
   const map = L.map(element, { center, zoom, zoomControl: true, attributionControl: true });
+  if (isNightMap()) map.getContainer().classList.add("night-map");
   const layers = {
     pale: L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png", {
       maxZoom: 18, attribution: GSI_ATTRIBUTION, className: "tile-pale",
