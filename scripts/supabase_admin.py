@@ -16,6 +16,7 @@ SQL Editor での手動作業を無くし、Claude Code がマイグレーショ
 import argparse
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.request
@@ -24,19 +25,41 @@ from pathlib import Path
 API_URL = "https://api.supabase.com/v1/projects/{ref}/database/query"
 MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "db" / "migrations"
 
+# 適用履歴は運用専用。PostgREST（anon / authenticated）から触れないよう
+# 権限を剥奪し、RLS もポリシーなしで有効化する（多層防御）
 MIGRATIONS_TABLE_DDL = """
 CREATE TABLE IF NOT EXISTS public._migrations (
   name       TEXT PRIMARY KEY,
   applied_at TIMESTAMPTZ DEFAULT NOW()
 );
+REVOKE ALL ON public._migrations FROM anon, authenticated;
+ALTER TABLE public._migrations ENABLE ROW LEVEL SECURITY;
 """
+
+
+def project_ref() -> str:
+    """プロジェクト参照 ID。未設定・不正な場合は SUPABASE_URL から導出する。
+
+    参照 ID は 20 文字の英小文字。API キー（sb_... / sbp_...）が誤って
+    設定されていても URL 側から復旧できるようにする。
+    """
+    ref = os.environ.get("SUPABASE_PROJECT_REF", "").strip()
+    if re.fullmatch(r"[a-z]{20}", ref):
+        return ref
+
+    url = os.environ.get("SUPABASE_URL", "").strip()
+    match = re.match(r"https://([a-z]{20})\.supabase\.co", url)
+    if match:
+        return match.group(1)
+
+    sys.exit("SUPABASE_PROJECT_REF（または SUPABASE_URL）を正しく設定してください")
 
 
 def run_sql(query: str):
     token = os.environ.get("SUPABASE_ACCESS_TOKEN")
-    ref = os.environ.get("SUPABASE_PROJECT_REF")
-    if not token or not ref:
-        sys.exit("SUPABASE_ACCESS_TOKEN / SUPABASE_PROJECT_REF を設定してください")
+    ref = project_ref()
+    if not token:
+        sys.exit("SUPABASE_ACCESS_TOKEN を設定してください")
 
     request = urllib.request.Request(
         API_URL.format(ref=ref),
@@ -44,6 +67,8 @@ def run_sql(query: str):
         headers={
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
+            # 既定の python-urllib UA は Cloudflare にブロックされる（error 1010）
+            "User-Agent": "tidebase-admin/1.0",
         },
         method="POST",
     )

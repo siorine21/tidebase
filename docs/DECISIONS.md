@@ -215,3 +215,31 @@
   - セキュリティは「コードの秘匿」に依存しない設計（RLS・トリガーは公開されても安全）
 - **運用**: public 化にあわせて GitHub の Secret scanning + Push protection を有効化し、
   以後の誤コミットを入口で遮断する。
+
+### D-023: 実 v1.1 スキーマとの突合結果を正とする（2026-07-18）
+
+- **背景**: 本番 DB を初めて直接確認した結果、想定台帳（設計補完書 8 章）と
+  複数のカラムが食い違っていた。全テーブル 0 行だったため、既存カラムに
+  合わせる方向で調整した（データ移行は不要）。
+- **決定（実カラムを採用し、重複する追加は取りやめ）**:
+
+  | 想定していた名前 | 実際に採用 | 備考 |
+  |----------------|-----------|------|
+  | `size_cm` | **`length_cm`** | 併せて `weight_g`（仕様 3 章の重量）も既存 |
+  | `hit_range` | **`water_layer`** | ヒットレンジ |
+  | `fish_display_name` | **`fish_name_local`** | 出世魚の採用呼称 |
+  | `photo_key` | **`photo_url`** | Supabase Storage のパスを格納 |
+  | `rod/reel/line/leader` | 既存のまま | v1.1 で既に存在 |
+
+- **`fished_at` は DATE 型**（timestamptz ではない）。「1日1釣行」の単位と一致し、
+  タイムゾーン境界問題が発生しないため DATE を維持する（**D-011 は釣果に関しては不要になった**）。
+  時刻（朝マズメ等）の記録が必要になった場合は Phase 2 で `fished_time` を追加検討。
+- **潮回りは `tide_type` カラムが正**。`tide_correlation` ビュー（確定仕様書 14.3 章の
+  集計を実装済み）が参照しているため。`tide_snapshot`（JSONB）は月齢・算出方式などの
+  詳細を保持し、トリガーが両者を整合させる。
+- **追加したカラム**（v1.1 に不足していたもの）: `quantity_note`（仕様 1.3 章）・
+  `visibility`（仕様 5 章）・`tide_snapshot` / `weather_snapshot`。
+- **`methods_default` が 0 件だった**ため初期メソッド 10 件（仕様 8.3 章）を seed。
+  既存の `handle_new_user` → `copy_default_methods` が機能するようになった。
+- **テスト基盤**: `db/tests/baseline_v1.1_synthetic.sql`（想定ベース）を
+  `baseline_v1.1_actual.sql`（実スキーマ）に置き換え、以後は実態に対して検証する。

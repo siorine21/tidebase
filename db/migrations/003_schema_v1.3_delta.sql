@@ -2,8 +2,7 @@
 -- TIDEBASE DB スキーマ v1.2 → v1.3 差分
 -- 適用方法: Supabase ダッシュボード → SQL Editor で実行（002 適用後）
 -- 根拠: docs/design/TIDEBASE_設計補完_v1.0.md 3〜6 章
--- ⚠️ v1.1 SQL との突合（設計補完書 8 章の台帳）が済んでいない場合、
---    「要確認」列の不足があればこのファイルに ADD COLUMN を追記すること
+-- 2026-07-18 の実 DB 突合結果を反映済み（D-023）
 -- ============================================================
 
 BEGIN;
@@ -20,16 +19,24 @@ ALTER TABLE public.spots
   ADD COLUMN IF NOT EXISTS tide_station_code TEXT;
 
 -- ------------------------------------------------------------
--- fishing_records 拡張（設計補完書 5〜6 章、D-015 / D-016）
--- タックル・写真の API 対応は Phase 2（カラムだけ先行追加）
+-- fishing_records 拡張（v1.1 突合で不足が判明したカラムのみ）
+--
+-- v1.1 に既に存在するため追加しないもの:
+--   fish_name_local（出世魚の採用呼称）/ length_cm（サイズ）/ weight_g /
+--   water_layer（ヒットレンジ）/ rod・reel・line・leader（タックル）/
+--   photo_url（写真。Supabase Storage のパスを格納）/
+--   tide_type（潮回り。tide_correlation ビューの集計キー）
 -- ------------------------------------------------------------
 ALTER TABLE public.fishing_records
-  ADD COLUMN IF NOT EXISTS fish_display_name TEXT,
-  ADD COLUMN IF NOT EXISTS rod TEXT,
-  ADD COLUMN IF NOT EXISTS reel TEXT,
-  ADD COLUMN IF NOT EXISTS line TEXT,
-  ADD COLUMN IF NOT EXISTS leader TEXT,
-  ADD COLUMN IF NOT EXISTS photo_key TEXT;
+  -- 数量メモ（確定仕様書 1.3 章・エリアトラウト向け）
+  ADD COLUMN IF NOT EXISTS quantity_note TEXT,
+  -- 公開範囲（確定仕様書 5 章・Phase 1 から選択可）
+  ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'group'
+    CHECK (visibility IN ('group', 'private')),
+  -- 潮汐・天気の詳細スナップショット（D-012）。
+  -- 集計キーの tide_type カラムとはトリガーで整合させる
+  ADD COLUMN IF NOT EXISTS tide_snapshot JSONB,
+  ADD COLUMN IF NOT EXISTS weather_snapshot JSONB;
 
 -- ------------------------------------------------------------
 -- 出世魚判定ルール（設計補完書 5 章、D-015）

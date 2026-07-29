@@ -289,6 +289,13 @@ def fishing_score(tide: str, weather: str, wind_ms: float) -> int:
 
 ## 8. 想定スキーマ台帳（v1.1 SQL 突合用）
 
+> ⚠️ **2026-07-18 に実 DB との突合を完了しました（D-023）。**
+> 以下の表は突合前の「想定」であり、実際のカラム名は一部異なります
+> （`size_cm`→`length_cm`、`hit_range`→`water_layer`、
+> `fish_display_name`→`fish_name_local`、`photo_key`→`photo_url`、
+> `fished_at` は DATE 型）。
+> **現在の正は `db/tests/baseline_v1.1_actual.sql` + `db/migrations/` です。**
+
 現 API 実装が前提とするカラム。**v1.1 SQL 入手後、このチェックリストで突合する**（指摘 4）。
 
 | テーブル | カラム | 型想定 | 状態 |

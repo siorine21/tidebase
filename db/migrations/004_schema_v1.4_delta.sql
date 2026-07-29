@@ -65,17 +65,16 @@ AS $$
   FROM (SELECT ROUND(public.moon_age(target))::int % 30 AS idx) t;
 $$;
 
-CREATE OR REPLACE FUNCTION public.auto_tide_snapshot(p_fished_at TIMESTAMPTZ)
+-- fished_at は DATE（1日1釣行の単位）。タイムゾーン変換は不要（D-023）
+CREATE OR REPLACE FUNCTION public.auto_tide_snapshot(p_fished_at DATE)
 RETURNS JSONB
 LANGUAGE sql IMMUTABLE
 AS $$
-  -- 日付境界は JST（D-011）
   SELECT jsonb_build_object(
-    'tide_type', public.tide_type(d),
-    'moon_age',  public.moon_age(d),
+    'tide_type', public.tide_type(p_fished_at),
+    'moon_age',  public.moon_age(p_fished_at),
     'method',    'moon_age_approx'
-  )
-  FROM (SELECT (p_fished_at AT TIME ZONE 'Asia/Tokyo')::date AS d) t;
+  );
 $$;
 
 -- ------------------------------------------------------------
@@ -89,10 +88,11 @@ AS $$
 BEGIN
   IF NEW.is_skunked THEN
     -- ボウズは catch_count = 0・魚情報なし（確定仕様書 6.2 章）
-    NEW.catch_count       := 0;
-    NEW.fish_species_id   := NULL;
-    NEW.fish_display_name := NULL;
-    NEW.size_cm           := NULL;
+    NEW.catch_count     := 0;
+    NEW.fish_species_id := NULL;
+    NEW.fish_name_local := NULL;
+    NEW.length_cm       := NULL;
+    NEW.weight_g        := NULL;
   ELSIF COALESCE(NEW.catch_count, 0) < 1 THEN
     RAISE EXCEPTION 'ボウズでない場合、catch_count は 1 以上が必要です'
       USING ERRCODE = '23514';  -- check_violation
@@ -109,6 +109,16 @@ BEGIN
   THEN
     -- fished_at 変更時、自動付与分のみ再計算（クライアント明示分には触らない）
     NEW.tide_snapshot := public.auto_tide_snapshot(NEW.fished_at);
+  END IF;
+
+  -- 集計キー（tide_correlation ビューが参照）をスナップショットと整合させる。
+  -- 明示指定された tide_type は尊重する
+  IF NEW.tide_snapshot ? 'tide_type'
+     AND (NEW.tide_type IS NULL
+          OR (TG_OP = 'UPDATE' AND NEW.tide_type IS NOT DISTINCT FROM OLD.tide_type
+              AND NEW.tide_snapshot IS DISTINCT FROM OLD.tide_snapshot))
+  THEN
+    NEW.tide_type := NEW.tide_snapshot->>'tide_type';
   END IF;
 
   RETURN NEW;

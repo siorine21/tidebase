@@ -101,15 +101,25 @@ Route 53 は D-010 で不使用済み。ドメイン `tidebase.app` を取得済
 
 ## 7. 残タスク
 
-| # | タスク | 担当 | 前提 |
+| # | タスク | 担当 | 状態 |
 |---|--------|------|------|
-| 1 | フロントのホスティング先決定（リポジトリ公開 → GitHub Pages / 非公開のまま → Cloudflare Pages） | ユーザー判断 | — |
-| 2 | 実 DB スキーマ突合 + マイグレーション適用 | Claude Code | 委任セットアップ |
-| 3 | 観測点マスタ全地点投入 | Claude Code | 同上（jma.go.jp 許可） |
-| 4 | Edge Function デプロイ + 気象庁実疎通確認 | Claude Code | 同上 |
-| 5 | GitHub Secrets（keepalive 用）の登録 | ユーザー（2 分） | — |
-| 6 | Supabase Auth 設定 + SCR-001/010 を含むフロント実装開始 | Claude Code | 1 の決定 |
-| 7 | AWS 資産の後片付け（6 章） | ユーザー（任意） | — |
+| 1 | フロントのホスティング先決定 | ユーザー判断 | ✅ GitHub Pages（D-022） |
+| 2 | 実 DB スキーマ突合 + マイグレーション適用 | Claude Code | ✅ 2026-07-18 完了（D-023） |
+| 3 | 観測点マスタ全地点投入 | Claude Code | ✅ 239 地点投入済み |
+| 4 | Edge Function デプロイ + 気象庁実疎通確認 | Claude Code | ✅ 稼働確認済み（2026 年 365 日分パース成功） |
+| 5 | GitHub Secrets（keepalive 用）の登録 | ユーザー（2 分） | 未 |
+| 6 | Supabase Auth の Site URL 設定 + SCR-001/010 を含むフロント実装 | Claude Code | 未（Pages URL 確定後） |
+| 7 | AWS 資産の後片付け（6 章） | ユーザー（任意） | 別途実施 |
+
+### 本番の現状（2026-07-18 時点）
+
+- マイグレーション 002〜004 適用済み（`public._migrations` で管理）
+- マスタ: 魚種 13 / 出世魚ルール 9 / 潮汐観測点 239 / 初期メソッド 10
+- RLS: public スキーマの全テーブルで有効（`_migrations` は権限剥奪 + ポリシーなし）
+- `tide_correlation` ビューは `security_invoker` 有効（RLS バイパスを解消）
+- Edge Function `tide` が稼働（`{SUPABASE_URL}/functions/v1/tide?station=TK&date=YYYY-MM-DD`）
+- Auth: Email/Password 有効・確認メール必須・`site_url` は `http://localhost:3000` のまま
+  （フロント実装時に Pages URL へ更新する）
 
 ---
 

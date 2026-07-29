@@ -21,8 +21,12 @@ import urllib.request
 
 STATION_LIST_URL = "https://www.data.jma.go.jp/kaiyou/db/tide/suisan/station.php"
 
-# 例: 「35°39.3'N」「139°46.2'E」のような 度分 表記
-_DEG_MIN = re.compile(r"(\d+)[°度]\s*([\d.]+)[′']?")
+# 一覧表の列: 番号 / 地点記号 / 掲載地点名 / 緯度 / 経度 / ...
+COL_CODE, COL_NAME, COL_LAT, COL_LNG = 1, 2, 3, 4
+
+# 度分表記。度記号は「゜」（気象庁ページの表記）のほか「°」「度」も許容
+# 例: 「45゜24'」「35゜39.3'」
+_DEG_MIN = re.compile(r"(\d+)\s*[゜°度]\s*([\d.]+)\s*['′]?")
 
 
 def _to_decimal(text: str) -> float:
@@ -47,16 +51,17 @@ def main() -> None:
             _strip_tags(c).strip()
             for c in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row_html, flags=re.S)
         ]
-        # 想定列: 地点記号 / 地点名 / 緯度 / 経度 / ...（ヘッダー行・注記行はスキップ）
-        if len(cells) < 4 or not re.fullmatch(r"[A-Z0-9]{2}", cells[0]):
+        # ヘッダー行・注記行はスキップ（地点記号が 2 文字の英数字である行のみ採用）
+        if len(cells) <= COL_LNG or not re.fullmatch(r"[A-Z0-9]{2}", cells[COL_CODE]):
             continue
         try:
-            name = cells[1].replace("'", "''")
+            name = cells[COL_NAME].replace("'", "''")
             stations.append(
-                f"  ('{cells[0]}', '{name}', {_to_decimal(cells[2])}, {_to_decimal(cells[3])})"
+                f"  ('{cells[COL_CODE]}', '{name}',"
+                f" {_to_decimal(cells[COL_LAT])}, {_to_decimal(cells[COL_LNG])})"
             )
         except ValueError as error:
-            print(f"skip {cells[0]}: {error}", file=sys.stderr)
+            print(f"skip {cells[COL_CODE]}: {error}", file=sys.stderr)
 
     if not stations:
         print(
