@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ルアーレシピ | TIDEBASE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@400;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/theme.css">
+</head>
+<body class="app-body">
+<!-- SCR-008 ルアーレシピ一覧 -->
+<header class="app-header">
+  <h1>LURE RECIPE</h1>
+  <span class="page-sub" id="count">—</span>
+</header>
+
+<main>
+  <div id="message" class="message" hidden role="alert"></div>
+
+  <!-- 3 ドロップダウン（AND 条件）+ ⭐（独立フィルタ）確定仕様書 12 章 -->
+  <div class="filter-bar">
+    <button type="button" class="filter-btn" data-panel="category" id="btn-category">📂 カテゴリ</button>
+    <button type="button" class="filter-btn" data-panel="maker" id="btn-maker">🏭 メーカー</button>
+    <button type="button" class="filter-btn" data-panel="tag" id="btn-tag">🏷️ タグ</button>
+    <button type="button" class="filter-btn star" id="btn-star" title="お気に入りのみ">☆</button>
+  </div>
+
+  <div class="filter-panel" id="panel-category" hidden>
+    <div class="group">
+      <p class="group-label">大カテゴリ</p>
+      <div class="chips" id="cat-large"></div>
+    </div>
+    <div class="group" id="cat-small-group" hidden>
+      <p class="group-label" id="cat-small-label">小カテゴリ</p>
+      <div class="chips" id="cat-small"></div>
+    </div>
+  </div>
+
+  <div class="filter-panel" id="panel-maker" hidden>
+    <div class="chips" id="maker-chips"></div>
+  </div>
+
+  <div class="filter-panel" id="panel-tag" hidden>
+    <div class="chips" id="tag-chips"></div>
+    <p class="muted" style="margin:10px 0 0">複数選択したタグをすべて持つレシピのみ表示します。</p>
+  </div>
+
+  <div id="list"><div class="empty">読み込み中…</div></div>
+</main>
+
+<a class="fab" href="recipe-edit.html" title="レシピを登録">＋</a>
+
+<script src="vendor/supabase.js"></script>
+<script src="assets/config.js"></script>
+<script type="module">
+  import {
+    requireSession, renderNav, escapeHtml, LURE_CATEGORIES, categoryLabel, categoryTagClass,
+    listRecipesDetailed, listMakers, listTags, recipeCatchCounts,
+  } from "./assets/app.js";
+
+  const session = await requireSession();
+  if (!session) throw new Error("unauthenticated");
+  renderNav("recipes");
+
+  const filters = { large: "all", small: "all", makerId: null, tagIds: [], favorite: false };
+
+  const [recipes, makers, tags, counts] = await Promise.all([
+    listRecipesDetailed().catch(() => []),
+    listMakers().catch(() => []),
+    listTags().catch(() => []),
+    recipeCatchCounts().catch(() => ({})),
+  ]);
+
+  renderFilters();
+  render();
+
+  /* ---------- フィルタ UI ---------- */
+  function renderFilters() {
+    document.getElementById("cat-large").innerHTML =
+      [{ value: "all", label: "すべて" }, ...LURE_CATEGORIES]
+        .map((c) => `<span class="chip${c.value === filters.large ? " selected" : ""}"
+                            data-value="${c.value}">${c.label}</span>`).join("");
+
+    document.getElementById("maker-chips").innerHTML = makers.length
+      ? makers.map((m) => `<span class="chip" data-id="${m.id}">${escapeHtml(m.name)}</span>`).join("")
+      : `<span class="muted">メーカーは未登録です</span>`;
+
+    document.getElementById("tag-chips").innerHTML = tags.length
+      ? tags.map((t) => `<span class="chip" data-id="${t.id}"># ${escapeHtml(t.name)}</span>`).join("")
+      : `<span class="muted">タグは未登録です</span>`;
+  }
+
+  function renderSmallCategories() {
+    const group = document.getElementById("cat-small-group");
+    const category = LURE_CATEGORIES.find((c) => c.value === filters.large);
+    // 「すべて」選択時は小カテゴリを非表示（確定仕様書 9.2 章）
+    group.hidden = !category;
+    if (!category) return;
+    document.getElementById("cat-small-label").textContent = `小カテゴリ — ${category.label}`;
+    document.getElementById("cat-small").innerHTML =
+      ["すべて", ...category.subs].map((s) => {
+        const value = s === "すべて" ? "all" : s;
+        return `<span class="chip${value === filters.small ? " selected" : ""}"
+                      data-value="${escapeHtml(value)}">${escapeHtml(s)}</span>`;
+      }).join("");
+  }
+
+  // パネルは 1 つだけ開く（確定仕様書 12.3 章）
+  document.querySelectorAll(".filter-btn[data-panel]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const target = document.getElementById(`panel-${button.dataset.panel}`);
+      const willOpen = target.hidden;
+      document.querySelectorAll(".filter-panel").forEach((p) => { p.hidden = true; });
+      target.hidden = !willOpen;
+    });
+  });
+  // スクロールしたらすべて折りたたむ
+  window.addEventListener("scroll", () => {
+    document.querySelectorAll(".filter-panel").forEach((p) => { p.hidden = true; });
+  }, { passive: true });
+
+  document.getElementById("cat-large").addEventListener("click", (e) => {
+    const chip = e.target.closest(".chip");
+    if (!chip) return;
+    filters.large = chip.dataset.value;
+    filters.small = "all";          // 大カテゴリを変えたら「すべて」に戻す
+    renderFilters(); renderSmallCategories(); render();
+  });
+
+  document.getElementById("cat-small").addEventListener("click", (e) => {
+    const chip = e.target.closest(".chip");
+    if (!chip) return;
+    filters.small = chip.dataset.value;
+    renderSmallCategories(); render();
+  });
+
+  document.getElementById("maker-chips").addEventListener("click", (e) => {
+    const chip = e.target.closest(".chip");
+    if (!chip) return;
+    const selected = chip.classList.contains("selected");
+    document.querySelectorAll("#maker-chips .chip").forEach((c) => c.classList.remove("selected"));
+    if (!selected) chip.classList.add("selected");
+    filters.makerId = selected ? null : chip.dataset.id;
+    render();
+  });
+
+  document.getElementById("tag-chips").addEventListener("click", (e) => {
+    const chip = e.target.closest(".chip");
+    if (!chip) return;
+    chip.classList.toggle("selected");
+    filters.tagIds = [...document.querySelectorAll("#tag-chips .chip.selected")].map((c) => c.dataset.id);
+    render();
+  });
+
+  document.getElementById("btn-star").addEventListener("click", (e) => {
+    filters.favorite = !filters.favorite;
+    e.currentTarget.textContent = filters.favorite ? "⭐" : "☆";
+    e.currentTarget.classList.toggle("on", filters.favorite);
+    render();
+  });
+
+  /* ---------- 一覧 ---------- */
+  function render() {
+    updateFilterButtons();
+    const visible = recipes.filter((r) => {
+      if (filters.large !== "all" && r.category_large !== filters.large) return false;
+      if (filters.small !== "all" && r.category_small !== filters.small) return false;
+      if (filters.makerId && r.maker_id !== filters.makerId) return false;
+      // タグは AND 条件（確定仕様書 12.2 章）
+      if (filters.tagIds.length) {
+        const owned = new Set((r.tags ?? []).map((t) => t.id));
+        if (!filters.tagIds.every((id) => owned.has(id))) return false;
+      }
+      if (filters.favorite && !r.is_favorite) return false;
+      return true;
+    });
+
+    document.getElementById("count").textContent = `${visible.length} / ${recipes.length} 件`;
+    const box = document.getElementById("list");
+    if (!recipes.length) {
+      box.innerHTML = `<div class="empty">レシピがまだありません。右下の ＋ から登録できます。</div>`;
+      return;
+    }
+    if (!visible.length) {
+      box.innerHTML = `<div class="empty">条件に合うレシピがありません。</div>`;
+      return;
+    }
+
+    const maxCount = Math.max(1, ...Object.values(counts));
+    box.innerHTML = visible.map((r) => {
+      const n = counts[r.id] ?? 0;
+      const specs = [r.weight_g ? `${r.weight_g}g` : null, r.color].filter(Boolean).join(" / ");
+      return `
+        <a class="recipe-card" href="recipe.html?id=${r.id}">
+          <div class="thumb">🎣</div>
+          <div class="body">
+            <div class="name">${escapeHtml(r.name)}${r.is_favorite ? " <span>⭐</span>" : ""}</div>
+            ${r.makers?.name ? `<div class="maker">${escapeHtml(r.makers.name)}</div>` : ""}
+            <div class="tags">
+              ${r.category_large ? `<span class="tag ${categoryTagClass(r.category_large)}">${escapeHtml(r.category_small || categoryLabel(r.category_large))}</span>` : ""}
+              ${specs ? `<span class="tag tag-gray">${escapeHtml(specs)}</span>` : ""}
+            </div>
+            ${(r.tags ?? []).length ? `<div style="margin-top:6px">${r.tags.map((t) => `<span class="hash"># ${escapeHtml(t.name)}</span>`).join("")}</div>` : ""}
+            <div class="perf-bar"><div class="perf-fill" style="width:${(n / maxCount) * 100}%"></div></div>
+          </div>
+          <div class="score"><div class="n">${n}</div><div class="l">実績</div></div>
+        </a>`;
+    }).join("");
+  }
+
+  function updateFilterButtons() {
+    const category = filters.large === "all" ? "カテゴリ"
+      : filters.small !== "all" ? filters.small : categoryLabel(filters.large);
+    setButton("btn-category", `📂 ${category}`, filters.large !== "all");
+    const maker = makers.find((m) => m.id === filters.makerId);
+    setButton("btn-maker", `🏭 ${maker ? maker.name : "メーカー"}`, Boolean(filters.makerId));
+    setButton("btn-tag", `🏷️ タグ${filters.tagIds.length ? ` ${filters.tagIds.length}` : ""}`,
+      filters.tagIds.length > 0);
+  }
+
+  function setButton(id, label, on) {
+    const button = document.getElementById(id);
+    button.textContent = label;
+    button.classList.toggle("on", on);
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>レシピ作成 | TIDEBASE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@400;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/theme.css">
+</head>
+<body class="app-body">
+<!-- SCR-015 レシピ作成・編集 -->
+<header class="page-head">
+  <button type="button" class="back" id="close" aria-label="閉じる">✕</button>
+  <div class="page-title" id="page-title">レシピ作成</div>
+</header>
+
+<main>
+  <div id="message" class="message" hidden role="alert"></div>
+
+  <div class="card">
+    <div class="field">
+      <label>🏭 メーカー名</label>
+      <div class="chips" id="maker-chips"></div>
+      <div class="row-2" style="margin-top:8px">
+        <input type="text" id="new-maker" placeholder="新しいメーカー名" maxlength="60">
+        <button type="button" class="btn btn-quiet" id="add-maker">＋ 追加</button>
+      </div>
+    </div>
+
+    <div class="field">
+      <label for="name">🎣 ルアー名 <span style="color:var(--red)">*</span></label>
+      <input type="text" id="name" maxlength="100" required>
+    </div>
+
+    <div class="field">
+      <label>📂 カテゴリ <span style="color:var(--red)">*</span></label>
+      <div class="chips" id="cat-large"></div>
+      <div id="cat-small-wrap" hidden style="margin-top:8px">
+        <div class="chips" id="cat-small"></div>
+      </div>
+    </div>
+
+    <div class="row-2">
+      <div class="field"><label for="color">🎨 カラー</label><input type="text" id="color" maxlength="60"></div>
+      <div class="field"><label for="weight">⚖️ 重量（g）</label><input type="number" id="weight" step="0.1" min="0" inputmode="decimal"></div>
+    </div>
+
+    <div class="field"><label for="hook">🪝 フック</label><input type="text" id="hook" maxlength="60"></div>
+
+    <div class="field">
+      <label for="condition-memo">📝 使用条件メモ</label>
+      <textarea id="condition-memo" maxlength="1000" placeholder="効く状況・アクションなど"></textarea>
+    </div>
+
+    <div class="field">
+      <label>🏷️ タグ</label>
+      <div class="chips" id="tag-chips"></div>
+      <div class="row-2" style="margin-top:8px">
+        <input type="text" id="new-tag" placeholder="新しいタグ名" maxlength="40">
+        <button type="button" class="btn btn-quiet" id="add-tag">＋ 追加</button>
+      </div>
+    </div>
+
+    <div class="field toggle-row" style="margin-bottom:0">
+      <label for="favorite" style="margin:0">⭐ お気に入りに登録</label>
+      <input type="checkbox" id="favorite" style="width:auto">
+    </div>
+  </div>
+
+  <div class="actions">
+    <button type="button" class="btn" id="save">💾 レシピを保存</button>
+  </div>
+</main>
+
+<script src="vendor/supabase.js"></script>
+<script src="assets/config.js"></script>
+<script type="module">
+  import {
+    client, requireSession, renderNav, escapeHtml, toJapaneseError, currentUserId,
+    LURE_CATEGORIES, listMakers, listTags, setRecipeTags,
+  } from "./assets/app.js";
+
+  const session = await requireSession();
+  if (!session) throw new Error("unauthenticated");
+  renderNav("recipes");
+
+  const recipeId = new URLSearchParams(location.search).get("id");
+  const state = { makerId: null, large: null, small: null, tagIds: new Set() };
+
+  let [makers, tags] = await Promise.all([listMakers().catch(() => []), listTags().catch(() => [])]);
+  renderMakers(); renderTags(); renderLargeCategories();
+
+  if (recipeId) {
+    document.getElementById("page-title").textContent = "レシピ編集";
+    document.title = "レシピ編集 | TIDEBASE";
+    const { data, error } = await client
+      .from("lure_recipes")
+      .select("*, recipe_tags(tag_id)")
+      .eq("id", recipeId)
+      .maybeSingle();
+    if (error || !data) {
+      message(error ? toJapaneseError(error) : "レシピが見つかりません。", "error");
+    } else {
+      fill(data);
+    }
+  }
+
+  function fill(r) {
+    document.getElementById("name").value = r.name ?? "";
+    document.getElementById("color").value = r.color ?? "";
+    document.getElementById("weight").value = r.weight_g ?? "";
+    document.getElementById("hook").value = r.hook ?? "";
+    document.getElementById("condition-memo").value = r.condition_memo ?? "";
+    document.getElementById("favorite").checked = Boolean(r.is_favorite);
+    state.makerId = r.maker_id;
+    state.large = r.category_large;
+    state.small = r.category_small;
+    state.tagIds = new Set((r.recipe_tags ?? []).map((rt) => rt.tag_id));
+    renderMakers(); renderTags(); renderLargeCategories(); renderSmallCategories();
+  }
+
+  /* ---------- メーカー ---------- */
+  function renderMakers() {
+    document.getElementById("maker-chips").innerHTML = makers.length
+      ? makers.map((m) => `<span class="chip${m.id === state.makerId ? " selected" : ""}"
+                                 data-id="${m.id}">${escapeHtml(m.name)}</span>`).join("")
+      : `<span class="muted">未登録です。下から追加できます。</span>`;
+  }
+
+  document.getElementById("maker-chips").addEventListener("click", (e) => {
+    const chip = e.target.closest(".chip");
+    if (!chip) return;
+    // 選択済みをもう一度押すと解除（確定仕様書 16.2 章の × 相当）
+    state.makerId = chip.classList.contains("selected") ? null : chip.dataset.id;
+    renderMakers();
+  });
+
+  document.getElementById("add-maker").addEventListener("click", async () => {
+    const input = document.getElementById("new-maker");
+    const name = input.value.trim();
+    if (!name) return;
+    const { data, error } = await client.from("makers")
+      .insert({ user_id: await currentUserId(), name }).select().single();
+    if (error) return message(toJapaneseError(error), "error");
+    makers = await listMakers();
+    state.makerId = data.id;
+    input.value = "";
+    renderMakers();
+  });
+
+  /* ---------- カテゴリ（2 段構成・確定仕様書 9.1 章） ---------- */
+  function renderLargeCategories() {
+    document.getElementById("cat-large").innerHTML = LURE_CATEGORIES
+      .map((c) => `<span class="chip${c.value === state.large ? " selected" : ""}"
+                         data-value="${c.value}">${c.label}</span>`).join("");
+  }
+
+  function renderSmallCategories() {
+    const wrap = document.getElementById("cat-small-wrap");
+    const category = LURE_CATEGORIES.find((c) => c.value === state.large);
+    wrap.hidden = !category;
+    if (!category) return;
+    document.getElementById("cat-small").innerHTML = category.subs
+      .map((s) => `<span class="chip${s === state.small ? " selected" : ""}"
+                         data-value="${escapeHtml(s)}">${escapeHtml(s)}</span>`).join("");
+  }
+
+  document.getElementById("cat-large").addEventListener("click", (e) => {
+    const chip = e.target.closest(".chip");
+    if (!chip) return;
+    state.large = chip.dataset.value;
+    state.small = null;
+    renderLargeCategories(); renderSmallCategories();
+  });
+
+  document.getElementById("cat-small").addEventListener("click", (e) => {
+    const chip = e.target.closest(".chip");
+    if (!chip) return;
+    state.small = chip.classList.contains("selected") ? null : chip.dataset.value;
+    renderSmallCategories();
+  });
+
+  /* ---------- タグ（複数選択） ---------- */
+  function renderTags() {
+    document.getElementById("tag-chips").innerHTML = tags.length
+      ? tags.map((t) => `<span class="chip${state.tagIds.has(t.id) ? " selected" : ""}"
+                               data-id="${t.id}"># ${escapeHtml(t.name)}</span>`).join("")
+      : `<span class="muted">未登録です。下から追加できます。</span>`;
+  }
+
+  document.getElementById("tag-chips").addEventListener("click", (e) => {
+    const chip = e.target.closest(".chip");
+    if (!chip) return;
+    const id = chip.dataset.id;
+    if (state.tagIds.has(id)) state.tagIds.delete(id); else state.tagIds.add(id);
+    renderTags();
+  });
+
+  document.getElementById("add-tag").addEventListener("click", async () => {
+    const input = document.getElementById("new-tag");
+    const name = input.value.trim();
+    if (!name) return;
+    const { data, error } = await client.from("tags")
+      .insert({ user_id: await currentUserId(), name }).select().single();
+    if (error) return message(toJapaneseError(error), "error");
+    tags = await listTags();
+    state.tagIds.add(data.id);
+    input.value = "";
+    renderTags();
+  });
+
+  /* ---------- 保存 ---------- */
+  document.getElementById("close").addEventListener("click", () => {
+    location.href = recipeId ? `recipe.html?id=${recipeId}` : "recipes.html";
+  });
+
+  document.getElementById("save").addEventListener("click", async (e) => {
+    const name = document.getElementById("name").value.trim();
+    if (!name) return message("ルアー名を入力してください。", "error");
+    if (!state.large) return message("カテゴリを選択してください。", "error");
+
+    const button = e.currentTarget;
+    button.disabled = true; button.textContent = "保存中…";
+    const weight = document.getElementById("weight").value;
+    const payload = {
+      name,
+      maker_id: state.makerId,
+      category_large: state.large,
+      category_small: state.small,
+      color: document.getElementById("color").value.trim() || null,
+      weight_g: weight === "" ? null : Number(weight),
+      hook: document.getElementById("hook").value.trim() || null,
+      condition_memo: document.getElementById("condition-memo").value.trim() || null,
+      is_favorite: document.getElementById("favorite").checked,
+    };
+
+    let saved;
+    if (recipeId) {
+      const { data, error } = await client.from("lure_recipes")
+        .update(payload).eq("id", recipeId).select().single();
+      if (error) return fail(button, error);
+      saved = data;
+    } else {
+      const { data, error } = await client.from("lure_recipes")
+        .insert({ ...payload, user_id: await currentUserId() }).select().single();
+      if (error) return fail(button, error);
+      saved = data;
+    }
+
+    try {
+      await setRecipeTags(saved.id, [...state.tagIds]);
+    } catch (tagError) {
+      return fail(button, tagError);
+    }
+    location.replace(`recipe.html?id=${saved.id}&saved=1`);
+  });
+
+  function fail(button, error) {
+    message(toJapaneseError(error), "error");
+    button.disabled = false;
+    button.textContent = "💾 レシピを保存";
+  }
+
+  function message(text, kind) {
+    const box = document.getElementById("message");
+    box.textContent = text;
+    box.className = `message ${kind}`;
+    box.hidden = false;
+    window.scrollTo(0, 0);
+  }
+</script>
+</body>
+</html>

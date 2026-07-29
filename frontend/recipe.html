@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>レシピ詳細 | TIDEBASE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@400;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/theme.css">
+</head>
+<body class="app-body">
+<!-- SCR-009 ルアーレシピ詳細 -->
+<header class="page-head">
+  <button type="button" class="back" id="back" aria-label="戻る">←</button>
+  <div class="page-title">レシピ詳細</div>
+</header>
+
+<main>
+  <div id="message" class="message" hidden role="alert"></div>
+  <div id="detail"><div class="empty">読み込み中…</div></div>
+</main>
+
+<script src="vendor/supabase.js"></script>
+<script src="assets/config.js"></script>
+<script type="module">
+  import {
+    client, requireSession, renderNav, escapeHtml, toJapaneseError,
+    categoryLabel, categoryTagClass, toggleFavorite, formatJstDate,
+  } from "./assets/app.js";
+
+  const session = await requireSession();
+  if (!session) throw new Error("unauthenticated");
+  renderNav("recipes");
+  document.getElementById("back").addEventListener("click", () => location.href = "recipes.html");
+
+  const params = new URLSearchParams(location.search);
+  const id = params.get("id");
+  if (params.get("saved")) {
+    showMessage("レシピを保存しました。", "success");
+    history.replaceState(null, "", `recipe.html?id=${id}`);
+  }
+  if (!id) {
+    document.getElementById("detail").innerHTML = `<div class="empty">レシピが指定されていません。</div>`;
+    throw new Error("no id");
+  }
+
+  const [{ data: recipe, error }, { data: records }] = await Promise.all([
+    client.from("lure_recipes")
+      .select("*, makers(name), recipe_tags(tags(id, name))")
+      .eq("id", id).maybeSingle(),
+    client.from("fishing_records")
+      .select("id, fished_at, catch_count, is_skunked, fish_name_local, tide_type, spots(name)")
+      .eq("recipe_id", id)
+      .order("fished_at", { ascending: false })
+      .limit(5),
+  ]);
+
+  const box = document.getElementById("detail");
+  if (error) {
+    box.innerHTML = `<div class="empty">${escapeHtml(toJapaneseError(error))}</div>`;
+  } else if (!recipe) {
+    box.innerHTML = `<div class="empty">レシピが見つかりません。</div>`;
+  } else {
+    render(recipe, records ?? []);
+  }
+
+  function render(r, records) {
+    const tags = (r.recipe_tags ?? []).map((rt) => rt.tags).filter(Boolean);
+    const specs = [
+      ["カラー", r.color], ["重量", r.weight_g ? `${r.weight_g} g` : null],
+      ["フック", r.hook], ["メーカー", r.makers?.name],
+    ].filter(([, v]) => v);
+
+    box.innerHTML = `
+      <div class="card">
+        <div style="display:flex;gap:12px;align-items:flex-start">
+          <div class="thumb">🎣</div>
+          <div style="flex:1;min-width:0">
+            <div class="list-title" style="font-size:16px">${escapeHtml(r.name)}</div>
+            <div class="tags" style="margin-top:8px">
+              ${r.category_large ? `<span class="tag ${categoryTagClass(r.category_large)}">${escapeHtml(categoryLabel(r.category_large))}</span>` : ""}
+              ${r.category_small ? `<span class="tag tag-gray">${escapeHtml(r.category_small)}</span>` : ""}
+            </div>
+            ${tags.length ? `<div style="margin-top:8px">${tags.map((t) => `<span class="hash"># ${escapeHtml(t.name)}</span>`).join("")}</div>` : ""}
+          </div>
+          <button type="button" class="back" id="fav" title="お気に入り"
+                  style="font-size:22px">${r.is_favorite ? "⭐" : "☆"}</button>
+        </div>
+      </div>
+
+      ${specs.length ? `
+      <div class="section-label"><span>SETTINGS</span></div>
+      <div class="card"><div class="rows">
+        ${specs.map(([k, v]) => `<div class="row"><span class="label">${k}</span>
+          <span class="val">${escapeHtml(v)}</span></div>`).join("")}
+      </div></div>` : ""}
+
+      ${r.condition_memo ? `
+      <div class="section-label"><span>USE CONDITION</span></div>
+      <div class="card"><div style="white-space:pre-wrap;font-size:14px">${escapeHtml(r.condition_memo)}</div></div>` : ""}
+
+      <div class="section-label">
+        <span>CATCH RECORDS</span>
+        <a class="note" href="records.html?recipe=${r.id}">すべて見る →</a>
+      </div>
+      <div id="records">${renderRecords(records)}</div>
+
+      <div class="actions">
+        <a class="btn btn-quiet" href="recipe-edit.html?id=${r.id}"
+           style="text-align:center;text-decoration:none;line-height:1.6">✏️ 編集</a>
+        <button type="button" class="btn btn-quiet" id="delete">削除する</button>
+      </div>`;
+
+    // await 後は e.currentTarget が null になるため、要素を先に掴んでおく
+    const favButton = document.getElementById("fav");
+    favButton.addEventListener("click", async () => {
+      const next = !r.is_favorite;
+      favButton.disabled = true;
+      try {
+        await toggleFavorite(r.id, next);
+        r.is_favorite = next;
+        favButton.textContent = next ? "⭐" : "☆";
+      } catch (favError) {
+        showMessage(toJapaneseError(favError), "error");
+      } finally {
+        favButton.disabled = false;
+      }
+    });
+
+    document.getElementById("delete").addEventListener("click", async () => {
+      // 釣果との紐付きは FK の ON DELETE SET NULL で解除される（確定仕様書 16.1 章）
+      if (!confirm("このレシピを削除しますか？\n過去の釣果記録との紐付きは解除されます。（釣果記録は残ります）")) return;
+      const { error: deleteError } = await client.from("lure_recipes").delete().eq("id", r.id);
+      if (deleteError) return showMessage(toJapaneseError(deleteError), "error");
+      location.replace("recipes.html");
+    });
+  }
+
+  function renderRecords(records) {
+    if (!records.length) {
+      return `<div class="empty">このレシピでの釣果はまだありません。</div>`;
+    }
+    return records.map((rec) => {
+      const title = rec.is_skunked
+        ? "😞 ボウズ"
+        : `${escapeHtml(rec.fish_name_local ?? "釣果")}${rec.catch_count > 1 ? ` ×${rec.catch_count}` : ""}`;
+      return `
+        <a class="list-item" href="record.html?id=${rec.id}">
+          <div class="thumb">${rec.is_skunked ? "😞" : "🐟"}</div>
+          <div class="list-body">
+            <div class="list-title">${title}</div>
+            <div class="list-sub">${escapeHtml(formatJstDate(rec.fished_at))}${rec.spots?.name ? " " + escapeHtml(rec.spots.name) : ""}</div>
+          </div>
+          ${rec.tide_type ? `<span class="tag tag-blue">${escapeHtml(rec.tide_type)}</span>` : ""}
+        </a>`;
+    }).join("");
+  }
+
+  function showMessage(text, kind) {
+    const el = document.getElementById("message");
+    el.textContent = text;
+    el.className = `message ${kind}`;
+    el.hidden = false;
+  }
+</script>
+</body>
+</html>

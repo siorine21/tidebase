@@ -274,3 +274,81 @@ export function escapeHtml(value) {
     { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
   ));
 }
+
+/* ---------------- ルアーカテゴリ（確定仕様書 2.1・9.1 章） ---------------- */
+
+export const LURE_CATEGORIES = [
+  { value: "area",  label: "エリア", subs: ["スプーン", "クランク（エリア）", "プラグ（エリア）"] },
+  { value: "hard",  label: "ハード", subs: ["ミノー", "シンペン", "ポッパー", "ペンシル", "バイブ", "クランク", "シャッド", "スイムベイト"] },
+  { value: "metal", label: "メタル", subs: ["ジグ", "ジグヘッド", "スピンテール", "メタルバイブ"] },
+  { value: "soft",  label: "ソフト", subs: ["ワーム", "グラブ", "シャッドテール", "チューブ"] },
+  { value: "egi",   label: "エギ",   subs: ["エギ", "タコエギ"] },
+  { value: "other", label: "その他", subs: ["その他"] },
+];
+
+export function categoryLabel(value) {
+  return LURE_CATEGORIES.find((c) => c.value === value)?.label ?? "";
+}
+
+/** 大カテゴリごとのタグ色（一覧カードの種別バッジ用）。 */
+export function categoryTagClass(value) {
+  return { area: "tag-green", hard: "tag-blue", metal: "tag-mustard", egi: "tag-purple" }[value]
+    ?? "tag-gray";
+}
+
+/* ---------------- メーカー・タグ・レシピ ---------------- */
+
+export async function listMakers() {
+  const { data, error } = await client.from("makers").select("id, name").order("name");
+  if (error) throw error;
+  return data;
+}
+
+export async function listTags() {
+  const { data, error } = await client.from("tags").select("id, name").order("name");
+  if (error) throw error;
+  return data;
+}
+
+/** レシピ一覧（メーカー名・タグ付き）。 */
+export async function listRecipesDetailed() {
+  const { data, error } = await client
+    .from("lure_recipes")
+    .select("*, makers(id, name), recipe_tags(tag_id, tags(id, name))")
+    .order("is_favorite", { ascending: false })
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data.map((r) => ({ ...r, tags: (r.recipe_tags ?? []).map((rt) => rt.tags).filter(Boolean) }));
+}
+
+/** レシピごとの釣果件数（実績スコア）。 */
+export async function recipeCatchCounts() {
+  const { data, error } = await client
+    .from("fishing_records")
+    .select("recipe_id")
+    .not("recipe_id", "is", null);
+  if (error) throw error;
+  const counts = {};
+  for (const row of data) counts[row.recipe_id] = (counts[row.recipe_id] ?? 0) + 1;
+  return counts;
+}
+
+export async function toggleFavorite(recipeId, isFavorite) {
+  const { error } = await client
+    .from("lure_recipes")
+    .update({ is_favorite: isFavorite })
+    .eq("id", recipeId);
+  if (error) throw error;
+}
+
+/** レシピのタグ紐付けを与えられた集合に合わせる。 */
+export async function setRecipeTags(recipeId, tagIds) {
+  const { error: deleteError } = await client
+    .from("recipe_tags").delete().eq("recipe_id", recipeId);
+  if (deleteError) throw deleteError;
+  if (!tagIds.length) return;
+  const { error } = await client
+    .from("recipe_tags")
+    .insert(tagIds.map((tagId) => ({ recipe_id: recipeId, tag_id: tagId })));
+  if (error) throw error;
+}

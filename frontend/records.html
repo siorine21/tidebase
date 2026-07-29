@@ -34,6 +34,10 @@
         </select>
       </div>
     </div>
+    <div id="recipe-filter" hidden style="margin-top:10px">
+      <span class="tag tag-mustard" id="recipe-filter-label"></span>
+      <button type="button" class="chip" id="clear-recipe" style="margin-left:6px">解除 ✕</button>
+    </div>
   </div>
 
   <div id="list"><div class="empty">読み込み中…</div></div>
@@ -69,6 +73,20 @@
   document.getElementById("filter-spot").insertAdjacentHTML("beforeend",
     spots.map((s) => `<option value="${s.id}">${escapeHtml(s.name ?? "無名スポット")}</option>`).join(""));
 
+  // レシピ詳細（SCR-009）の「すべて見る」からの絞り込み
+  let recipeId = new URLSearchParams(location.search).get("recipe");
+  if (recipeId) {
+    const name = records.find((r) => r.recipe_id === recipeId)?.lure_recipes?.name;
+    document.getElementById("recipe-filter").hidden = false;
+    document.getElementById("recipe-filter-label").textContent = `🎣 ${name ?? "指定レシピ"}`;
+  }
+  document.getElementById("clear-recipe").addEventListener("click", () => {
+    recipeId = null;
+    document.getElementById("recipe-filter").hidden = true;
+    history.replaceState(null, "", "records.html");
+    render();
+  });
+
   document.getElementById("filter-spot").addEventListener("change", render);
   document.getElementById("filter-kind").addEventListener("change", render);
   render();
@@ -78,6 +96,7 @@
     const kind = document.getElementById("filter-kind").value;
     const filtered = records.filter((r) => {
       if (spotId && r.spot_id !== spotId) return false;
+      if (recipeId && r.recipe_id !== recipeId) return false;
       if (kind === "catch" && r.is_skunked) return false;
       if (kind === "skunk" && !r.is_skunked) return false;
       return true;

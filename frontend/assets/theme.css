@@ -414,3 +414,43 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 
 .section-label a { color: var(--mustard); text-decoration: none; }
 .section-label a:hover { text-decoration: underline; }
+
+/* ---------- レシピ画面（SCR-008 / 009 / 015） ---------- */
+.filter-bar { display: flex; gap: 6px; margin-bottom: 10px; }
+.filter-btn {
+  flex: 1; min-width: 0; padding: 8px 6px; font-size: 12px; cursor: pointer;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.filter-btn.on { border-color: var(--mustard); color: var(--mustard-lt); background: var(--mustard-bg); }
+.filter-btn.star { flex: 0 0 46px; font-size: 16px; }
+
+.filter-panel {
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 12px; margin-bottom: 12px;
+}
+.filter-panel[hidden] { display: none; }
+.filter-panel .group-label { font-size: 11px; color: var(--text-muted); margin: 0 0 6px; }
+.filter-panel .group + .group { margin-top: 12px; }
+
+.recipe-card {
+  display: flex; gap: 12px; align-items: flex-start;
+  padding: 12px; margin-bottom: 8px; text-decoration: none; color: inherit;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong); border-radius: var(--radius);
+}
+.recipe-card:hover { border-color: var(--border-strong); }
+.recipe-card .body { flex: 1; min-width: 0; }
+.recipe-card .name { font-size: 14px; display: flex; align-items: center; gap: 6px; }
+.recipe-card .maker { font-size: 11px; color: var(--text-muted); }
+.recipe-card .score { flex-shrink: 0; text-align: center; }
+.recipe-card .score .n { font-family: 'JetBrains Mono', monospace; font-size: 17px; color: var(--mustard); }
+.recipe-card .score .l { font-size: 9px; color: var(--text-muted); }
+.tag-purple { background: rgba(171,127,208,0.12); color: #C9A6E8; border-color: #7B5A9E; }
+.hash { font-size: 11px; color: var(--blue); margin-right: 6px; }
+
+.perf-bar { height: 4px; background: var(--bg-deep); border-radius: 2px; margin-top: 6px; overflow: hidden; }
+.perf-fill { height: 100%; background: var(--mustard-dk); }
+
+.chip .x { margin-left: 6px; opacity: 0.7; }
+.toggle-row { display: flex; align-items: center; justify-content: space-between; }
