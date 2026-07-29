@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>釣果日誌 | TIDEBASE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@400;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/theme.css">
+</head>
+<body class="app-body">
+<!-- SCR-006 釣果日誌一覧 -->
+<header class="app-header">
+  <h1>釣果日誌</h1>
+  <span class="page-sub" id="count">—</span>
+</header>
+
+<main>
+  <div id="message" class="message" hidden role="alert"></div>
+
+  <div class="card">
+    <div class="row-2">
+      <div class="field" style="margin:0">
+        <label for="filter-spot">スポット</label>
+        <select id="filter-spot"><option value="">すべて</option></select>
+      </div>
+      <div class="field" style="margin:0">
+        <label for="filter-kind">種別</label>
+        <select id="filter-kind">
+          <option value="">すべて</option>
+          <option value="catch">釣果のみ</option>
+          <option value="skunk">ボウズのみ</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div id="list"><div class="empty">読み込み中…</div></div>
+</main>
+
+<a class="fab" href="record-new.html" title="釣果を記録">＋</a>
+
+<script src="vendor/supabase.js"></script>
+<script src="assets/config.js"></script>
+<script type="module">
+  import {
+    requireSession, renderNav, escapeHtml, listRecords, listSpots,
+    formatJstDate, relativeDays,
+  } from "./assets/app.js";
+
+  const session = await requireSession();
+  if (!session) throw new Error("unauthenticated");
+  renderNav("records");
+
+  if (new URLSearchParams(location.search).get("saved")) {
+    const box = document.getElementById("message");
+    box.textContent = "釣果を記録しました。";
+    box.className = "message success";
+    box.hidden = false;
+    history.replaceState(null, "", "records.html");
+  }
+
+  const [records, spots] = await Promise.all([
+    listRecords({ limit: 200 }).catch(() => []),
+    listSpots().catch(() => []),
+  ]);
+
+  document.getElementById("filter-spot").insertAdjacentHTML("beforeend",
+    spots.map((s) => `<option value="${s.id}">${escapeHtml(s.name ?? "無名スポット")}</option>`).join(""));
+
+  document.getElementById("filter-spot").addEventListener("change", render);
+  document.getElementById("filter-kind").addEventListener("change", render);
+  render();
+
+  function render() {
+    const spotId = document.getElementById("filter-spot").value;
+    const kind = document.getElementById("filter-kind").value;
+    const filtered = records.filter((r) => {
+      if (spotId && r.spot_id !== spotId) return false;
+      if (kind === "catch" && r.is_skunked) return false;
+      if (kind === "skunk" && !r.is_skunked) return false;
+      return true;
+    });
+
+    const total = filtered.filter((r) => !r.is_skunked).reduce((sum, r) => sum + (r.catch_count ?? 0), 0);
+    document.getElementById("count").textContent = `${filtered.length} 釣行 / ${total} 匹`;
+
+    const box = document.getElementById("list");
+    if (!filtered.length) {
+      box.innerHTML = `<div class="empty">該当する記録がありません。</div>`;
+      return;
+    }
+
+    // 年月ごとに区切って表示
+    let currentMonth = "";
+    box.innerHTML = filtered.map((r) => {
+      const month = r.fished_at.slice(0, 7);
+      const header = month !== currentMonth
+        ? `<div class="section-label"><span>${month.replace("-", ".")}</span></div>`
+        : "";
+      currentMonth = month;
+
+      const title = r.is_skunked
+        ? "😞 ボウズ"
+        : `${escapeHtml(r.fish_name_local ?? "釣果")}${r.length_cm ? ` ${r.length_cm}cm` : ""}`
+          + (r.catch_count > 1 ? ` ×${r.catch_count}` : "");
+      const sub = [
+        r.spots?.name, r.lure_recipes?.name, r.water_layer,
+        r.tide_type, r.quantity_note,
+      ].filter(Boolean).map(escapeHtml).join(" / ");
+
+      return `${header}
+        <a class="list-item" href="record.html?id=${r.id}">
+          <div class="thumb">${r.is_skunked ? "😞" : "🐟"}</div>
+          <div class="list-body">
+            <div class="list-title">${title}</div>
+            <div class="list-sub">${escapeHtml(formatJstDate(r.fished_at))}${sub ? " · " + sub : ""}</div>
+          </div>
+          <div class="list-aside">${relativeDays(r.fished_at)}</div>
+        </a>`;
+    }).join("");
+  }
+</script>
+</body>
+</html>

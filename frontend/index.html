@@ -9,70 +9,221 @@
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@400;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/theme.css">
 </head>
-<body>
-<!-- SCR-001 ホーム（Phase 2 で本実装。現時点は認証後の着地点） -->
+<body class="app-body">
+<!-- SCR-001 ホーム（ダッシュボード） -->
 <header class="app-header">
   <h1>TIDEBASE</h1>
   <button type="button" class="btn btn-quiet" id="signout">ログアウト</button>
 </header>
 
 <main>
-  <div class="card">
-    <h2>アカウント</h2>
-    <div class="rows">
-      <div class="row"><span class="label">メールアドレス</span><span class="val" id="email">—</span></div>
-      <div class="row"><span class="label">登録済みメソッド</span><span class="val" id="methods">—</span></div>
-      <div class="row"><span class="label">釣果記録</span><span class="val" id="records">—</span></div>
+  <section class="hero">
+    <div class="hero-top">
+      <div>
+        <div class="hero-label">TODAY</div>
+        <div class="hero-date" id="today">—</div>
+      </div>
+      <div class="score-circle">
+        <div class="score-num" id="score">—</div>
+        <div class="score-label">/5</div>
+      </div>
     </div>
+    <div class="hero-meta" id="hero-meta">読み込み中…</div>
+    <div class="tags" id="hero-tags"></div>
+  </section>
+
+  <div class="section-label">
+    <span>TIDE GRAPH — 本日</span><span class="note" id="tide-station"></span>
+  </div>
+  <div class="card" id="tide-card">
+    <div class="empty" id="tide-empty">読み込み中…</div>
   </div>
 
+  <div class="section-label"><span>HOURLY WEATHER</span><span class="note">← スクロール →</span></div>
   <div class="card">
-    <h2>今日の潮汐（東京）</h2>
-    <div class="stat">
-      <span class="value" id="tide-type">—</span>
-      <span class="unit">月齢 <span class="numeric" id="moon-age">—</span></span>
-    </div>
-    <div class="rows" id="tide-events" style="margin-top:12px"></div>
-    <p class="muted" id="tide-note" style="margin:10px 0 0">気象庁 潮位表</p>
+    <div class="hourly" id="hourly"><div class="empty">読み込み中…</div></div>
   </div>
 
-  <p class="muted">
-    Phase 2 でホーム・釣果入力・スポットマップ等の各画面を実装します。
-  </p>
+  <div class="section-label"><span>RECENT CATCH</span><a class="note" href="records.html">すべて見る →</a></div>
+  <div id="recent"><div class="empty">読み込み中…</div></div>
+
+  <div class="section-label"><span>TIDE CORRELATION</span><span class="note">過去釣行データより</span></div>
+  <div class="card" id="correlation"><div class="empty">読み込み中…</div></div>
 </main>
+
+<a class="fab" href="record-new.html" title="釣果を記録">＋</a>
 
 <script src="vendor/supabase.js"></script>
 <script src="assets/config.js"></script>
 <script type="module">
-  import { client, requireSession, fetchTide, todayInJst } from "./assets/app.js";
+  import {
+    client, requireSession, renderNav, escapeHtml,
+    fetchTide, fetchWeather, todayInJst, formatJstDate, formatShortDate, relativeDays,
+    describeWeather, windDirection, fishingScore, listSpots, listRecords, tideCorrelation,
+  } from "./assets/app.js";
 
   const session = await requireSession();
   if (session) {
-    document.getElementById("email").textContent = session.user.email;
+    renderNav("home");
+    const today = todayInJst();
+    document.getElementById("today").textContent = formatJstDate(today, { weekday: true });
 
-    // RLS により自分の行だけが数えられる
-    const [methods, records] = await Promise.all([
-      client.from("methods").select("id", { count: "exact", head: true }),
-      client.from("fishing_records").select("id", { count: "exact", head: true }),
+    // 基準スポット: 最近登録した海水・汽水スポット（潮汐・天気の取得地点）
+    const spots = await listSpots().catch(() => []);
+    const baseSpot = spots.find((s) => s.water_type !== "freshwater") ?? spots[0] ?? null;
+
+    const [tide, weather] = await Promise.all([
+      loadTide(baseSpot, today),
+      baseSpot ? fetchWeather(baseSpot.latitude, baseSpot.longitude, today).catch(() => null) : null,
     ]);
-    document.getElementById("methods").textContent = `${methods.count ?? 0} 件`;
-    document.getElementById("records").textContent = `${records.count ?? 0} 件`;
 
-    try {
-      const tide = await fetchTide("TK", todayInJst());
-      document.getElementById("tide-type").textContent = tide.tide_type;
-      document.getElementById("moon-age").textContent = tide.moon_age;
-      document.getElementById("tide-events").innerHTML = [
-        ...tide.high_tides.map((e) => ({ label: "満潮", ...e })),
-        ...tide.low_tides.map((e) => ({ label: "干潮", ...e })),
-      ]
-        .sort((a, b) => a.time.localeCompare(b.time))
-        .map((e) => `<div class="row"><span class="label">${e.label}</span>`
-          + `<span class="val">${e.time}　${e.level_cm}cm</span></div>`)
-        .join("");
-    } catch (error) {
-      document.getElementById("tide-note").textContent = error.message;
+    renderHero(baseSpot, tide, weather);
+    renderTideGraph(tide);
+    renderHourly(weather);
+
+    const [recent, correlation] = await Promise.all([
+      listRecords({ limit: 2 }).catch(() => []),
+      tideCorrelation().catch(() => []),
+    ]);
+    renderRecent(recent);
+    renderCorrelation(correlation);
+  }
+
+  async function loadTide(spot, date) {
+    const station = spot?.tide_station_code ?? "TK";
+    try { return await fetchTide(station, date); } catch { return null; }
+  }
+
+  function renderHero(spot, tide, weather) {
+    const meta = document.getElementById("hero-meta");
+    const tags = document.getElementById("hero-tags");
+    const now = weather?.find((w) => w.hour === new Date().getHours()) ?? weather?.[0] ?? null;
+
+    const parts = [];
+    parts.push(spot ? `📍 ${escapeHtml(spot.name ?? "無名スポット")}` : "📍 スポット未登録");
+    if (tide) parts.push(tide.tide_type);
+    if (now) {
+      const { label, icon } = describeWeather(now.weather_code);
+      parts.push(`${label} ${icon}`);
+      parts.push(`${windDirection(now.wind_dir_deg)} ${Math.round(now.wind_speed_ms)}m`);
     }
+    meta.innerHTML = parts.join(" / ");
+
+    if (tide && now) {
+      const score = fishingScore(tide.tide_type, now.weather_code, now.wind_speed_ms);
+      document.getElementById("score").textContent = score;
+      tags.innerHTML = [
+        `<span class="tag tag-mustard">${tide.tide_type}</span>`,
+        `<span class="tag ${score >= 4 ? "tag-green" : "tag-gray"}">釣行スコア ${score >= 4 ? "高" : score >= 3 ? "中" : "低"}</span>`,
+        now.wave_height_m != null ? `<span class="tag tag-blue">波高 ${now.wave_height_m}m</span>` : "",
+        `<span class="tag tag-gray">月齢 ${tide.moon_age}</span>`,
+      ].join("");
+    } else if (!spot) {
+      tags.innerHTML = `<span class="tag tag-gray">スポットを登録すると天気と釣行スコアが表示されます</span>`;
+    }
+  }
+
+  function renderTideGraph(tide) {
+    const card = document.getElementById("tide-card");
+    if (!tide) { document.getElementById("tide-empty").textContent = "潮汐データを取得できませんでした"; return; }
+    document.getElementById("tide-station").textContent = `${tide.station} / ${tide.date}`;
+
+    const levels = tide.hourly_levels_cm;
+    const valid = levels.filter((v) => v != null);
+    const min = Math.min(...valid), max = Math.max(...valid);
+    const W = 320, H = 132, padY = 22, padX = 6;
+    const x = (i) => padX + (i / 23) * (W - padX * 2);
+    const y = (v) => H - padY - ((v - min) / Math.max(1, max - min)) * (H - padY * 2);
+
+    const points = levels.map((v, i) => (v == null ? null : `${x(i)},${y(v)}`)).filter(Boolean);
+    const area = `M${padX},${H - padY} L${points.join(" L")} L${W - padX},${H - padY} Z`;
+    const nowX = x(new Date().getHours());
+
+    const peaks = [
+      ...tide.high_tides.map((e) => ({ ...e, mark: "満" })),
+      ...tide.low_tides.map((e) => ({ ...e, mark: "干" })),
+    ].filter((e) => e.time);
+
+    card.innerHTML = `
+      <svg class="tide-graph" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
+           aria-label="本日の潮位グラフ">
+        <line class="axis" x1="${padX}" y1="${H - padY}" x2="${W - padX}" y2="${H - padY}"/>
+        <path class="curve" d="${area}"/>
+        <line class="now" x1="${nowX}" y1="8" x2="${nowX}" y2="${H - padY}"/>
+        ${[0, 6, 12, 18].map((h) => `<text x="${x(h)}" y="${H - 8}">${h}:00</text>`).join("")}
+        <text x="${W - padX}" y="${H - 8}" text-anchor="end">24:00</text>
+        ${peaks.map((e) => {
+          const hour = Number(e.time.slice(0, 2)) + Number(e.time.slice(3, 5)) / 60;
+          const cx = x(hour);
+          // 端では基準点を切り替えてラベルが見切れないようにする
+          const anchor = cx < 30 ? "start" : cx > W - 30 ? "end" : "middle";
+          const px = anchor === "start" ? 4 : anchor === "end" ? W - 4 : cx;
+          return `<text class="peak" x="${px}" y="${e.mark === "満" ? 12 : 22}"
+                        text-anchor="${anchor}">${e.mark} ${e.time}</text>`;
+        }).join("")}
+      </svg>`;
+  }
+
+  function renderHourly(weather) {
+    const box = document.getElementById("hourly");
+    if (!weather) { box.innerHTML = `<div class="empty">スポットを登録すると天気が表示されます</div>`; return; }
+    // 0 時から 3 時間刻みで 24 時間後まで（確定仕様書 2.2 章）。
+    // 6時=朝マズメ / 18時=夕マズメを強調
+    const picked = weather.filter((w) => w.hour % 3 === 0).slice(0, 9);
+    box.innerHTML = picked.map((w, i) => {
+      const { icon } = describeWeather(w.weather_code);
+      const badge = w.hour === 6 ? "朝マズメ" : w.hour === 18 ? "夕マズメ" : "";
+      return `
+        <div class="hour-card${badge ? " highlight" : ""}">
+          <div class="h">${i === 8 ? "+24h" : `${w.hour}時`}</div>
+          <div class="badge">${badge || "&nbsp;"}</div>
+          <div class="icon">${icon}</div>
+          <div class="t">${Math.round(w.temp_c)}°</div>
+          <div class="w">${windDirection(w.wind_dir_deg)}${Math.round(w.wind_speed_ms)}m</div>
+        </div>`;
+    }).join("");
+  }
+
+  function renderRecent(records) {
+    const box = document.getElementById("recent");
+    if (!records.length) {
+      box.innerHTML = `<div class="empty">まだ釣果がありません。右下の ＋ から記録できます。</div>`;
+      return;
+    }
+    box.innerHTML = records.map((r) => {
+      const title = r.is_skunked
+        ? "😞 ボウズ"
+        : `${escapeHtml(r.fish_name_local ?? "釣果")}${r.length_cm ? ` ${r.length_cm}cm` : ""}`
+          + (r.catch_count > 1 ? ` ×${r.catch_count}` : "");
+      const sub = [formatShortDate(r.fished_at), r.spots?.name, r.lure_recipes?.name]
+        .filter(Boolean).map(escapeHtml).join(" / ");
+      return `
+        <a class="list-item" href="record.html?id=${r.id}">
+          <div class="thumb">${r.is_skunked ? "😞" : "🐟"}</div>
+          <div class="list-body">
+            <div class="list-title">${title}</div>
+            <div class="list-sub">${sub}</div>
+          </div>
+          <div class="list-aside">${relativeDays(r.fished_at)}</div>
+        </a>`;
+    }).join("");
+  }
+
+  function renderCorrelation(rows) {
+    const box = document.getElementById("correlation");
+    if (!rows.length) {
+      box.innerHTML = `<div class="empty">海水・汽水スポットでの釣果が貯まると表示されます</div>`;
+      return;
+    }
+    const maxScore = Math.max(...rows.map((r) => Number(r.score) || 0), 1);
+    box.innerHTML = rows.map((r) => `
+      <div class="corr-row">
+        <div class="corr-head">
+          <span class="name">${escapeHtml(r.tide_type ?? "—")}</span>
+          <span class="stat">釣行 ${r.outing_count}回 / 釣果 ${r.catch_count}匹 / Score ${r.score}</span>
+        </div>
+        <div class="corr-bar"><div class="corr-fill" style="width:${(Number(r.score) / maxScore) * 100}%"></div></div>
+      </div>`).join("");
   }
 
   document.getElementById("signout").addEventListener("click", async () => {

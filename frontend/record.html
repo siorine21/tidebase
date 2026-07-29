@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>釣果詳細 | TIDEBASE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@400;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/theme.css">
+</head>
+<body class="app-body">
+<!-- SCR-007 釣果詳細 -->
+<header class="page-head">
+  <button type="button" class="back" id="back" aria-label="戻る">←</button>
+  <div class="page-title" id="title">釣果詳細</div>
+</header>
+
+<main>
+  <div id="message" class="message" hidden role="alert"></div>
+  <div id="detail"><div class="empty">読み込み中…</div></div>
+</main>
+
+<script src="vendor/supabase.js"></script>
+<script src="assets/config.js"></script>
+<script type="module">
+  import {
+    client, requireSession, renderNav, escapeHtml, toJapaneseError, formatJstDate,
+  } from "./assets/app.js";
+
+  const session = await requireSession();
+  if (!session) throw new Error("unauthenticated");
+  renderNav("records");
+  document.getElementById("back").addEventListener("click", () => history.back());
+
+  const id = new URLSearchParams(location.search).get("id");
+  if (!id) {
+    document.getElementById("detail").innerHTML = `<div class="empty">記録が指定されていません。</div>`;
+    throw new Error("no id");
+  }
+
+  const { data: record, error } = await client
+    .from("fishing_records")
+    .select("*, spots(name, water_type), lure_recipes(name), fish_species(name)")
+    .eq("id", id)
+    .maybeSingle();
+
+  const box = document.getElementById("detail");
+  if (error) {
+    box.innerHTML = `<div class="empty">${escapeHtml(toJapaneseError(error))}</div>`;
+  } else if (!record) {
+    box.innerHTML = `<div class="empty">記録が見つかりません。</div>`;
+  } else {
+    render(record);
+  }
+
+  function render(r) {
+    document.getElementById("title").textContent = r.is_skunked ? "😞 ボウズ" : "釣果詳細";
+    const WATER = { saltwater: "海水", brackish: "汽水", freshwater: "淡水" };
+    const rows = [
+      ["釣行日", formatJstDate(r.fished_at, { weekday: true })],
+      ["スポット", r.spots?.name ? `${r.spots.name}（${WATER[r.spots.water_type] ?? "—"}）` : null],
+      ["潮回り", r.tide_type],
+      ["月齢", r.tide_snapshot?.moon_age],
+      ["魚種", r.fish_species?.name],
+      ["呼称", r.fish_name_local],
+      ["サイズ", r.length_cm ? `${r.length_cm} cm` : null],
+      ["重量", r.weight_g ? (r.weight_g >= 1000 ? `${(r.weight_g / 1000).toFixed(1)} kg` : `${r.weight_g} g`) : null],
+      ["匹数", r.is_skunked ? "0（ボウズ）" : r.catch_count],
+      ["数量メモ", r.quantity_note],
+      ["ルアー", r.lure_recipes?.name],
+      ["ヒットレンジ", r.water_layer],
+      ["ロッド", r.rod], ["リール", r.reel], ["ライン", r.line], ["リーダー", r.leader],
+      ["公開範囲", r.visibility === "private" ? "🔒 自分のみ" : "👥 グループ"],
+    ].filter(([, v]) => v != null && v !== "");
+
+    box.innerHTML = `
+      <div class="card">
+        <div class="rows">
+          ${rows.map(([k, v]) => `
+            <div class="row"><span class="label">${k}</span>
+            <span class="val">${escapeHtml(v)}</span></div>`).join("")}
+        </div>
+      </div>
+      ${r.memo ? `<div class="card"><h2>メモ</h2>
+        <div style="white-space:pre-wrap;font-size:14px">${escapeHtml(r.memo)}</div></div>` : ""}
+      <div class="actions">
+        <button type="button" class="btn btn-quiet" id="delete">削除する</button>
+      </div>`;
+
+    document.getElementById("delete").addEventListener("click", async () => {
+      if (!confirm("この釣果記録を削除しますか？\nこの操作は取り消せません。")) return;
+      const { error: deleteError } = await client.from("fishing_records").delete().eq("id", r.id);
+      if (deleteError) {
+        const msg = document.getElementById("message");
+        msg.textContent = toJapaneseError(deleteError);
+        msg.className = "message error";
+        msg.hidden = false;
+        return;
+      }
+      location.replace("records.html");
+    });
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>釣果を記録 | TIDEBASE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@400;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/theme.css">
+</head>
+<body class="app-body">
+<!-- SCR-002 釣果入力（5 ステップウィザード） -->
+<header class="page-head">
+  <button type="button" class="back" id="back" aria-label="戻る">←</button>
+  <div>
+    <div class="page-title" id="mode-title">釣果を記録</div>
+    <div class="page-sub" id="step-sub">STEP 1/5</div>
+  </div>
+</header>
+
+<div class="stepper" id="stepper"></div>
+
+<main>
+  <div id="message" class="message" hidden role="alert"></div>
+
+  <!-- STEP 1: 魚種・サイズ・匹数 -->
+  <section class="card step-panel" data-step="1">
+    <div class="actions" style="margin:0 0 14px">
+      <button type="button" class="btn btn-quiet" id="skunk-btn">😞 ボウズで記録</button>
+    </div>
+    <div class="field">
+      <label for="species">魚種（任意）</label>
+      <select id="species"><option value="">選択しない</option></select>
+    </div>
+    <div class="row-2">
+      <div class="field">
+        <label for="length">サイズ（cm）</label>
+        <input type="number" id="length" inputmode="decimal" step="0.1" min="0">
+      </div>
+      <div class="field">
+        <label for="weight">重量（g）</label>
+        <input type="number" id="weight" inputmode="numeric" step="1" min="0">
+      </div>
+    </div>
+    <div id="name-suggest"></div>
+    <div class="field">
+      <label for="count">匹数</label>
+      <input type="number" id="count" inputmode="numeric" step="1" min="1" value="1">
+    </div>
+    <div class="field">
+      <label for="quantity-note">数量メモ（任意）</label>
+      <input type="text" id="quantity-note" placeholder="例: トラウト ×12 / 多数" maxlength="200">
+    </div>
+  </section>
+
+  <!-- STEP 2: タックル・ルアー -->
+  <section class="card step-panel" data-step="2" hidden>
+    <div class="field">
+      <label for="recipe">🎣 使用ルアー / レシピ</label>
+      <select id="recipe"><option value="">選択しない</option></select>
+    </div>
+    <div class="field">
+      <label>📍 ヒットレンジ</label>
+      <div class="chips" id="layer-chips">
+        <span class="chip" data-value="表層">表層</span>
+        <span class="chip" data-value="中層">中層</span>
+        <span class="chip" data-value="底層">底層</span>
+        <span class="chip" data-value="ボトム直撃">ボトム直撃</span>
+      </div>
+    </div>
+    <div class="row-2">
+      <div class="field"><label for="rod">ロッド</label><input type="text" id="rod"></div>
+      <div class="field"><label for="reel">リール</label><input type="text" id="reel"></div>
+    </div>
+    <div class="row-2">
+      <div class="field"><label for="line">ライン</label><input type="text" id="line"></div>
+      <div class="field"><label for="leader">リーダー</label><input type="text" id="leader"></div>
+    </div>
+  </section>
+
+  <!-- STEP 3: スポット -->
+  <section class="card step-panel" data-step="3" hidden>
+    <div class="field">
+      <label for="fished-at">釣行日</label>
+      <input type="date" id="fished-at">
+    </div>
+    <div class="field">
+      <label>📍 スポット</label>
+      <div id="spot-list"><div class="empty">読み込み中…</div></div>
+    </div>
+    <details id="new-spot">
+      <summary style="cursor:pointer;color:var(--mustard);font-size:13px">＋ 新しいスポットを登録</summary>
+      <div style="margin-top:12px">
+        <div class="field"><label for="spot-name">スポット名</label><input type="text" id="spot-name" maxlength="100"></div>
+        <div class="row-2">
+          <div class="field"><label for="spot-lat">緯度</label><input type="number" id="spot-lat" step="0.000001"></div>
+          <div class="field"><label for="spot-lng">経度</label><input type="number" id="spot-lng" step="0.000001"></div>
+        </div>
+        <div class="field">
+          <label>水域区分</label>
+          <div class="chips" id="water-chips">
+            <span class="chip selected" data-value="saltwater">海水</span>
+            <span class="chip" data-value="brackish">汽水</span>
+            <span class="chip" data-value="freshwater">淡水</span>
+          </div>
+        </div>
+        <div class="actions" style="margin-top:12px">
+          <button type="button" class="btn btn-quiet" id="use-gps">📡 現在地を取得</button>
+          <button type="button" class="btn" id="save-spot">スポットを登録</button>
+        </div>
+      </div>
+    </details>
+  </section>
+
+  <!-- STEP 4: 写真 -->
+  <section class="card step-panel" data-step="4" hidden>
+    <div class="empty">
+      写真の添付は Phase 2 後半で追加します。<br>このまま次へ進んでください。
+    </div>
+  </section>
+
+  <!-- STEP 5: メモ・公開範囲 -->
+  <section class="card step-panel" data-step="5" hidden>
+    <div class="field">
+      <label for="memo">メモ</label>
+      <textarea id="memo" maxlength="2000" placeholder="潮の状況、アタリの出方など"></textarea>
+    </div>
+    <div class="field">
+      <label>公開範囲</label>
+      <div class="chips" id="visibility-chips">
+        <span class="chip selected" data-value="group">👥 グループ</span>
+        <span class="chip" data-value="private">🔒 自分のみ</span>
+      </div>
+    </div>
+    <div class="card" style="background:var(--bg-deep);margin-top:12px">
+      <div class="list-sub">登録時に潮回り（潮汐）を自動保存します。</div>
+      <div id="summary" style="margin-top:8px;font-size:13px"></div>
+    </div>
+  </section>
+
+  <div class="actions">
+    <button type="button" class="btn btn-quiet" id="prev" hidden>← 戻る</button>
+    <button type="button" class="btn" id="next">次へ →</button>
+    <button type="button" class="btn" id="submit" hidden>この内容で記録する</button>
+  </div>
+</main>
+
+<script src="vendor/supabase.js"></script>
+<script src="assets/config.js"></script>
+<script type="module">
+  import {
+    client, requireSession, renderNav, escapeHtml, toJapaneseError, currentUserId,
+    todayInJst, listSpots, listSpecies, listRecipes, suggestFishName,
+  } from "./assets/app.js";
+
+  const STEPS = ["魚種", "タックル", "スポット", "写真", "メモ"];
+  const state = { step: 1, isSkunked: false, spotId: null, layer: null, visibility: "group" };
+
+  const session = await requireSession();
+  if (!session) throw new Error("unauthenticated");
+  renderNav("records");
+
+  document.getElementById("fished-at").value = todayInJst();
+  renderStepper();
+
+  const [species, recipes, spots] = await Promise.all([
+    listSpecies().catch(() => []),
+    listRecipes().catch(() => []),
+    listSpots().catch(() => []),
+  ]);
+
+  document.getElementById("species").insertAdjacentHTML("beforeend",
+    species.map((s) => `<option value="${s.id}" data-rule="${s.name_rule_group ?? ""}">${escapeHtml(s.name)}</option>`).join(""));
+  document.getElementById("recipe").insertAdjacentHTML("beforeend",
+    recipes.map((r) => `<option value="${r.id}">${r.is_favorite ? "⭐ " : ""}${escapeHtml(r.name)}</option>`).join(""));
+  renderSpots(spots);
+
+  /* ---------- ステップ制御 ---------- */
+  function renderStepper() {
+    document.getElementById("stepper").innerHTML = STEPS.map((label, i) => {
+      const n = i + 1;
+      const cls = n < state.step ? "done" : n === state.step ? "active" : "";
+      const skipped = state.isSkunked && (n === 1 || n === 2);
+      return `
+        <div class="step">
+          <div class="step-dot ${cls}">${skipped ? "–" : n < state.step ? "✓" : n}</div>
+          <div class="step-label ${n === state.step ? "active" : ""}">${label}</div>
+        </div>`;
+    }).join("");
+    document.getElementById("step-sub").textContent = `STEP ${state.step}/5`;
+  }
+
+  function show(step) {
+    state.step = step;
+    document.querySelectorAll(".step-panel").forEach((el) => {
+      el.hidden = Number(el.dataset.step) !== step;
+    });
+    document.getElementById("prev").hidden = step === 1;
+    document.getElementById("next").hidden = step === 5;
+    document.getElementById("submit").hidden = step !== 5;
+    if (step === 5) renderSummary();
+    renderStepper();
+    window.scrollTo(0, 0);
+  }
+
+  // ボウズは STEP1・2 をスキップ（確定仕様書 6.1 章）
+  const nextStep = (from) => (state.isSkunked && from === 2 ? 3 : from + 1);
+  const prevStep = (from) => (state.isSkunked && from === 3 ? 5 : from - 1);
+
+  document.getElementById("next").addEventListener("click", () => {
+    if (state.step === 3 && !state.spotId) {
+      return message("スポットを選択してください。", "error");
+    }
+    hideMessage();
+    show(Math.min(5, state.isSkunked && state.step === 1 ? 3 : nextStep(state.step)));
+  });
+  document.getElementById("prev").addEventListener("click", () => {
+    hideMessage();
+    show(Math.max(1, state.isSkunked && state.step === 3 ? 1 : state.step - 1));
+  });
+  document.getElementById("back").addEventListener("click", () => history.back());
+
+  document.getElementById("skunk-btn").addEventListener("click", () => {
+    state.isSkunked = true;
+    document.getElementById("mode-title").textContent = "😞 ボウズで記録";
+    show(3);
+  });
+
+  /* ---------- チップ選択 ---------- */
+  function bindChips(containerId, onSelect, { toggle = false } = {}) {
+    document.getElementById(containerId).addEventListener("click", (e) => {
+      const chip = e.target.closest(".chip");
+      if (!chip) return;
+      const already = chip.classList.contains("selected");
+      chip.parentElement.querySelectorAll(".chip").forEach((c) => c.classList.remove("selected"));
+      if (!(toggle && already)) chip.classList.add("selected");
+      onSelect(toggle && already ? null : chip.dataset.value);
+    });
+  }
+  bindChips("layer-chips", (v) => { state.layer = v; }, { toggle: true });
+  bindChips("visibility-chips", (v) => { state.visibility = v ?? "group"; });
+  bindChips("water-chips", () => {});
+
+  /* ---------- 出世魚の呼称提案（設計補完書 5 章） ---------- */
+  const suggestBox = document.getElementById("name-suggest");
+  let suggestSeq = 0;      // 古い応答で上書きしないための世代番号
+  let lastSuggestKey = ""; // 同じ入力での再取得（blur 由来の change 等）を無視する
+
+  async function updateSuggestion() {
+    const option = document.getElementById("species").selectedOptions[0];
+    const size = Number(document.getElementById("length").value);
+    const key = option?.value && option.dataset.rule && size ? `${option.value}:${size}` : "";
+
+    if (key === lastSuggestKey) return;  // 入力が変わっていないので表示を維持
+    lastSuggestKey = key;
+    if (!key) { suggestBox.innerHTML = ""; return; }
+
+    const seq = ++suggestSeq;
+    try {
+      const result = await suggestFishName(option.value, size);
+      if (seq !== suggestSeq || key !== lastSuggestKey) return;  // 古い応答は捨てる
+      if (!result?.matched) { suggestBox.innerHTML = ""; return; }
+      suggestBox.innerHTML = state.displayName === result.suggested_name
+        ? `<div class="suggest">呼称: ${escapeHtml(result.suggested_name)}</div>`
+        : `<div class="suggest">${escapeHtml(result.suggested_name)} として記録しますか？
+             <button type="button" id="accept-name"
+                     data-name="${escapeHtml(result.suggested_name)}">採用</button></div>`;
+    } catch { /* 提案は失敗しても入力を妨げない */ }
+  }
+
+  // 再描画で要素が差し替わっても動くよう、コンテナ側で受ける
+  suggestBox.addEventListener("click", (e) => {
+    const button = e.target.closest("#accept-name");
+    if (!button) return;
+    state.displayName = button.dataset.name;
+    suggestBox.innerHTML = `<div class="suggest">呼称: ${escapeHtml(state.displayName)}</div>`;
+  });
+
+  document.getElementById("length").addEventListener("change", updateSuggestion);
+  document.getElementById("species").addEventListener("change", () => {
+    state.displayName = null;
+    lastSuggestKey = "";   // 魚種が変われば必ず取り直す
+    updateSuggestion();
+  });
+
+  /* ---------- スポット ---------- */
+  function renderSpots(list) {
+    const box = document.getElementById("spot-list");
+    if (!list.length) {
+      box.innerHTML = `<div class="empty">登録済みスポットがありません。下から登録してください。</div>`;
+      return;
+    }
+    const WATER = { saltwater: ["海水", "⚓"], brackish: ["汽水", "🌊"], freshwater: ["淡水", "🏞️"] };
+    box.innerHTML = list.map((s) => {
+      const [label, icon] = WATER[s.water_type] ?? ["—", "📍"];
+      return `
+        <div class="list-item spot-option" data-id="${s.id}" role="button" tabindex="0">
+          <div class="thumb">${icon}</div>
+          <div class="list-body">
+            <div class="list-title">${escapeHtml(s.name ?? "無名スポット")}</div>
+            <div class="list-sub">${label}${s.low_tide_only ? " · ⚠️ 干潮時のみ" : ""}</div>
+          </div>
+          <div class="list-aside select-mark"></div>
+        </div>`;
+    }).join("");
+  }
+
+  document.getElementById("spot-list").addEventListener("click", (e) => {
+    const item = e.target.closest(".spot-option");
+    if (!item) return;
+    state.spotId = item.dataset.id;
+    document.querySelectorAll(".spot-option").forEach((el) => {
+      el.style.borderColor = "";
+      el.querySelector(".select-mark").textContent = "";
+    });
+    item.style.borderColor = "var(--mustard)";
+    item.querySelector(".select-mark").textContent = "✓";
+  });
+
+  document.getElementById("use-gps").addEventListener("click", () => {
+    if (!navigator.geolocation) return message("この端末では現在地を取得できません。", "error");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        document.getElementById("spot-lat").value = pos.coords.latitude.toFixed(6);
+        document.getElementById("spot-lng").value = pos.coords.longitude.toFixed(6);
+        message("現在地を取得しました。", "success");
+      },
+      () => message("現在地を取得できませんでした。手動で入力してください。", "error"),
+    );
+  });
+
+  document.getElementById("save-spot").addEventListener("click", async () => {
+    const name = document.getElementById("spot-name").value.trim();
+    const lat = Number(document.getElementById("spot-lat").value);
+    const lng = Number(document.getElementById("spot-lng").value);
+    const waterType = document.querySelector("#water-chips .chip.selected")?.dataset.value ?? "saltwater";
+    if (!name || !Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return message("スポット名と座標を入力してください。", "error");
+    }
+    const { data, error } = await client.from("spots")
+      .insert({ user_id: await currentUserId(), name, latitude: lat, longitude: lng, water_type: waterType })
+      .select().single();
+    if (error) return message(toJapaneseError(error), "error");
+
+    const updated = await listSpots();
+    renderSpots(updated);
+    state.spotId = data.id;
+    document.querySelector(`.spot-option[data-id="${data.id}"]`)?.click();
+    document.getElementById("new-spot").open = false;
+    message("スポットを登録しました。", "success");
+  });
+
+  /* ---------- 確認と保存 ---------- */
+  function renderSummary() {
+    const spot = document.querySelector(`.spot-option[data-id="${state.spotId}"] .list-title`)?.textContent;
+    const speciesName = document.getElementById("species").selectedOptions[0]?.textContent;
+    const rows = state.isSkunked
+      ? [["記録", "😞 ボウズ"], ["釣行日", document.getElementById("fished-at").value], ["スポット", spot]]
+      : [
+          ["魚種", state.displayName ?? (speciesName === "選択しない" ? "—" : speciesName)],
+          ["サイズ", document.getElementById("length").value ? `${document.getElementById("length").value} cm` : "—"],
+          ["匹数", document.getElementById("count").value],
+          ["釣行日", document.getElementById("fished-at").value],
+          ["スポット", spot],
+          ["レンジ", state.layer ?? "—"],
+        ];
+    document.getElementById("summary").innerHTML = rows
+      .map(([k, v]) => `<div class="row"><span class="label">${k}</span><span class="val">${escapeHtml(v ?? "—")}</span></div>`)
+      .join("");
+  }
+
+  document.getElementById("submit").addEventListener("click", async (e) => {
+    const button = e.currentTarget;
+    button.disabled = true; button.textContent = "記録中…";
+    const num = (id) => {
+      const v = Number(document.getElementById(id).value);
+      return Number.isFinite(v) && document.getElementById(id).value !== "" ? v : null;
+    };
+    const text = (id) => document.getElementById(id).value.trim() || null;
+
+    const payload = {
+      user_id: await currentUserId(),
+      spot_id: state.spotId,
+      fished_at: document.getElementById("fished-at").value,
+      is_skunked: state.isSkunked,
+      memo: text("memo"),
+      visibility: state.visibility,
+    };
+    if (!state.isSkunked) {
+      Object.assign(payload, {
+        fish_species_id: document.getElementById("species").value || null,
+        fish_name_local: state.displayName ?? null,
+        length_cm: num("length"),
+        weight_g: num("weight"),
+        catch_count: num("count") ?? 1,
+        quantity_note: text("quantity-note"),
+        recipe_id: document.getElementById("recipe").value || null,
+        water_layer: state.layer,
+        rod: text("rod"), reel: text("reel"), line: text("line"), leader: text("leader"),
+      });
+    }
+
+    const { error } = await client.from("fishing_records").insert(payload);
+    if (error) {
+      message(toJapaneseError(error), "error");
+      button.disabled = false; button.textContent = "この内容で記録する";
+      return;
+    }
+    location.replace("records.html?saved=1");
+  });
+
+  function message(text, kind) {
+    const box = document.getElementById("message");
+    box.textContent = text;
+    box.className = `message ${kind}`;
+    box.hidden = false;
+    window.scrollTo(0, 0);
+  }
+  function hideMessage() { document.getElementById("message").hidden = true; }
+</script>
+</body>
+</html>

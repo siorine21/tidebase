@@ -235,3 +235,182 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .row .val { font-family: 'JetBrains Mono', monospace; color: var(--blue); }
 
 .muted { color: var(--text-muted); font-size: 12px; }
+
+/* ============================================================
+   アプリ画面（ワイヤーフレーム v7.2 準拠）
+   ============================================================ */
+
+.app-body { padding-bottom: 76px; }   /* ボトムナビ分の余白 */
+
+/* ---------- ボトムナビ ---------- */
+.bottom-nav {
+  position: fixed; left: 0; right: 0; bottom: 0;
+  display: flex; z-index: 20;
+  background: var(--bg-dark);
+  border-top: 1px solid var(--border);
+  padding: 6px 0 max(6px, env(safe-area-inset-bottom));
+}
+
+.nav-item {
+  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 4px 0; font-size: 10px; color: var(--text-muted); text-decoration: none;
+}
+
+.nav-item.active { color: var(--mustard); }
+.nav-item[aria-disabled="true"] { opacity: 0.4; pointer-events: none; }
+.nav-icon { font-size: 19px; line-height: 1; }
+
+/* ---------- ホーム ヒーロー ---------- */
+.hero {
+  background: linear-gradient(160deg, var(--bg-raised), var(--bg-card));
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px; margin-bottom: 14px;
+}
+
+.hero-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.hero-label { font-size: 11px; letter-spacing: 2px; color: var(--text-muted); }
+.hero-date { font-family: 'JetBrains Mono', monospace; font-size: 17px; color: var(--text-primary); }
+
+.score-circle {
+  flex-shrink: 0; width: 62px; height: 62px; border-radius: 50%;
+  border: 2px solid var(--mustard); display: flex; flex-direction: column;
+  align-items: center; justify-content: center; background: var(--mustard-bg);
+}
+.score-num { font-family: 'JetBrains Mono', monospace; font-size: 26px; line-height: 1; color: var(--mustard-lt); }
+.score-label { font-size: 10px; color: var(--text-muted); }
+
+.hero-meta { margin-top: 10px; font-size: 13px; color: var(--text-secondary); }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.tag { padding: 3px 9px; border-radius: 999px; font-size: 11px; border: 1px solid transparent; }
+.tag-mustard { background: var(--mustard-bg); color: var(--mustard-lt); border-color: var(--border-strong); }
+.tag-blue   { background: var(--blue-bg);   color: var(--blue); border-color: var(--blue-deep); }
+.tag-green  { background: var(--green-light); color: #A5D6A7; border-color: var(--green); }
+.tag-gray   { background: var(--bg-raised); color: var(--text-secondary); border-color: var(--border); }
+
+/* ---------- セクション ---------- */
+.section-label {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 11px; letter-spacing: 1.5px; color: var(--text-muted);
+  margin: 18px 0 8px;
+}
+.section-label .note { letter-spacing: 0; font-size: 11px; }
+
+/* ---------- 潮汐グラフ ---------- */
+.tide-graph { width: 100%; height: 132px; display: block; }
+.tide-graph .axis { stroke: var(--border); stroke-width: 1; }
+.tide-graph .curve { fill: rgba(74,158,204,0.14); stroke: var(--blue); stroke-width: 2; }
+.tide-graph .now { stroke: var(--mustard); stroke-width: 1.5; stroke-dasharray: 3 3; }
+.tide-graph text { font-family: 'JetBrains Mono', monospace; font-size: 9px; fill: var(--text-muted); }
+.tide-graph text.peak { fill: var(--text-secondary); }
+
+/* ---------- 天気の横スクロール ---------- */
+.hourly { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+.hourly::-webkit-scrollbar { height: 4px; }
+.hourly::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.hour-card {
+  flex: 0 0 62px; text-align: center; padding: 8px 4px;
+  background: var(--bg-deep); border: 1px solid var(--border); border-radius: 8px;
+}
+.hour-card.highlight { border-color: var(--border-strong); background: var(--mustard-bg); }
+.hour-card .h  { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-secondary); }
+.hour-card .badge { font-size: 9px; color: var(--mustard); height: 12px; }
+.hour-card .icon { font-size: 18px; margin: 2px 0; }
+.hour-card .t  { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--text-primary); }
+.hour-card .w  { font-size: 10px; color: var(--text-muted); }
+
+/* ---------- リスト ---------- */
+.list-item {
+  display: flex; align-items: center; gap: 12px;
+  padding: 11px 12px; margin-bottom: 8px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius); text-decoration: none; color: inherit;
+}
+.list-item:hover { border-color: var(--border-strong); }
+.thumb {
+  flex-shrink: 0; width: 42px; height: 42px; border-radius: 8px;
+  background: var(--bg-raised); display: flex; align-items: center;
+  justify-content: center; font-size: 20px;
+}
+.list-body { flex: 1; min-width: 0; }
+.list-title { font-size: 14px; color: var(--text-primary); }
+.list-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.list-aside { flex-shrink: 0; font-size: 11px; color: var(--text-muted); text-align: right; }
+
+.empty { padding: 22px 12px; text-align: center; color: var(--text-muted); font-size: 13px; }
+
+/* ---------- 相関バー ---------- */
+.corr-row { margin-bottom: 10px; }
+.corr-head { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; }
+.corr-head .name { color: var(--text-primary); }
+.corr-head .stat { font-family: 'JetBrains Mono', monospace; color: var(--text-muted); }
+.corr-bar { height: 7px; background: var(--bg-deep); border-radius: 4px; overflow: hidden; }
+.corr-fill { height: 100%; background: linear-gradient(90deg, var(--mustard-dk), var(--mustard)); }
+
+/* ---------- FAB ---------- */
+.fab {
+  position: fixed; right: 16px; bottom: 88px; z-index: 21;
+  width: 54px; height: 54px; border-radius: 50%; border: none;
+  background: var(--mustard); color: var(--bg-deep);
+  font-size: 28px; line-height: 1; cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.45);
+  display: flex; align-items: center; justify-content: center; text-decoration: none;
+}
+
+/* ---------- ウィザード ---------- */
+.page-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--bg-dark);
+}
+.page-head .back {
+  background: none; border: none; color: var(--text-secondary);
+  font-size: 20px; cursor: pointer; padding: 0 4px;
+}
+.page-title { font-size: 15px; }
+.page-sub { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-muted); }
+
+.stepper { display: flex; padding: 14px 8px 4px; }
+.step { flex: 1; text-align: center; }
+.step-dot {
+  width: 26px; height: 26px; margin: 0 auto 4px; border-radius: 50%;
+  border: 1px solid var(--border); background: var(--bg-card);
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-muted);
+}
+.step-dot.active { border-color: var(--mustard); background: var(--mustard-bg); color: var(--mustard-lt); }
+.step-dot.done { border-color: var(--green); background: var(--green-light); color: #A5D6A7; }
+.step-label { font-size: 10px; color: var(--text-muted); }
+.step-label.active { color: var(--mustard); }
+
+.chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.chip {
+  padding: 7px 13px; border-radius: 999px; cursor: pointer; font-size: 13px;
+  background: var(--bg-deep); border: 1px solid var(--border); color: var(--text-secondary);
+}
+.chip.selected { background: var(--mustard-bg); border-color: var(--mustard); color: var(--mustard-lt); }
+
+.row-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.field textarea {
+  width: 100%; padding: 11px 12px; min-height: 84px; resize: vertical;
+  background: var(--bg-deep); border: 1px solid var(--border);
+  border-radius: 8px; color: var(--text-primary); font-family: inherit; font-size: 15px;
+}
+.field select {
+  width: 100%; padding: 11px 12px; background: var(--bg-deep);
+  border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text-primary); font-family: inherit; font-size: 15px;
+}
+.actions { display: flex; gap: 10px; margin-top: 18px; }
+.btn-danger { background: var(--red); color: #fff; }
+
+.suggest {
+  margin-top: 8px; padding: 9px 11px; font-size: 13px;
+  background: var(--mustard-bg); border: 1px solid var(--border-strong);
+  border-radius: 8px; color: var(--mustard-lt);
+}
+.suggest button {
+  margin-left: 8px; padding: 3px 10px; font-size: 12px; cursor: pointer;
+  background: var(--mustard); color: var(--bg-deep); border: none; border-radius: 999px;
+}
+
+.section-label a { color: var(--mustard); text-decoration: none; }
+.section-label a:hover { text-decoration: underline; }
