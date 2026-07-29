@@ -236,6 +236,46 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL: システムデフォルト魚種が重複する';
   END IF;
 
+  ------------------------------------------------------------
+  -- 魚種マスタの並び順（006）
+  ------------------------------------------------------------
+  -- 追加した 7 種がシステムデフォルトとして揃っていること
+  IF (SELECT COUNT(*) FROM public.fish_species
+      WHERE user_id IS NULL
+        AND name IN ('アジ', 'メバル', 'カサゴ', 'カマス', 'キス', 'タコ', 'イカ')) <> 7 THEN
+    RAISE EXCEPTION 'TEST FAIL: 追加した魚種が揃っていない';
+  END IF;
+
+  -- 全システムデフォルトに水域区分と並び順が入っていること
+  IF EXISTS (SELECT 1 FROM public.fish_species
+             WHERE user_id IS NULL
+               AND (sort_order IS NULL OR category NOT IN ('海水', '汽水', '淡水'))) THEN
+    RAISE EXCEPTION 'TEST FAIL: 並び順または水域区分が未設定の魚種がある';
+  END IF;
+
+  -- 同一水域内で並び順が一意（隣接指定が崩れない）
+  IF EXISTS (SELECT 1 FROM public.fish_species
+             WHERE user_id IS NULL
+             GROUP BY category, sort_order HAVING COUNT(*) > 1) THEN
+    RAISE EXCEPTION 'TEST FAIL: 同一水域で並び順が重複している';
+  END IF;
+
+  -- 近縁種が隣接していること（マルスズキ/ヒラスズキ・クロダイ/キビレ）
+  IF (SELECT b.sort_order - a.sort_order
+      FROM public.fish_species a, public.fish_species b
+      WHERE a.user_id IS NULL AND a.name = 'マルスズキ'
+        AND b.user_id IS NULL AND b.name = 'ヒラスズキ'
+        AND a.category = b.category) IS DISTINCT FROM 10 THEN
+    RAISE EXCEPTION 'TEST FAIL: マルスズキとヒラスズキが隣接していない';
+  END IF;
+  IF (SELECT b.sort_order - a.sort_order
+      FROM public.fish_species a, public.fish_species b
+      WHERE a.user_id IS NULL AND a.name = 'クロダイ'
+        AND b.user_id IS NULL AND b.name = 'キビレ'
+        AND a.category = '汽水' AND b.category = '汽水') IS DISTINCT FROM 10 THEN
+    RAISE EXCEPTION 'TEST FAIL: クロダイとキビレが汽水で隣接していない';
+  END IF;
+
   RAISE NOTICE 'ALL DB TESTS PASSED';
 END;
 $$;

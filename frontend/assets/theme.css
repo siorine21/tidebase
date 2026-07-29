@@ -560,3 +560,10 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 /* 地図ピン内のアイコン */
 .spot-pin .icon { color: rgba(10,21,32,0.85); stroke-width: 2.2; }
 .pin-warn .icon { color: #E8C76A; stroke-width: 2.4; }
+
+/* 魚種など、水域区分でグループ分けしたドロップダウン */
+.field select optgroup {
+  background: var(--bg-dark); color: var(--mustard);
+  font-size: 12px; font-weight: 700;
+}
+.field select option { background: var(--bg-deep); color: var(--text-primary); font-weight: 400; }

@@ -104,7 +104,7 @@
           </div>
         </div>
         <div class="actions" style="margin-top:12px">
-          <button type="button" class="btn btn-quiet" id="use-gps"> data-icon="locate">現在地を取得</button>
+          <button type="button" class="btn btn-quiet" id="use-gps" data-icon="locate">現在地を取得</button>
           <button type="button" class="btn" id="save-spot">スポットを登録</button>
         </div>
       </div>
@@ -150,6 +150,7 @@
   import {
     client, requireSession, renderNav, escapeHtml, toJapaneseError, currentUserId,
     todayInJst, listSpots, listSpecies, listRecipes, suggestFishName, icon,
+    groupSpeciesByCategory,
   } from "./assets/app.js";
 
   const STEPS = ["魚種", "タックル", "スポット", "写真", "メモ"];
@@ -168,8 +169,13 @@
     listSpots().catch(() => []),
   ]);
 
+  // 水域区分ごとにグループ表示（海水 → 汽水 → 淡水）
   document.getElementById("species").insertAdjacentHTML("beforeend",
-    species.map((s) => `<option value="${s.id}" data-rule="${s.name_rule_group ?? ""}">${escapeHtml(s.name)}</option>`).join(""));
+    groupSpeciesByCategory(species).map(([category, items]) => `
+      <optgroup label="${escapeHtml(category)}">
+        ${items.map((s) => `<option value="${s.id}" data-rule="${s.name_rule_group ?? ""}"
+                >${escapeHtml(s.name)}</option>`).join("")}
+      </optgroup>`).join(""));
   document.getElementById("recipe").insertAdjacentHTML("beforeend",
     recipes.map((r) => `<option value="${r.id}">${r.is_favorite ? "[お気に入り] " : ""}${escapeHtml(r.name)}</option>`).join(""));
   renderSpots(spots);
@@ -250,9 +256,10 @@
     const size = Number(document.getElementById("length").value);
     const key = option?.value && option.dataset.rule && size ? `${option.value}:${size}` : "";
 
+    // 提案対象でなくなったら必ず消す（出世魚以外の魚種に切り替えた場合など）
+    if (!key) { lastSuggestKey = ""; suggestBox.innerHTML = ""; return; }
     if (key === lastSuggestKey) return;  // 入力が変わっていないので表示を維持
     lastSuggestKey = key;
-    if (!key) { suggestBox.innerHTML = ""; return; }
 
     const seq = ++suggestSeq;
     try {

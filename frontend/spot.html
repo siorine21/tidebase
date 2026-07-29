@@ -28,6 +28,7 @@
     client, requireSession, renderNav, escapeHtml, toJapaneseError,
     listSpots, listRecords, createMap, spotMarker, spotType, waterLabel,
     SPOT_TYPES, WATER_TYPES, googleMapsUrl, googleDirectionsUrl, formatJstDate, icon,
+    recordFishName,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -157,7 +158,7 @@
     return records.slice(0, 5).map((r) => {
       const title = r.is_skunked
         ? `${icon("skunk", { size: 15 })} ボウズ`
-        : `${escapeHtml(r.fish_name_local ?? "釣果")}${r.catch_count > 1 ? ` ×${r.catch_count}` : ""}`;
+        : `${escapeHtml(recordFishName(r))}${r.catch_count > 1 ? ` ×${r.catch_count}` : ""}`;
       return `
         <a class="list-item" href="record.html?id=${r.id}">
           <div class="thumb">${icon(r.is_skunked ? "skunk" : "fish", { size: 20 })}</div>

@@ -204,7 +204,7 @@ export async function listSpots() {
 export async function listRecords({ limit = 50, spotId = null } = {}) {
   let query = client
     .from("fishing_records")
-    .select("*, spots(name, water_type), lure_recipes(name)")
+    .select("*, spots(name, water_type), lure_recipes(name), fish_species(name)")
     .order("fished_at", { ascending: false })
     .order("created_at", { ascending: false })
     .limit(limit);
@@ -214,13 +214,48 @@ export async function listRecords({ limit = 50, spotId = null } = {}) {
   return data;
 }
 
+/**
+ * 一覧に出す魚の名前。出世魚の呼称があればそれを、なければ魚種名を使う。
+ * 呼称ルールを持たない魚種（アジ・カサゴなど）でも名前が出るようにする。
+ */
+export function recordFishName(record) {
+  return record.fish_name_local ?? record.fish_species?.name ?? "釣果";
+}
+
+/** 魚種の水域区分の表示順（確定仕様書 1.1 章の分類に合わせる）。 */
+export const FISH_CATEGORY_ORDER = ["海水", "汽水", "淡水"];
+
+/**
+ * 魚種一覧。水域区分（海水 → 汽水 → 淡水）ごとにまとめ、
+ * 区分内は sort_order で近縁種が隣接する順に並べる。
+ * ユーザーが自分で追加した魚種は各区分の末尾（名前順）。
+ */
 export async function listSpecies() {
   const { data, error } = await client
     .from("fish_species")
-    .select("id, name, category, name_rule_group")
+    .select("id, name, category, name_rule_group, sort_order, user_id")
     .order("name");
   if (error) throw error;
-  return data;
+
+  const rank = (category) => {
+    const i = FISH_CATEGORY_ORDER.indexOf(category);
+    return i === -1 ? FISH_CATEGORY_ORDER.length : i;   // 区分未設定は末尾
+  };
+  return data.slice().sort((a, b) =>
+    rank(a.category) - rank(b.category)
+    || (a.sort_order ?? Number.MAX_SAFE_INTEGER) - (b.sort_order ?? Number.MAX_SAFE_INTEGER)
+    || a.name.localeCompare(b.name, "ja"));
+}
+
+/** 魚種を水域区分ごとにグループ化する（[区分, 魚種配列] の配列）。 */
+export function groupSpeciesByCategory(species) {
+  const groups = new Map();
+  for (const item of species) {
+    const key = item.category ?? "その他";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(item);
+  }
+  return [...groups.entries()];
 }
 
 export async function listRecipes() {

@@ -58,6 +58,7 @@
     client, requireSession, renderNav, escapeHtml,
     fetchTide, fetchWeather, todayInJst, formatJstDate, formatShortDate, relativeDays,
     describeWeather, windDirection, fishingScore, listSpots, listRecords, tideCorrelation, icon,
+    recordFishName,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -192,7 +193,7 @@
     box.innerHTML = records.map((r) => {
       const title = r.is_skunked
         ? `${icon("skunk", { size: 15 })} ボウズ`
-        : `${escapeHtml(r.fish_name_local ?? "釣果")}${r.length_cm ? ` ${r.length_cm}cm` : ""}`
+        : `${escapeHtml(recordFishName(r))}${r.length_cm ? ` ${r.length_cm}cm` : ""}`
           + (r.catch_count > 1 ? ` ×${r.catch_count}` : "");
       const sub = [formatShortDate(r.fished_at), r.spots?.name, r.lure_recipes?.name]
         .filter(Boolean).map(escapeHtml).join(" / ");
