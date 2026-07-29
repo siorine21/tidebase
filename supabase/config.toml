@@ -1,0 +1,5 @@
+# Supabase プロジェクト設定（Edge Functions）
+# tide は公的データのみを返すため認証不要（D-009 / D-021）
+
+[functions.tide]
+verify_jwt = false

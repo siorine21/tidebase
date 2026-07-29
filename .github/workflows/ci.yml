@@ -6,14 +6,38 @@ on:
   pull_request:
 
 jobs:
-  test:
+  db-tests:
+    name: DB migrations & triggers
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - run: db/tests/run_local.sh
+
+  edge-tests:
+    name: Edge Function (tide parser)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-node@v4
         with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: backend/requirements-dev.txt
-      - run: pip install -r backend/requirements-dev.txt
-      - run: pytest backend/tests/ -v
+          node-version: "22"
+      - run: npm install -g typescript
+      - run: make test-edge

@@ -1,0 +1,26 @@
+# Supabase 無料プランの自動停止防止 ping（旧 EventBridge + Lambda の置き換え、D-021）
+# リポジトリ Secrets に SUPABASE_URL / SUPABASE_ANON_KEY を設定すること
+name: Supabase keepalive
+
+on:
+  schedule:
+    - cron: "0 21 * * *" # UTC 21:00 = JST 06:00
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase REST
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "::warning::SUPABASE_URL / SUPABASE_ANON_KEY 未設定のためスキップ"
+            exit 0
+          fi
+          status=$(curl -s -o /dev/null -w "%{http_code}" \
+            "$SUPABASE_URL/rest/v1/" -H "apikey: $SUPABASE_ANON_KEY")
+          echo "Supabase ping: $status"
+          test "$status" = "200"
