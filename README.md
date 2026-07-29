@@ -8,7 +8,7 @@
   — 整合性はすべて DB 側(RLS + トリガー + RPC)で担保
 - **潮汐**: Edge Function(`supabase/functions/tide/`)が気象庁 潮位表をプロキシ
 - **天気・波高**: Open-Meteo をブラウザから直接取得(API キー不要)
-- **フロント**: HTMX + Tailwind + supabase-js(Phase 2〜)。GitHub Pages / Cloudflare Pages
+- **フロント**: Vanilla JS + supabase-js + Leaflet(地図)。GitHub Pages で配信
 - **CI / keepalive**: GitHub Actions
 
 > 旧 AWS 構成(Lambda + FastAPI)からの移行内容は
@@ -21,7 +21,11 @@
 | SCR-016 | ログイン(`frontend/login.html`) | ✅ Phase 1 |
 | SCR-017 | 会員登録(`frontend/signup.html`) | ✅ Phase 1 |
 | SCR-001 | ホーム(`frontend/index.html`) | 暫定(Phase 2 で本実装) |
-| SCR-002〜015 | 釣果入力・マップ・レシピほか | Phase 2〜 |
+| SCR-002 | 釣果入力(5ステップ) | ✅ Phase 2 |
+| SCR-004/005 | スポットマップ・詳細(Leaflet + 地理院タイル) | ✅ Phase 2 |
+| SCR-006/007 | 釣果一覧・詳細 | ✅ Phase 2 |
+| SCR-008/009/015 | ルアーレシピ 一覧・詳細・作成 | ✅ Phase 2 |
+| SCR-003/010/012/014 | 潮汐詳細・ローテーションログ・分析・設定 | 未実装 |
 
 > 画面 ID はワイヤーフレーム v7.2 準拠(D-024)。ハンドオフ v1.0 の一覧表とは異なります。
 

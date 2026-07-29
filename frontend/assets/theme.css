@@ -454,3 +454,71 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 
 .chip .x { margin-left: 6px; opacity: 0.7; }
 .toggle-row { display: flex; align-items: center; justify-content: space-between; }
+
+/* ---------- 地図（SCR-004 / 005） ---------- */
+.map-wrap { position: relative; }
+#map, .map-box {
+  width: 100%; background: var(--bg-dark);
+  border: 1px solid var(--border); border-radius: var(--radius);
+}
+#map { height: calc(100vh - 210px); min-height: 300px; border-radius: 0; border-left: 0; border-right: 0; }
+.map-box { height: 190px; margin-bottom: 14px; }
+
+/* 淡色地図をダークテーマに寄せる（航空写真には適用しない） */
+.tile-pale { filter: invert(1) hue-rotate(185deg) brightness(0.92) contrast(0.9); }
+
+.leaflet-container { background: var(--bg-dark); font-family: inherit; }
+.leaflet-control-attribution {
+  background: rgba(10,21,32,0.8) !important; color: var(--text-muted) !important; font-size: 9px;
+}
+.leaflet-control-attribution a { color: var(--text-secondary) !important; }
+.leaflet-bar a {
+  background: var(--bg-card) !important; color: var(--text-primary) !important;
+  border-color: var(--border) !important;
+}
+
+.spot-pin-wrap { background: none; border: none; }
+.spot-pin {
+  display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; border-radius: 50% 50% 50% 4px;
+  transform: rotate(-45deg); font-size: 13px;
+  background: var(--pin); border: 2px solid rgba(10,21,32,0.7);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.5); position: relative;
+}
+.spot-pin > * { transform: rotate(45deg); }
+.pin-warn { position: absolute; top: -9px; right: -9px; font-size: 11px; }
+.pin-label {
+  position: absolute; left: 32px; top: 2px; white-space: nowrap;
+  padding: 2px 7px; border-radius: 6px; font-size: 11px;
+  background: rgba(22,36,51,0.92); color: var(--text-primary);
+  border: 1px solid var(--border);
+}
+
+.map-tools {
+  position: absolute; top: 10px; right: 10px; z-index: 500;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.map-tools button {
+  width: auto; padding: 6px 10px; font-size: 12px; font-weight: 400;
+  background: var(--bg-card); color: var(--text-secondary);
+  border: 1px solid var(--border); border-radius: 8px; cursor: pointer;
+}
+.map-tools button.on { border-color: var(--mustard); color: var(--mustard-lt); background: var(--mustard-bg); }
+
+.sheet {
+  position: fixed; left: 0; right: 0; bottom: 62px; z-index: 22;
+  background: var(--bg-card); border-top: 1px solid var(--border-strong);
+  border-radius: 14px 14px 0 0; padding: 14px 16px 18px;
+  box-shadow: 0 -6px 20px rgba(0,0,0,0.5);
+}
+.sheet[hidden] { display: none; }
+.sheet .close { position: absolute; top: 10px; right: 14px; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11px; color: var(--text-secondary); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; }
+
+.link-btn {
+  display: block; text-align: center; text-decoration: none; line-height: 1.6;
+}
+
+.actions .btn { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

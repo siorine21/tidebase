@@ -73,6 +73,10 @@
   document.getElementById("filter-spot").insertAdjacentHTML("beforeend",
     spots.map((s) => `<option value="${s.id}">${escapeHtml(s.name ?? "無名スポット")}</option>`).join(""));
 
+  // スポット詳細（SCR-005）の「すべて見る」からの絞り込み
+  const spotParam = new URLSearchParams(location.search).get("spot");
+  if (spotParam) document.getElementById("filter-spot").value = spotParam;
+
   // レシピ詳細（SCR-009）の「すべて見る」からの絞り込み
   let recipeId = new URLSearchParams(location.search).get("recipe");
   if (recipeId) {

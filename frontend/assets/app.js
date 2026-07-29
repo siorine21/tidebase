@@ -352,3 +352,72 @@ export async function setRecipeTags(recipeId, tagIds) {
     .insert(tagIds.map((tagId) => ({ recipe_id: recipeId, tag_id: tagId })));
   if (error) throw error;
 }
+
+/* ---------------- スポット（設計補完書 4 章） ---------------- */
+
+export const SPOT_TYPES = [
+  { value: "surf",    label: "サーフ",   color: "#4A9ECC", icon: "🏖️" },
+  { value: "rock",    label: "磯",       color: "#4CAF50", icon: "🪨" },
+  { value: "port",    label: "港湾",     color: "#C9A84C", icon: "⚓" },
+  { value: "managed", label: "管理釣り場", color: "#4CAF50", icon: "🎣" },
+  { value: "river",   label: "河川",     color: "#6E9ECF", icon: "🏞️" },
+];
+
+export const WATER_TYPES = [
+  { value: "saltwater",  label: "海水" },
+  { value: "brackish",   label: "汽水" },
+  { value: "freshwater", label: "淡水" },
+];
+
+export function spotType(value) {
+  return SPOT_TYPES.find((t) => t.value === value)
+    ?? { value: null, label: "未設定", color: "#9AA5B1", icon: "📍" };
+}
+
+export function waterLabel(value) {
+  return WATER_TYPES.find((w) => w.value === value)?.label ?? "—";
+}
+
+/** Google マップで開く URL（端末にアプリがあればアプリが起動する）。 */
+export function googleMapsUrl(spot) {
+  return `https://www.google.com/maps/search/?api=1&query=${spot.latitude},${spot.longitude}`;
+}
+
+/** Google マップの経路案内 URL。 */
+export function googleDirectionsUrl(spot) {
+  return `https://www.google.com/maps/dir/?api=1&destination=${spot.latitude},${spot.longitude}`;
+}
+
+/* ---------------- 地図（Leaflet + 地理院タイル・D-026） ---------------- */
+
+const GSI_ATTRIBUTION =
+  '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a>';
+
+/** 地図を生成する。tiles: "pale"（淡色・既定）/ "photo"（航空写真）。 */
+export function createMap(element, { center = [35.6544, 139.7708], zoom = 12 } = {}) {
+  const map = L.map(element, { center, zoom, zoomControl: true, attributionControl: true });
+  const layers = {
+    pale: L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png", {
+      maxZoom: 18, attribution: GSI_ATTRIBUTION, className: "tile-pale",
+    }),
+    photo: L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg", {
+      maxZoom: 18, attribution: GSI_ATTRIBUTION,
+    }),
+  };
+  layers.pale.addTo(map);
+  return { map, layers, current: "pale" };
+}
+
+/** スポット種別の色を反映した HTML マーカー（外部画像に依存しない）。 */
+export function spotMarker(spot, { label = true } = {}) {
+  const type = spotType(spot.spot_type);
+  const warn = spot.low_tide_only ? '<span class="pin-warn">⚠️</span>' : "";
+  const name = label && spot.name
+    ? `<span class="pin-label">${escapeHtml(spot.name)}</span>` : "";
+  return L.divIcon({
+    className: "spot-pin-wrap",
+    html: `<span class="spot-pin" style="--pin:${type.color}">${type.icon}${warn}</span>${name}`,
+    iconSize: [26, 26],
+    iconAnchor: [13, 26],
+  });
+}

@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>スポットマップ | TIDEBASE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@400;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="assets/theme.css">
+</head>
+<body class="app-body">
+<!-- SCR-004 スポットマップ -->
+<header class="app-header">
+  <h1>SPOT MAP</h1>
+  <span class="page-sub" id="count">—</span>
+</header>
+
+<div class="map-wrap">
+  <div id="map"></div>
+  <div class="map-tools">
+    <button type="button" id="layer-toggle">🛰️ 航空写真</button>
+    <button type="button" id="locate">📡 現在地</button>
+    <button type="button" id="add-mode">＋ 追加</button>
+  </div>
+</div>
+
+<main style="padding-top:12px">
+  <div id="message" class="message" hidden role="alert"></div>
+  <div class="legend" id="legend"></div>
+  <div class="section-label"><span>SPOT LIST</span></div>
+  <div id="list"><div class="empty">読み込み中…</div></div>
+</main>
+
+<!-- スポット概要（ピンタップ時） -->
+<section class="sheet" id="sheet" hidden>
+  <button type="button" class="back close" id="sheet-close" aria-label="閉じる">✕</button>
+  <div id="sheet-body"></div>
+</section>
+
+<!-- 新規登録（地図タップ後） -->
+<section class="sheet" id="new-sheet" hidden>
+  <button type="button" class="back close" id="new-close" aria-label="閉じる">✕</button>
+  <div class="page-sub" style="margin-bottom:10px">新しいスポット</div>
+  <div class="field">
+    <label for="new-name">スポット名</label>
+    <input type="text" id="new-name" maxlength="100" placeholder="例: ○○港 北堤防">
+  </div>
+  <div class="field">
+    <label>水域区分</label>
+    <div class="chips" id="new-water"></div>
+  </div>
+  <div class="field">
+    <label>スポット種別</label>
+    <div class="chips" id="new-type"></div>
+  </div>
+  <div class="field toggle-row">
+    <label for="new-lowtide" style="margin:0">⚠️ 干潮時のみアクセス可</label>
+    <input type="checkbox" id="new-lowtide" style="width:auto">
+  </div>
+  <div class="page-sub" id="new-coords"></div>
+  <div class="actions">
+    <button type="button" class="btn" id="new-save">このスポットを登録</button>
+  </div>
+</section>
+
+<script src="vendor/leaflet/leaflet.js"></script>
+<script src="vendor/supabase.js"></script>
+<script src="assets/config.js"></script>
+<script type="module">
+  import {
+    client, requireSession, renderNav, escapeHtml, toJapaneseError, currentUserId,
+    listSpots, createMap, spotMarker, spotType, waterLabel,
+    SPOT_TYPES, WATER_TYPES, googleMapsUrl, googleDirectionsUrl,
+  } from "./assets/app.js";
+
+  const session = await requireSession();
+  if (!session) throw new Error("unauthenticated");
+  renderNav("map");
+
+  const state = { addMode: false, draft: null, water: "saltwater", type: null };
+  let spots = await listSpots().catch(() => []);
+
+  const { map, layers } = createMap("map", {
+    center: spots.length ? [spots[0].latitude, spots[0].longitude] : [35.6544, 139.7708],
+    zoom: spots.length ? 13 : 10,
+  });
+  let markerLayer = L.layerGroup().addTo(map);
+  let draftMarker = null;
+
+  renderLegend();
+  renderChips();
+  renderAll();
+
+  /* ---------- 表示 ---------- */
+  function renderLegend() {
+    document.getElementById("legend").innerHTML = SPOT_TYPES
+      .map((t) => `<span><i style="background:${t.color}"></i>${t.label}</span>`).join("")
+      + `<span><i style="background:#9AA5B1"></i>未設定</span>`;
+  }
+
+  function renderAll() {
+    document.getElementById("count").textContent = `${spots.length} スポット`;
+    markerLayer.clearLayers();
+    // ズームが低いときはラベルを間引く（確定仕様書 15.2 章）
+    const showLabels = map.getZoom() >= 12;
+    for (const spot of spots) {
+      L.marker([spot.latitude, spot.longitude], { icon: spotMarker(spot, { label: showLabels }) })
+        .addTo(markerLayer)
+        .on("click", () => openSheet(spot));
+    }
+    if (spots.length) {
+      const bounds = L.latLngBounds(spots.map((s) => [s.latitude, s.longitude]));
+      if (!map._fitted) { map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 }); map._fitted = true; }
+    }
+    renderList();
+  }
+
+  map.on("zoomend", () => renderAll());
+
+  function renderList() {
+    const box = document.getElementById("list");
+    if (!spots.length) {
+      box.innerHTML = `<div class="empty">スポットがまだありません。「＋ 追加」を押して地図をタップすると登録できます。</div>`;
+      return;
+    }
+    box.innerHTML = spots.map((s) => {
+      const type = spotType(s.spot_type);
+      return `
+        <a class="list-item" href="spot.html?id=${s.id}">
+          <div class="thumb" style="background:${type.color}22">${type.icon}</div>
+          <div class="list-body">
+            <div class="list-title">${escapeHtml(s.name ?? "無名スポット")}${s.low_tide_only ? " ⚠️" : ""}</div>
+            <div class="list-sub">${type.label} · ${waterLabel(s.water_type)}${s.tide_station_code ? ` · 潮汐 ${s.tide_station_code}` : ""}</div>
+          </div>
+          <div class="list-aside">→</div>
+        </a>`;
+    }).join("");
+  }
+
+  /* ---------- ピンタップ ---------- */
+  function openSheet(spot) {
+    const type = spotType(spot.spot_type);
+    document.getElementById("sheet-body").innerHTML = `
+      <div class="list-title" style="font-size:16px">${escapeHtml(spot.name ?? "無名スポット")}</div>
+      <div class="list-sub" style="margin-bottom:10px">
+        ${type.label} · ${waterLabel(spot.water_type)}${spot.low_tide_only ? " · ⚠️ 干潮時のみアクセス可" : ""}
+      </div>
+      <div class="actions" style="margin-top:0">
+        <a class="btn btn-quiet link-btn" href="spot.html?id=${spot.id}">詳細</a>
+        <a class="btn btn-quiet link-btn" href="${googleMapsUrl(spot)}" target="_blank" rel="noopener">🗺️ Google マップ</a>
+        <a class="btn link-btn" href="${googleDirectionsUrl(spot)}" target="_blank" rel="noopener">🚗 経路案内</a>
+      </div>`;
+    document.getElementById("sheet").hidden = false;
+    document.getElementById("new-sheet").hidden = true;
+  }
+  document.getElementById("sheet-close").addEventListener("click", () => {
+    document.getElementById("sheet").hidden = true;
+  });
+
+  /* ---------- レイヤー・現在地 ---------- */
+  document.getElementById("layer-toggle").addEventListener("click", (e) => {
+    const toPhoto = !e.currentTarget.classList.contains("on");
+    map.removeLayer(toPhoto ? layers.pale : layers.photo);
+    (toPhoto ? layers.photo : layers.pale).addTo(map);
+    e.currentTarget.classList.toggle("on", toPhoto);
+    e.currentTarget.textContent = toPhoto ? "🗺️ 標準地図" : "🛰️ 航空写真";
+  });
+
+  document.getElementById("locate").addEventListener("click", () => {
+    if (!navigator.geolocation) return message("この端末では現在地を取得できません。", "error");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => map.setView([pos.coords.latitude, pos.coords.longitude], 15),
+      () => message("現在地を取得できませんでした。", "error"),
+    );
+  });
+
+  /* ---------- 新規登録（地図タップ） ---------- */
+  document.getElementById("add-mode").addEventListener("click", (e) => {
+    state.addMode = !state.addMode;
+    e.currentTarget.classList.toggle("on", state.addMode);
+    e.currentTarget.textContent = state.addMode ? "✕ 追加をやめる" : "＋ 追加";
+    message(state.addMode ? "地図をタップしてスポットの位置を指定してください。" : "", state.addMode ? "success" : null);
+    if (!state.addMode) clearDraft();
+  });
+
+  map.on("click", (e) => {
+    if (!state.addMode) return;
+    state.draft = { lat: e.latlng.lat, lng: e.latlng.lng };
+    if (draftMarker) draftMarker.remove();
+    draftMarker = L.marker([state.draft.lat, state.draft.lng], {
+      icon: spotMarker({ spot_type: null, name: "新規", low_tide_only: false }),
+    }).addTo(map);
+    document.getElementById("new-coords").textContent =
+      `緯度 ${state.draft.lat.toFixed(6)} / 経度 ${state.draft.lng.toFixed(6)}`;
+    document.getElementById("new-sheet").hidden = false;
+    document.getElementById("sheet").hidden = true;
+  });
+
+  function renderChips() {
+    document.getElementById("new-water").innerHTML = WATER_TYPES
+      .map((w) => `<span class="chip${w.value === state.water ? " selected" : ""}"
+                         data-value="${w.value}">${w.label}</span>`).join("");
+    document.getElementById("new-type").innerHTML = SPOT_TYPES
+      .map((t) => `<span class="chip${t.value === state.type ? " selected" : ""}"
+                         data-value="${t.value}">${t.icon} ${t.label}</span>`).join("");
+  }
+
+  document.getElementById("new-water").addEventListener("click", (e) => {
+    const chip = e.target.closest(".chip");
+    if (!chip) return;
+    state.water = chip.dataset.value; renderChips();
+  });
+  document.getElementById("new-type").addEventListener("click", (e) => {
+    const chip = e.target.closest(".chip");
+    if (!chip) return;
+    state.type = chip.classList.contains("selected") ? null : chip.dataset.value;
+    renderChips();
+  });
+
+  document.getElementById("new-close").addEventListener("click", clearDraft);
+
+  function clearDraft() {
+    document.getElementById("new-sheet").hidden = true;
+    if (draftMarker) { draftMarker.remove(); draftMarker = null; }
+    state.draft = null;
+  }
+
+  document.getElementById("new-save").addEventListener("click", async (e) => {
+    if (!state.draft) return message("地図をタップして位置を指定してください。", "error");
+    const button = e.currentTarget;
+    button.disabled = true; button.textContent = "登録中…";
+    const { error } = await client.from("spots").insert({
+      user_id: await currentUserId(),
+      name: document.getElementById("new-name").value.trim() || null,
+      latitude: Number(state.draft.lat.toFixed(6)),
+      longitude: Number(state.draft.lng.toFixed(6)),
+      water_type: state.water,
+      spot_type: state.type,
+      low_tide_only: document.getElementById("new-lowtide").checked,
+    });
+    button.disabled = false; button.textContent = "このスポットを登録";
+    if (error) return message(toJapaneseError(error), "error");
+
+    spots = await listSpots();
+    clearDraft();
+    document.getElementById("new-name").value = "";
+    document.getElementById("new-lowtide").checked = false;
+    state.addMode = false;
+    const addButton = document.getElementById("add-mode");
+    addButton.classList.remove("on"); addButton.textContent = "＋ 追加";
+    renderAll();
+    message("スポットを登録しました。", "success");
+  });
+
+  function message(text, kind) {
+    const box = document.getElementById("message");
+    if (!text) { box.hidden = true; return; }
+    box.textContent = text;
+    box.className = `message ${kind}`;
+    box.hidden = false;
+  }
+</script>
+</body>
+</html>

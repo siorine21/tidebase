@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>スポット詳細 | TIDEBASE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@400;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="assets/theme.css">
+</head>
+<body class="app-body">
+<!-- SCR-005 スポット詳細（編集・削除・釣果一括変更） -->
+<header class="page-head">
+  <button type="button" class="back" id="back" aria-label="戻る">←</button>
+  <div class="page-title" id="title">スポット詳細</div>
+</header>
+
+<main>
+  <div id="message" class="message" hidden role="alert"></div>
+  <div id="content"><div class="empty">読み込み中…</div></div>
+</main>
+
+<script src="vendor/leaflet/leaflet.js"></script>
+<script src="vendor/supabase.js"></script>
+<script src="assets/config.js"></script>
+<script type="module">
+  import {
+    client, requireSession, renderNav, escapeHtml, toJapaneseError,
+    listSpots, listRecords, createMap, spotMarker, spotType, waterLabel,
+    SPOT_TYPES, WATER_TYPES, googleMapsUrl, googleDirectionsUrl, formatJstDate,
+  } from "./assets/app.js";
+
+  const session = await requireSession();
+  if (!session) throw new Error("unauthenticated");
+  renderNav("map");
+  document.getElementById("back").addEventListener("click", () => location.href = "spots.html");
+
+  const id = new URLSearchParams(location.search).get("id");
+  if (!id) {
+    document.getElementById("content").innerHTML = `<div class="empty">スポットが指定されていません。</div>`;
+    throw new Error("no id");
+  }
+
+  let spot = null;
+  let records = [];
+  let allSpots = [];
+  let editMap = null;
+  const edit = { lat: null, lng: null, water: null, type: null };
+
+  await load();
+
+  async function load() {
+    const [{ data, error }, recordList, spotList] = await Promise.all([
+      client.from("spots").select("*").eq("id", id).maybeSingle(),
+      listRecords({ limit: 200, spotId: id }).catch(() => []),
+      listSpots().catch(() => []),
+    ]);
+    if (error) {
+      document.getElementById("content").innerHTML = `<div class="empty">${escapeHtml(toJapaneseError(error))}</div>`;
+      return;
+    }
+    if (!data) {
+      document.getElementById("content").innerHTML = `<div class="empty">スポットが見つかりません。</div>`;
+      return;
+    }
+    spot = data; records = recordList; allSpots = spotList;
+    render();
+  }
+
+  function render() {
+    const type = spotType(spot.spot_type);
+    document.getElementById("title").textContent = spot.name ?? "無名スポット";
+    const catches = records.filter((r) => !r.is_skunked);
+    const total = catches.reduce((sum, r) => sum + (r.catch_count ?? 0), 0);
+
+    document.getElementById("content").innerHTML = `
+      <div class="map-box" id="mini-map"></div>
+
+      <div class="card">
+        <div class="tags" style="margin-top:0">
+          <span class="tag tag-gray">${type.icon} ${type.label}</span>
+          <span class="tag tag-blue">${waterLabel(spot.water_type)}</span>
+          ${spot.low_tide_only ? `<span class="tag tag-mustard">⚠️ 干潮時のみアクセス可</span>` : ""}
+          ${spot.tide_station_code ? `<span class="tag tag-gray">潮汐観測点 ${escapeHtml(spot.tide_station_code)}</span>` : ""}
+        </div>
+        <div class="rows" style="margin-top:12px">
+          <div class="row"><span class="label">座標</span>
+            <span class="val">${spot.latitude}, ${spot.longitude}</span></div>
+          <div class="row"><span class="label">釣行</span>
+            <span class="val">${records.length} 回</span></div>
+          <div class="row"><span class="label">釣果</span>
+            <span class="val">${total} 匹</span></div>
+        </div>
+        ${spot.memo ? `<div style="margin-top:12px;white-space:pre-wrap;font-size:14px">${escapeHtml(spot.memo)}</div>` : ""}
+      </div>
+
+      <div class="actions" style="margin-top:0">
+        <a class="btn btn-quiet link-btn" href="${googleMapsUrl(spot)}" target="_blank" rel="noopener">🗺️ Google マップ</a>
+        <a class="btn link-btn" href="${googleDirectionsUrl(spot)}" target="_blank" rel="noopener">🚗 経路案内</a>
+      </div>
+
+      <div class="section-label">
+        <span>CATCH HISTORY</span>
+        <a class="note" href="records.html?spot=${spot.id}">すべて見る →</a>
+      </div>
+      <div>${renderRecords()}</div>
+
+      <div class="actions">
+        <button type="button" class="btn btn-quiet" id="edit-toggle">✏️ 編集</button>
+        <button type="button" class="btn btn-quiet" id="delete">削除する</button>
+      </div>
+
+      <section id="edit-panel" class="card" hidden>
+        <h2>スポットを編集</h2>
+        <div class="field"><label for="e-name">スポット名</label>
+          <input type="text" id="e-name" maxlength="100"></div>
+        <div class="field"><label>水域区分</label><div class="chips" id="e-water"></div></div>
+        <div class="field"><label>スポット種別</label><div class="chips" id="e-type"></div></div>
+        <div class="field toggle-row">
+          <label for="e-lowtide" style="margin:0">⚠️ 干潮時のみアクセス可</label>
+          <input type="checkbox" id="e-lowtide" style="width:auto">
+        </div>
+        <div class="field"><label for="e-memo">メモ</label><textarea id="e-memo" maxlength="2000"></textarea></div>
+        <div class="field">
+          <label>座標（地図をタップして変更）</label>
+          <div class="map-box" id="edit-map" style="height:200px;margin-bottom:6px"></div>
+          <div class="page-sub" id="e-coords"></div>
+        </div>
+        <div class="actions" style="margin-top:0">
+          <button type="button" class="btn btn-quiet" id="edit-cancel">キャンセル</button>
+          <button type="button" class="btn" id="edit-save">変更を保存</button>
+        </div>
+      </section>
+
+      <section id="reassign-panel" class="card" hidden>
+        <h2>釣果のスポット一括変更</h2>
+        <div class="rows" style="margin-bottom:12px">
+          <div class="row"><span class="label">変更前</span>
+            <span class="val">${escapeHtml(spot.name ?? "無名スポット")}（${records.length}件）</span></div>
+        </div>
+        <div class="field">
+          <label for="target-spot">変更先スポット</label>
+          <select id="target-spot"></select>
+        </div>
+        <div class="actions" style="margin-top:0">
+          <button type="button" class="btn btn-quiet" id="reassign-cancel">キャンセル</button>
+          <button type="button" class="btn" id="reassign-run">全件を変更する</button>
+        </div>
+      </section>`;
+
+    renderMiniMap();
+    bind();
+  }
+
+  function renderRecords() {
+    if (!records.length) return `<div class="empty">このスポットでの釣果はまだありません。</div>`;
+    return records.slice(0, 5).map((r) => {
+      const title = r.is_skunked
+        ? "😞 ボウズ"
+        : `${escapeHtml(r.fish_name_local ?? "釣果")}${r.catch_count > 1 ? ` ×${r.catch_count}` : ""}`;
+      return `
+        <a class="list-item" href="record.html?id=${r.id}">
+          <div class="thumb">${r.is_skunked ? "😞" : "🐟"}</div>
+          <div class="list-body">
+            <div class="list-title">${title}</div>
+            <div class="list-sub">${escapeHtml(formatJstDate(r.fished_at))}</div>
+          </div>
+          ${r.tide_type ? `<span class="tag tag-blue">${escapeHtml(r.tide_type)}</span>` : ""}
+        </a>`;
+    }).join("");
+  }
+
+  function renderMiniMap() {
+    const { map } = createMap("mini-map", { center: [spot.latitude, spot.longitude], zoom: 15 });
+    L.marker([spot.latitude, spot.longitude], { icon: spotMarker(spot, { label: false }) }).addTo(map);
+    map.scrollWheelZoom.disable();
+  }
+
+  /* ---------- 編集 ---------- */
+  function bind() {
+    document.getElementById("edit-toggle").addEventListener("click", openEdit);
+    document.getElementById("edit-cancel").addEventListener("click", () => {
+      document.getElementById("edit-panel").hidden = true;
+    });
+    document.getElementById("edit-save").addEventListener("click", saveEdit);
+    document.getElementById("delete").addEventListener("click", tryDelete);
+    document.getElementById("reassign-cancel").addEventListener("click", () => {
+      document.getElementById("reassign-panel").hidden = true;
+    });
+    document.getElementById("reassign-run").addEventListener("click", runReassign);
+  }
+
+  function openEdit() {
+    const panel = document.getElementById("edit-panel");
+    panel.hidden = false;
+    document.getElementById("e-name").value = spot.name ?? "";
+    document.getElementById("e-memo").value = spot.memo ?? "";
+    document.getElementById("e-lowtide").checked = Boolean(spot.low_tide_only);
+    Object.assign(edit, {
+      lat: Number(spot.latitude), lng: Number(spot.longitude),
+      water: spot.water_type, type: spot.spot_type,
+    });
+    renderEditChips();
+    updateCoordsLabel();
+
+    if (!editMap) {
+      const created = createMap("edit-map", { center: [edit.lat, edit.lng], zoom: 15 });
+      editMap = created.map;
+      let marker = L.marker([edit.lat, edit.lng], { icon: spotMarker(spot, { label: false }) }).addTo(editMap);
+      editMap.on("click", (e) => {
+        edit.lat = Number(e.latlng.lat.toFixed(6));
+        edit.lng = Number(e.latlng.lng.toFixed(6));
+        marker.setLatLng([edit.lat, edit.lng]);
+        updateCoordsLabel();
+      });
+    }
+    setTimeout(() => editMap.invalidateSize(), 50);
+    panel.scrollIntoView({ behavior: "smooth" });
+  }
+
+  function updateCoordsLabel() {
+    document.getElementById("e-coords").textContent = `緯度 ${edit.lat} / 経度 ${edit.lng}`;
+  }
+
+  function renderEditChips() {
+    document.getElementById("e-water").innerHTML = WATER_TYPES
+      .map((w) => `<span class="chip${w.value === edit.water ? " selected" : ""}"
+                         data-value="${w.value}">${w.label}</span>`).join("");
+    document.getElementById("e-type").innerHTML = SPOT_TYPES
+      .map((t) => `<span class="chip${t.value === edit.type ? " selected" : ""}"
+                         data-value="${t.value}">${t.icon} ${t.label}</span>`).join("");
+  }
+
+  document.addEventListener("click", (e) => {
+    const chip = e.target.closest("#e-water .chip, #e-type .chip");
+    if (!chip) return;
+    if (chip.closest("#e-water")) edit.water = chip.dataset.value;
+    else edit.type = chip.classList.contains("selected") ? null : chip.dataset.value;
+    renderEditChips();
+  });
+
+  async function saveEdit(e) {
+    const button = e.currentTarget;
+    button.disabled = true; button.textContent = "保存中…";
+    const { error } = await client.from("spots").update({
+      name: document.getElementById("e-name").value.trim() || null,
+      memo: document.getElementById("e-memo").value.trim() || null,
+      latitude: edit.lat, longitude: edit.lng,
+      water_type: edit.water, spot_type: edit.type,
+      low_tide_only: document.getElementById("e-lowtide").checked,
+    }).eq("id", spot.id);
+    button.disabled = false; button.textContent = "変更を保存";
+    if (error) return message(toJapaneseError(error), "error");
+    editMap = null;
+    await load();
+    message("スポットを更新しました。", "success");
+  }
+
+  /* ---------- 削除 → 一括変更への誘導（確定仕様書 17.2 章） ---------- */
+  async function tryDelete() {
+    if (records.length > 0) {
+      const go = confirm(
+        `${spot.name ?? "このスポット"}には${records.length}件の釣果記録が紐付いています。\n`
+        + "削除する前にスポットを変更してください。\n\nOK で一括変更画面を開きます。");
+      if (go) openReassign();
+      return;
+    }
+    if (!confirm("このスポットを削除しますか？\nこの操作は取り消せません。")) return;
+    const { error } = await client.from("spots").delete().eq("id", spot.id);
+    if (error) return message(toJapaneseError(error), "error");
+    location.replace("spots.html");
+  }
+
+  function openReassign() {
+    const panel = document.getElementById("reassign-panel");
+    const options = allSpots.filter((s) => s.id !== spot.id);
+    document.getElementById("target-spot").innerHTML = options.length
+      ? options.map((s) => `<option value="${s.id}">${escapeHtml(s.name ?? "無名スポット")}</option>`).join("")
+      : `<option value="">他のスポットがありません</option>`;
+    panel.hidden = false;
+    panel.scrollIntoView({ behavior: "smooth" });
+  }
+
+  async function runReassign(e) {
+    const targetId = document.getElementById("target-spot").value;
+    if (!targetId) return message("変更先のスポットを登録してください。", "error");
+    const button = e.currentTarget;
+    button.disabled = true; button.textContent = "変更中…";
+    const { error } = await client.from("fishing_records")
+      .update({ spot_id: targetId }).eq("spot_id", spot.id);
+    button.disabled = false; button.textContent = "全件を変更する";
+    if (error) return message(toJapaneseError(error), "error");
+    document.getElementById("reassign-panel").hidden = true;
+    await load();
+    message(`釣果を一括変更しました。スポットを削除できます。`, "success");
+  }
+
+  function message(text, kind) {
+    const box = document.getElementById("message");
+    box.textContent = text;
+    box.className = `message ${kind}`;
+    box.hidden = false;
+    window.scrollTo(0, 0);
+  }
+</script>
+</body>
+</html>
