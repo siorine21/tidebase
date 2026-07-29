@@ -11,3 +11,6 @@ supabase/functions/**/_build/
 # IDE
 .vscode/
 .idea/
+
+# ローカル検証用
+frontend/**/*.local.js

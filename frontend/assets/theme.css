@@ -1,0 +1,237 @@
+/* TIDEBASE デザイントークン
+   出典: docs/handoff/TIDEBASE_画面設計_ワイヤーフレーム_v7.2.html（v3 カラシ×ブルーテーマ）
+   ワイヤーフレームと同じ変数名を使い、画面実装間で見た目を揃える。 */
+
+:root {
+  /* Backgrounds */
+  --bg-deep:   #0A1520;
+  --bg-dark:   #0F1E2E;
+  --bg-card:   #162433;
+  --bg-raised: #1C2E40;
+
+  /* Mustard — メインアクセント */
+  --mustard:    #C9A84C;
+  --mustard-lt: #E8C76A;
+  --mustard-dk: #8A6E28;
+  --mustard-bg: #2A2010;
+
+  /* Blue — サブアクセント（潮汐・天気・情報） */
+  --blue:      #4A9ECC;
+  --blue-mid:  #2A6FA8;
+  --blue-deep: #1A4A72;
+  --blue-bg:   #0F2030;
+
+  /* Semantic */
+  --green:       #4CAF50;
+  --green-light: rgba(76, 175, 80, 0.12);
+  --red:         #E53935;
+  --red-light:   rgba(229, 57, 53, 0.12);
+
+  /* Text */
+  --text-primary:   #F0EAD6;
+  --text-secondary: #9BA8B5;
+  --text-muted:     #5A6A7A;
+
+  /* Borders */
+  --border:        rgba(201, 168, 76, 0.18);
+  --border-strong: rgba(201, 168, 76, 0.45);
+
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  font-family: 'Noto Sans JP', system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.numeric { font-family: 'JetBrains Mono', monospace; }
+
+/* ---------- 認証画面レイアウト ---------- */
+.auth-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px 24px 24px;
+}
+
+.brand {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.brand h1 {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 44px;
+  letter-spacing: 3px;
+  margin: 0;
+  color: var(--mustard);
+}
+
+.brand p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+}
+
+/* ---------- フォーム ---------- */
+.field { margin-bottom: 16px; }
+
+.field label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.field input {
+  width: 100%;
+  padding: 11px 12px;
+  background: var(--bg-deep);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 15px;
+}
+
+.field input:focus {
+  outline: none;
+  border-color: var(--border-strong);
+}
+
+.field .hint {
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.btn {
+  width: 100%;
+  padding: 12px;
+  border: none;
+  border-radius: 8px;
+  background: var(--mustard);
+  color: var(--bg-deep);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) { background: var(--mustard-lt); }
+.btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.btn-quiet {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+.btn-quiet:hover:not(:disabled) { background: var(--bg-raised); }
+
+.alt-link {
+  margin: 18px 0 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.alt-link a { color: var(--mustard); }
+
+/* ---------- メッセージ ---------- */
+.message {
+  margin-bottom: 16px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.message[hidden] { display: none; }
+.message.error   { background: var(--red-light);   border: 1px solid var(--red);   color: #FFB4B2; }
+.message.success { background: var(--green-light); border: 1px solid var(--green); color: #A5D6A7; }
+
+/* ---------- ホーム（暫定） ---------- */
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-dark);
+}
+
+.app-header h1 {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 26px;
+  letter-spacing: 2px;
+  margin: 0;
+  color: var(--mustard);
+}
+
+.app-header button { width: auto; padding: 7px 14px; font-size: 13px; }
+
+main { padding: 16px; max-width: 640px; margin: 0 auto; }
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 14px;
+}
+
+.card h2 {
+  margin: 0 0 12px;
+  font-size: 13px;
+  letter-spacing: 1px;
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+.stat {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.stat .value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 30px;
+  color: var(--mustard);
+}
+
+.stat .unit { font-size: 13px; color: var(--text-muted); }
+
+.rows { display: grid; gap: 8px; }
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+}
+
+.row .label { color: var(--text-secondary); }
+.row .val { font-family: 'JetBrains Mono', monospace; color: var(--blue); }
+
+.muted { color: var(--text-muted); font-size: 12px; }

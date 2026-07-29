@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TIDEBASE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@400;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/theme.css">
+</head>
+<body>
+<!-- SCR-001 ホーム（Phase 2 で本実装。現時点は認証後の着地点） -->
+<header class="app-header">
+  <h1>TIDEBASE</h1>
+  <button type="button" class="btn btn-quiet" id="signout">ログアウト</button>
+</header>
+
+<main>
+  <div class="card">
+    <h2>アカウント</h2>
+    <div class="rows">
+      <div class="row"><span class="label">メールアドレス</span><span class="val" id="email">—</span></div>
+      <div class="row"><span class="label">登録済みメソッド</span><span class="val" id="methods">—</span></div>
+      <div class="row"><span class="label">釣果記録</span><span class="val" id="records">—</span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>今日の潮汐（東京）</h2>
+    <div class="stat">
+      <span class="value" id="tide-type">—</span>
+      <span class="unit">月齢 <span class="numeric" id="moon-age">—</span></span>
+    </div>
+    <div class="rows" id="tide-events" style="margin-top:12px"></div>
+    <p class="muted" id="tide-note" style="margin:10px 0 0">気象庁 潮位表</p>
+  </div>
+
+  <p class="muted">
+    Phase 2 でホーム・釣果入力・スポットマップ等の各画面を実装します。
+  </p>
+</main>
+
+<script src="vendor/supabase.js"></script>
+<script src="assets/config.js"></script>
+<script type="module">
+  import { client, requireSession, fetchTide, todayInJst } from "./assets/app.js";
+
+  const session = await requireSession();
+  if (session) {
+    document.getElementById("email").textContent = session.user.email;
+
+    // RLS により自分の行だけが数えられる
+    const [methods, records] = await Promise.all([
+      client.from("methods").select("id", { count: "exact", head: true }),
+      client.from("fishing_records").select("id", { count: "exact", head: true }),
+    ]);
+    document.getElementById("methods").textContent = `${methods.count ?? 0} 件`;
+    document.getElementById("records").textContent = `${records.count ?? 0} 件`;
+
+    try {
+      const tide = await fetchTide("TK", todayInJst());
+      document.getElementById("tide-type").textContent = tide.tide_type;
+      document.getElementById("moon-age").textContent = tide.moon_age;
+      document.getElementById("tide-events").innerHTML = [
+        ...tide.high_tides.map((e) => ({ label: "満潮", ...e })),
+        ...tide.low_tides.map((e) => ({ label: "干潮", ...e })),
+      ]
+        .sort((a, b) => a.time.localeCompare(b.time))
+        .map((e) => `<div class="row"><span class="label">${e.label}</span>`
+          + `<span class="val">${e.time}　${e.level_cm}cm</span></div>`)
+        .join("");
+    } catch (error) {
+      document.getElementById("tide-note").textContent = error.message;
+    }
+  }
+
+  document.getElementById("signout").addEventListener("click", async () => {
+    await client.auth.signOut();
+    location.replace("login.html");
+  });
+</script>
+</body>
+</html>

@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ログイン | TIDEBASE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@400;700&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/theme.css">
+</head>
+<body>
+<!-- SCR-016 ログイン -->
+<div class="auth-shell">
+  <div class="auth-card">
+    <div class="brand">
+      <h1>TIDEBASE</h1>
+      <p>YOUR FISHING KNOWLEDGE BASE</p>
+    </div>
+
+    <div id="message" class="message" hidden role="alert"></div>
+
+    <form id="login-form" novalidate>
+      <div class="field">
+        <label for="email">メールアドレス</label>
+        <input type="email" id="email" name="email" autocomplete="email" required>
+      </div>
+      <div class="field">
+        <label for="password">パスワード</label>
+        <input type="password" id="password" name="password" autocomplete="current-password" required>
+      </div>
+      <button type="submit" class="btn" id="submit">ログイン</button>
+    </form>
+
+    <p class="alt-link">
+      アカウントをお持ちでない方は <a href="signup.html">会員登録</a>
+    </p>
+  </div>
+</div>
+
+<script src="vendor/supabase.js"></script>
+<script src="assets/config.js"></script>
+<script type="module">
+  import { client, redirectIfSignedIn, toJapaneseError } from "./assets/app.js";
+
+  await redirectIfSignedIn();
+
+  const form = document.getElementById("login-form");
+  const submit = document.getElementById("submit");
+  const message = document.getElementById("message");
+
+  function show(text, kind) {
+    message.textContent = text;
+    message.className = `message ${kind}`;
+    message.hidden = false;
+  }
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    message.hidden = true;
+
+    const email = form.email.value.trim();
+    const password = form.password.value;
+    if (!email || !password) {
+      show("メールアドレスとパスワードを入力してください。", "error");
+      return;
+    }
+
+    submit.disabled = true;
+    submit.textContent = "ログイン中…";
+    const { error } = await client.auth.signInWithPassword({ email, password });
+
+    if (error) {
+      show(toJapaneseError(error), "error");
+      submit.disabled = false;
+      submit.textContent = "ログイン";
+      return;
+    }
+    location.replace("index.html");
+  });
+</script>
+</body>
+</html>
