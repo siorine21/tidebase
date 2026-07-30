@@ -357,6 +357,37 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL: 観測点も NULL 指定で自動割り当てに戻らない';
   END IF;
 
+  ------------------------------------------------------------
+  -- スポット座標のガード（008）
+  ------------------------------------------------------------
+  -- (0,0) は弾かれること（Open-Meteo が別の場所の日の出日没を返してしまうため）
+  BEGIN
+    INSERT INTO public.spots (user_id, name, latitude, longitude)
+    VALUES (u, '座標なし', 0, 0);
+    failed := TRUE;
+  EXCEPTION WHEN check_violation THEN
+    NULL;  -- 期待どおり
+  END;
+  IF failed THEN
+    RAISE EXCEPTION 'TEST FAIL: (0,0) のスポットが登録できてしまう';
+  END IF;
+
+  -- 国外の座標も弾かれること
+  BEGIN
+    INSERT INTO public.spots (user_id, name, latitude, longitude)
+    VALUES (u, 'ハワイ', 21.3, -157.8);
+    failed := TRUE;
+  EXCEPTION WHEN check_violation THEN
+    NULL;
+  END;
+  IF failed THEN
+    RAISE EXCEPTION 'TEST FAIL: 国外の座標が登録できてしまう';
+  END IF;
+
+  -- 国内の座標は通ること（境界に近い与那国島・南鳥島も含む）
+  INSERT INTO public.spots (user_id, name, latitude, longitude)
+  VALUES (u, '与那国島', 24.45, 123.00), (u, '南鳥島', 24.29, 153.98);
+
   RAISE NOTICE 'ALL DB TESTS PASSED';
 END;
 $$;

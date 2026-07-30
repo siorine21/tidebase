@@ -76,7 +76,7 @@
 <script src="assets/config.js"></script>
 <script type="module">
   import {
-    client, requireSession, renderNav, escapeHtml, toJapaneseError, currentUserId,
+    client, requireSession, renderNav, escapeHtml, toJapaneseError, requireUserId,
     LURE_CATEGORIES, listMakers, listTags, setRecipeTags,
   } from "./assets/app.js";
 
@@ -139,8 +139,12 @@
     const input = document.getElementById("new-maker");
     const name = input.value.trim();
     if (!name) return;
+    let userId;
+    try { userId = await requireUserId(); }
+    catch (sessionError) { return message(sessionError.message, "error"); }
+
     const { data, error } = await client.from("makers")
-      .insert({ user_id: await currentUserId(), name }).select().single();
+      .insert({ user_id: userId, name }).select().single();
     if (error) return message(toJapaneseError(error), "error");
     makers = await listMakers();
     state.makerId = data.id;
@@ -200,8 +204,12 @@
     const input = document.getElementById("new-tag");
     const name = input.value.trim();
     if (!name) return;
+    let userId;
+    try { userId = await requireUserId(); }
+    catch (sessionError) { return message(sessionError.message, "error"); }
+
     const { data, error } = await client.from("tags")
-      .insert({ user_id: await currentUserId(), name }).select().single();
+      .insert({ user_id: userId, name }).select().single();
     if (error) return message(toJapaneseError(error), "error");
     tags = await listTags();
     state.tagIds.add(data.id);
@@ -241,8 +249,11 @@
       if (error) return fail(button, error);
       saved = data;
     } else {
+      let userId;
+      try { userId = await requireUserId(); }
+      catch (sessionError) { return fail(button, sessionError); }
       const { data, error } = await client.from("lure_recipes")
-        .insert({ ...payload, user_id: await currentUserId() }).select().single();
+        .insert({ ...payload, user_id: userId }).select().single();
       if (error) return fail(button, error);
       saved = data;
     }

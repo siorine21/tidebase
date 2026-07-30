@@ -69,9 +69,10 @@
 <script src="assets/config.js"></script>
 <script type="module">
   import {
-    client, requireSession, renderNav, escapeHtml, toJapaneseError, currentUserId,
+    client, requireSession, renderNav, escapeHtml, toJapaneseError, requireUserId,
     listSpots, createMap, spotMarker, spotType, waterLabel,
     SPOT_TYPES, WATER_TYPES, googleMapsUrl, googleDirectionsUrl, isNightMap, setNightMap, icon,
+    isCoordinateInJapan,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -81,9 +82,12 @@
   const state = { addMode: false, draft: null, water: "saltwater", type: null };
   let spots = await listSpots().catch(() => []);
 
-  const { map, layers } = createMap("map", spots.length
-    ? { center: [spots[0].latitude, spots[0].longitude], zoom: 13 }
-    : {});   // スポットがなければ静岡県（浜名湖〜遠州灘）を初期表示
+  // 位置が未設定のスポット（旧フォームで 0,0 になったもの）は地図に載せない
+  const positioned = () => spots.filter((s) => isCoordinateInJapan(s.latitude, s.longitude));
+  const first = positioned()[0];
+  const { map, layers } = createMap("map", first
+    ? { center: [first.latitude, first.longitude], zoom: 13 }
+    : {});   // 位置つきスポットがなければ静岡県（浜名湖〜遠州灘）を初期表示
   let markerLayer = L.layerGroup().addTo(map);
   let draftMarker = null;
 
@@ -99,17 +103,20 @@
   }
 
   function renderAll() {
-    document.getElementById("count").textContent = `${spots.length} スポット`;
+    const onMap = positioned();
+    const missing = spots.length - onMap.length;
+    document.getElementById("count").textContent =
+      `${spots.length} スポット${missing ? `（位置未設定 ${missing}）` : ""}`;
     markerLayer.clearLayers();
     // ズームが低いときはラベルを間引く（確定仕様書 15.2 章）
     const showLabels = map.getZoom() >= 12;
-    for (const spot of spots) {
+    for (const spot of onMap) {
       L.marker([spot.latitude, spot.longitude], { icon: spotMarker(spot, { label: showLabels }) })
         .addTo(markerLayer)
         .on("click", () => openSheet(spot));
     }
-    if (spots.length) {
-      const bounds = L.latLngBounds(spots.map((s) => [s.latitude, s.longitude]));
+    if (onMap.length) {
+      const bounds = L.latLngBounds(onMap.map((s) => [s.latitude, s.longitude]));
       if (!map._fitted) { map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 }); map._fitted = true; }
     }
     renderList();
@@ -130,7 +137,10 @@
           <div class="thumb" style="background:${type.color}22;color:${type.color}">${icon(type.iconName, { size: 19 })}</div>
           <div class="list-body">
             <div class="list-title">${escapeHtml(s.name ?? "無名スポット")}${s.low_tide_only ? ` ${icon("warning", { size: 13 })}` : ""}</div>
-            <div class="list-sub">${type.label} · ${waterLabel(s.water_type)}${s.tide_station_code ? ` · 潮汐 ${s.tide_station_code}` : ""}</div>
+            <div class="list-sub">${type.label} · ${waterLabel(s.water_type)}${
+              s.tide_station_code ? ` · 潮汐 ${s.tide_station_code}` : ""}${
+              isCoordinateInJapan(s.latitude, s.longitude)
+                ? "" : ` · ${icon("warning", { size: 12 })} 位置未設定`}</div>
           </div>
           <div class="list-aside">→</div>
         </a>`;
@@ -240,8 +250,14 @@
     if (!state.draft) return message("地図をタップして位置を指定してください。", "error");
     const button = e.currentTarget;
     button.disabled = true; button.textContent = "登録中…";
+    let userId;
+    try { userId = await requireUserId(); }
+    catch (sessionError) {
+      button.disabled = false; button.textContent = "このスポットを登録";
+      return message(sessionError.message, "error");
+    }
     const { error } = await client.from("spots").insert({
-      user_id: await currentUserId(),
+      user_id: userId,
       name: document.getElementById("new-name").value.trim() || null,
       latitude: Number(state.draft.lat.toFixed(6)),
       longitude: Number(state.draft.lng.toFixed(6)),

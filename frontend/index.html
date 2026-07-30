@@ -15,6 +15,7 @@
 </header>
 
 <main>
+  <div id="message" class="message" hidden role="alert"></div>
   <section class="hero">
     <div class="hero-top">
       <div>
@@ -65,6 +66,7 @@
     describeWeather, windDirection, fishingScore, listSpots, listRecords, tideCorrelation, icon,
     recordFishName, nowInJst, hoursFromHhmm,
     listTidePoints, fetchTideForPoint, tidePointOfSpot, savedTidePoint, saveTidePoint, formatLag,
+    isCoordinateInJapan,
   } from "./assets/app.js";
 
   // 静岡県特化のため既定は舞阪（浜名湖口・遠州灘西部の基準）
@@ -87,11 +89,14 @@
       ?? points[0] ?? null;
     renderPointPicker(points, point);
 
-    // 天気はスポットの座標で取る。スポット未登録なら潮汐地点の座標で代用する
-    // （日の出・日没だけでも出せるようにする）
-    const weatherAt = baseSpot
+    // 天気はスポットの座標で取る。座標が未設定・国外なら潮汐地点の座標で代用する。
+    // （(0,0) のまま Open-Meteo に投げると赤道の大西洋上の日の出日没が返ってくる）
+    const spotUsable = baseSpot
+      && isCoordinateInJapan(baseSpot.latitude, baseSpot.longitude);
+    const weatherAt = spotUsable
       ? { lat: baseSpot.latitude, lng: baseSpot.longitude }
       : (point?.lat != null ? { lat: point.lat, lng: point.lng } : null);
+    if (baseSpot && !spotUsable) warnSpotCoordinates(baseSpot);
 
     const [tide, forecast] = await Promise.all([
       loadTide(point, today),
@@ -126,6 +131,16 @@
   async function loadTide(point, date) {
     if (!point) return null;
     try { return await fetchTideForPoint(point, date); } catch { return null; }
+  }
+
+  /** 座標が入っていないスポットは天気がまるで別の場所になるので、直し方を案内する。 */
+  function warnSpotCoordinates(spot) {
+    const box = document.getElementById("message");
+    box.innerHTML = `「${escapeHtml(spot.name ?? "無名スポット")}」に位置が設定されていません。`
+      + `天気と日の出・日没は下で選んだ潮汐地点のものを表示しています。`
+      + `<a href="spot.html?id=${spot.id}">スポット詳細</a>の「編集」から地図をタップして位置を設定してください。`;
+    box.className = "message error";
+    box.hidden = false;
   }
 
   function renderPointPicker(points, selected) {

@@ -151,7 +151,7 @@
 <script src="assets/config.js"></script>
 <script type="module">
   import {
-    client, requireSession, renderNav, escapeHtml, toJapaneseError, currentUserId,
+    client, requireSession, renderNav, escapeHtml, toJapaneseError, requireUserId,
     todayInJst, listSpots, listSpecies, listRecipes, suggestFishName, icon,
     groupSpeciesByCategory, createMap, spotMarker,
   } from "./assets/app.js";
@@ -389,9 +389,15 @@
 
     const button = e.currentTarget;
     button.disabled = true; button.textContent = "登録中…";
+    let userId;
+    try { userId = await requireUserId(); }
+    catch (sessionError) {
+      button.disabled = false; button.textContent = "スポットを登録";
+      return message(sessionError.message, "error");
+    }
     const { data, error } = await client.from("spots")
       .insert({
-        user_id: await currentUserId(), name,
+        user_id: userId, name,
         latitude: draft.lat, longitude: draft.lng, water_type: waterType,
       })
       .select().single();
@@ -438,8 +444,15 @@
     };
     const text = (id) => document.getElementById(id).value.trim() || null;
 
+    let userId;
+    try { userId = await requireUserId(); }
+    catch (sessionError) {
+      button.disabled = false; button.textContent = "この内容で記録する";
+      return message(sessionError.message, "error");
+    }
+
     const payload = {
-      user_id: await currentUserId(),
+      user_id: userId,
       spot_id: state.spotId,
       fished_at: document.getElementById("fished-at").value,
       is_skunked: state.isSkunked,

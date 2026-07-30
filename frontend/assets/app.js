@@ -55,6 +55,15 @@ export function toJapaneseError(error) {
   if (/row-level security/i.test(message)) {
     return "この操作を行う権限がありません。";
   }
+  if (/duplicate key value/i.test(message)) {
+    if (/makers_user_id_name_key/.test(message)) return "同じ名前のメーカーがすでに登録されています。";
+    if (/tags_user_id_name_key/.test(message)) return "同じ名前のタグがすでに登録されています。";
+    if (/fish_species/.test(message)) return "同じ名前の魚種がすでに登録されています。";
+    return "同じ内容がすでに登録されています。";
+  }
+  if (/violates check constraint "spots_coordinates_in_japan"/.test(message)) {
+    return "地図をタップして、日本国内の位置を指定してください。";
+  }
   if (/釣果記録が/.test(message)) return message; // DB トリガーの日本語メッセージ
   return message || "処理に失敗しました。時間をおいて再度お試しください。";
 }
@@ -346,10 +355,22 @@ export async function fetchWeather(lat, lng, date) {
   }));
 
   // daily は start_date から並ぶので 0 番目が対象日。値は "YYYY-MM-DDTHH:MM"（JST）
+  // 対象日と違う日付が返ってきたら（座標とタイムゾーンが噛み合っていない）採用しない
   const daily = forecast.daily ?? {};
-  const rise = daily.sunrise?.[0]?.slice(11, 16) ?? null;
-  const set = daily.sunset?.[0]?.slice(11, 16) ?? null;
+  const sameDay = (value) => value?.slice(0, 10) === date;
+  const rise = sameDay(daily.sunrise?.[0]) ? daily.sunrise[0].slice(11, 16) : null;
+  const set = sameDay(daily.sunset?.[0]) ? daily.sunset[0].slice(11, 16) : null;
   return { hours, sun: rise && set ? { rise, set } : null };
+}
+
+/**
+ * 日本国内とみなせる座標か。天気・日の出日没は座標が違うと平然と別の場所の値を
+ * 返してしまうため（(0,0) だと大西洋ギニア湾になる）、使う前に必ず通す。
+ */
+export function isCoordinateInJapan(lat, lng) {
+  const y = Number(lat), x = Number(lng);
+  return Number.isFinite(y) && Number.isFinite(x)
+    && y >= 20 && y <= 46 && x >= 122 && x <= 154;
 }
 
 /** "HH:MM" を小数の時刻に変換する（グラフの横位置計算用）。 */
@@ -373,9 +394,26 @@ export function fishingScore(tideType, weatherCode, windMs) {
 
 /* ---------------- データアクセス ---------------- */
 
+/**
+ * ログイン中のユーザー ID。
+ * getUser() は毎回 /auth/v1/user を叩くため、レート制限や通信エラーで null を返し
+ * 得る。null のまま INSERT すると RLS 違反（=「権限がありません」）になって
+ * 原因が分からなくなるので、ネットワークに出ない getSession() から取る。
+ * （getSession() はアクセストークンが期限切れなら自動で更新する）
+ */
 export async function currentUserId() {
-  const { data } = await client.auth.getUser();
-  return data.user?.id ?? null;
+  const { data } = await client.auth.getSession();
+  return data.session?.user?.id ?? null;
+}
+
+/**
+ * 書き込み前のユーザー ID 取得。取れないときは RLS 違反にせず、
+ * 何をすればよいか分かる日本語のエラーにする。
+ */
+export async function requireUserId() {
+  const id = await currentUserId();
+  if (!id) throw new Error("セッションが切れました。お手数ですが再度ログインしてください。");
+  return id;
 }
 
 export async function listSpots() {

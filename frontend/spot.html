@@ -28,7 +28,7 @@
     client, requireSession, renderNav, escapeHtml, toJapaneseError,
     listSpots, listRecords, createMap, spotMarker, spotType, waterLabel,
     SPOT_TYPES, WATER_TYPES, googleMapsUrl, googleDirectionsUrl, formatJstDate, icon,
-    recordFishName, listTidePoints, tidePointOfSpot, formatLag,
+    recordFishName, listTidePoints, tidePointOfSpot, formatLag, isCoordinateInJapan,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -87,7 +87,8 @@
         </div>
         <div class="rows" style="margin-top:12px">
           <div class="row"><span class="label">座標</span>
-            <span class="val">${spot.latitude}, ${spot.longitude}</span></div>
+            <span class="val">${hasPosition() ? `${spot.latitude}, ${spot.longitude}`
+              : "未設定（編集から地図で指定）"}</span></div>
           <div class="row"><span class="label">釣行</span>
             <span class="val">${records.length} 回</span></div>
           <div class="row"><span class="label">釣果</span>
@@ -178,9 +179,19 @@
   }
 
   function renderMiniMap() {
+    // 位置が未設定（旧フォームの空欄で 0,0 になった等）なら静岡県の初期表示にする
+    if (!hasPosition()) {
+      const { map } = createMap("mini-map", {});
+      map.scrollWheelZoom.disable();
+      return;
+    }
     const { map } = createMap("mini-map", { center: [spot.latitude, spot.longitude], zoom: 15 });
     L.marker([spot.latitude, spot.longitude], { icon: spotMarker(spot, { label: false }) }).addTo(map);
     map.scrollWheelZoom.disable();
+  }
+
+  function hasPosition() {
+    return isCoordinateInJapan(spot.latitude, spot.longitude);
   }
 
   /* ---------- 編集 ---------- */
@@ -203,8 +214,10 @@
     document.getElementById("e-name").value = spot.name ?? "";
     document.getElementById("e-memo").value = spot.memo ?? "";
     document.getElementById("e-lowtide").checked = Boolean(spot.low_tide_only);
+    const positioned = hasPosition();
     Object.assign(edit, {
-      lat: Number(spot.latitude), lng: Number(spot.longitude),
+      lat: positioned ? Number(spot.latitude) : null,
+      lng: positioned ? Number(spot.longitude) : null,
       water: spot.water_type, type: spot.spot_type,
     });
     renderEditChips();
@@ -212,13 +225,18 @@
     updateCoordsLabel();
 
     if (!editMap) {
-      const created = createMap("edit-map", { center: [edit.lat, edit.lng], zoom: 15 });
+      // 位置が未設定なら静岡県の初期表示にして、タップで決めてもらう
+      const created = createMap("edit-map",
+        positioned ? { center: [edit.lat, edit.lng], zoom: 15 } : {});
       editMap = created.map;
-      let marker = L.marker([edit.lat, edit.lng], { icon: spotMarker(spot, { label: false }) }).addTo(editMap);
+      let marker = positioned
+        ? L.marker([edit.lat, edit.lng], { icon: spotMarker(spot, { label: false }) }).addTo(editMap)
+        : null;
       editMap.on("click", (e) => {
         edit.lat = Number(e.latlng.lat.toFixed(6));
         edit.lng = Number(e.latlng.lng.toFixed(6));
-        marker.setLatLng([edit.lat, edit.lng]);
+        if (marker) marker.setLatLng([edit.lat, edit.lng]);
+        else marker = L.marker([edit.lat, edit.lng], { icon: spotMarker(spot, { label: false }) }).addTo(editMap);
         updateCoordsLabel();
       });
     }
@@ -227,7 +245,9 @@
   }
 
   function updateCoordsLabel() {
-    document.getElementById("e-coords").textContent = `緯度 ${edit.lat} / 経度 ${edit.lng}`;
+    document.getElementById("e-coords").textContent = edit.lat == null
+      ? "位置が未設定です。地図をタップして指定してください。"
+      : `緯度 ${edit.lat} / 経度 ${edit.lng}`;
   }
 
   /* ---------- 潮汐地点（浜名湖などは基準観測点＋時差で推算する） ---------- */
@@ -277,6 +297,7 @@
   });
 
   async function saveEdit(e) {
+    if (edit.lat == null) return message("地図をタップして位置を指定してください。", "error");
     const button = e.currentTarget;
     button.disabled = true; button.textContent = "保存中…";
 
