@@ -585,3 +585,80 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
   font-size: 12px; font-weight: 700;
 }
 .field select option { background: var(--bg-deep); color: var(--text-primary); font-weight: 400; }
+
+/* ---------- SCR-003 潮汐・天気詳細 ---------- */
+
+/* 地点切替タブ（お気に入り地点） */
+.point-tabs {
+  display: flex; gap: 8px; overflow-x: auto; padding: 10px 16px;
+  background: var(--bg-deep); border-bottom: 1px solid var(--border);
+  scrollbar-width: none;
+}
+.point-tabs::-webkit-scrollbar { display: none; }
+.point-tab {
+  flex: 0 0 auto; white-space: nowrap; cursor: pointer;
+  padding: 5px 12px; border-radius: 14px; font-size: 12px; font-family: inherit;
+  background: var(--bg-raised); color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+.point-tab.on {
+  background: var(--mustard); color: var(--bg-deep);
+  border-color: var(--mustard); font-weight: 700;
+}
+.point-tab.add { display: inline-flex; align-items: center; gap: 4px; color: var(--text-muted); }
+.point-picker {
+  display: block; width: calc(100% - 32px); margin: 10px 16px 0;
+  padding: 10px 12px; font-size: 14px; font-family: inherit;
+  background: var(--bg-deep); color: var(--text-primary);
+  border: 1px solid var(--border-strong); border-radius: var(--radius);
+}
+
+/* 今日のサマリ */
+.info-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 1px;
+  background: var(--border); border: 1px solid var(--border);
+  border-radius: var(--radius); overflow: hidden;
+}
+.info-cell { background: var(--bg-card); padding: 10px 12px; }
+.info-cell .label { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+.info-cell .value {
+  font-family: 'JetBrains Mono', monospace; font-size: 14px; color: var(--text-primary);
+}
+
+/* 大型潮汐グラフ */
+.tide-graph-lg { height: 176px; }
+.tide-graph .grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 4; }
+.tide-graph .peak-dot { stroke: var(--bg-card); stroke-width: 1.5; }
+.tide-graph .peak-dot.high { fill: #FF9800; }
+.tide-graph .peak-dot.low  { fill: #64B5F6; }
+.tide-graph text.peak.high { fill: #FF9800; font-weight: 700; }
+.tide-graph text.peak.low  { fill: #64B5F6; font-weight: 700; }
+
+/* 週間カレンダー */
+.week-nav {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; margin-bottom: 8px;
+}
+.week-nav button:not(.btn) {
+  width: 34px; height: 30px; cursor: pointer; font-family: inherit; font-size: 13px;
+  background: var(--bg-raised); color: var(--text-secondary);
+  border: 1px solid var(--border); border-radius: 8px;
+}
+.week-nav .btn { flex: 1; padding: 7px 0; font-size: 12px; }
+.week-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.week-grid .day {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 7px 2px; cursor: pointer; font-family: inherit;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+}
+.week-grid .day.today { border-color: var(--border-strong); background: var(--mustard-bg); }
+.week-grid .day.selected { outline: 1.5px solid var(--mustard); outline-offset: -1.5px; }
+.week-grid .wd { font-size: 8px; color: var(--text-muted); letter-spacing: 0.5px; }
+.week-grid .wd-0 { color: #E57373; }   /* 日曜 */
+.week-grid .wd-6 { color: #64B5F6; }   /* 土曜 */
+.week-grid .dd {
+  font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--text-primary);
+}
+.week-grid .tt { font-size: 9px; font-weight: 700; }
+.week-grid .wx { height: 18px; display: flex; align-items: center; }
+.week-grid .wx .icon { width: 15px; height: 15px; color: var(--text-secondary); }

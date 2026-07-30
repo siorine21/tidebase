@@ -32,11 +32,13 @@
   </section>
 
   <div class="section-label">
-    <span>TIDE GRAPH — 本日</span><span class="note" id="tide-station"></span>
+    <span>TIDE GRAPH — 本日</span>
+    <a class="note" id="tide-detail-link" href="tide.html">詳細 →</a>
   </div>
   <div class="card" id="tide-card">
     <div class="empty" id="tide-empty">読み込み中…</div>
   </div>
+  <div class="page-sub" id="tide-station" style="margin:-8px 0 12px"></div>
   <div class="field tide-point">
     <label for="tide-point">潮汐地点</label>
     <select id="tide-point"></select>
@@ -88,6 +90,10 @@
     let point = pick(savedTidePoint()) ?? pick(tidePointOfSpot(baseSpot)) ?? pick(DEFAULT_POINT)
       ?? points[0] ?? null;
     renderPointPicker(points, point);
+    if (point) {
+      document.getElementById("tide-detail-link").href =
+        `tide.html?point=${encodeURIComponent(point.value)}`;
+    }
 
     // 天気はスポットの座標で取る。座標が未設定・国外なら潮汐地点の座標で代用する。
     // （(0,0) のまま Open-Meteo に投げると赤道の大西洋上の日の出日没が返ってくる）
@@ -115,6 +121,7 @@
       if (!chosen) return;
       saveTidePoint(chosen.value);
       renderPointNote(chosen);
+      document.getElementById("tide-detail-link").href = `tide.html?point=${encodeURIComponent(chosen.value)}`;
       document.getElementById("tide-card").innerHTML =
         `<div class="empty" id="tide-empty">読み込み中…</div>`;
       renderTideGraph(await loadTide(chosen, today), sun);

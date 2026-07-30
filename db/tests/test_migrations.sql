@@ -388,6 +388,35 @@ BEGIN
   INSERT INTO public.spots (user_id, name, latitude, longitude)
   VALUES (u, '与那国島', 24.45, 123.00), (u, '南鳥島', 24.29, 153.98);
 
+  ------------------------------------------------------------
+  -- お気に入りの潮汐地点（009）
+  ------------------------------------------------------------
+  -- 既定は空配列
+  IF (SELECT favorite_tide_points FROM public.profiles WHERE id = u) IS DISTINCT FROM '{}' THEN
+    RAISE EXCEPTION 'TEST FAIL: favorite_tide_points の既定が空配列でない';
+  END IF;
+
+  -- 正しい形式は保存できる
+  UPDATE public.profiles
+  SET favorite_tide_points = ARRAY['ST:MI', 'AR:HN-MURAKUSHI'] WHERE id = u;
+  IF array_length((SELECT favorite_tide_points FROM public.profiles WHERE id = u), 1) <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL: お気に入りの潮汐地点が保存できない';
+  END IF;
+
+  -- 形式が違う値は弾かれる（タブが壊れるため）
+  BEGIN
+    UPDATE public.profiles SET favorite_tide_points = ARRAY['MI'] WHERE id = u;
+    failed := TRUE;
+  EXCEPTION WHEN check_violation THEN
+    NULL;
+  END;
+  IF failed THEN
+    RAISE EXCEPTION 'TEST FAIL: 形式の違うお気に入りが保存できてしまう';
+  END IF;
+
+  -- 空配列に戻せる
+  UPDATE public.profiles SET favorite_tide_points = '{}' WHERE id = u;
+
   RAISE NOTICE 'ALL DB TESTS PASSED';
 END;
 $$;

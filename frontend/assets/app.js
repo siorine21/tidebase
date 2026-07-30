@@ -124,13 +124,59 @@ export function relativeDays(isoDate) {
 
 /* ---------------- 潮汐（Edge Function・認証不要） ---------------- */
 
+/**
+ * 応答が返らないまま止まると画面が「読み込み中…」のままになるので、
+ * 外部 API への取得はすべて時間切れを付ける。
+ */
+const FETCH_TIMEOUT_MS = 15000;
+
+function fetchWithTimeout(url, timeout = FETCH_TIMEOUT_MS) {
+  return fetch(url, { signal: AbortSignal.timeout(timeout) });
+}
+
 export async function fetchTide(station, date) {
   const url = `${config.supabaseUrl}/functions/v1/tide`
     + `?station=${encodeURIComponent(station)}&date=${encodeURIComponent(date)}`;
-  const response = await fetch(url);
+  const response = await fetchWithTimeout(url);
   if (!response.ok) throw new Error(`潮汐データを取得できませんでした (${response.status})`);
   return response.json();
 }
+
+/* ---------------- 月齢・潮回り（D-002 / 004 の SQL と同じ計算） ---------------- */
+
+// 朔（新月）の基準時刻と朔望月の長さ
+const NEW_MOON_EPOCH_MS = Date.parse("2000-01-06T18:14:00Z");
+const SYNODIC_MONTH_DAYS = 29.530588853;
+
+/**
+ * JST 正午時点の月齢（小数第 1 位）。
+ * public.moon_age(DATE) の移植。週間カレンダーのように何日ぶんも必要なとき、
+ * 潮汐 API を日数ぶん叩かずに済ませるために使う。
+ */
+export function moonAge(isoDate) {
+  const noonJst = Date.parse(`${isoDate}T03:00:00Z`);   // JST 12:00 = UTC 03:00
+  const days = (noonJst - NEW_MOON_EPOCH_MS) / 86400000;
+  return Math.round((days % SYNODIC_MONTH_DAYS) * 10) / 10;
+}
+
+/** 潮回り。public.tide_type(DATE) の移植。 */
+export function tideType(isoDate) {
+  const index = Math.round(moonAge(isoDate)) % 30;
+  if ([0, 1, 2, 14, 15, 16, 17, 29].includes(index)) return "大潮";
+  if ([3, 4, 5, 6, 12, 13, 18, 19, 20, 21, 27, 28].includes(index)) return "中潮";
+  if ([7, 8, 9, 22, 23, 24].includes(index)) return "小潮";
+  if ([10, 25].includes(index)) return "長潮";
+  return "若潮";  // 11, 26
+}
+
+/** 潮回りの表示色（ワイヤーフレーム v7.2 の週間カレンダー）。 */
+export const TIDE_TYPE_COLORS = {
+  大潮: "#FF5722",
+  中潮: "#FF9800",
+  小潮: "#64B5F6",
+  長潮: "#9AA5B1",
+  若潮: "#4CAF50",
+};
 
 /* ---------------- 潮汐地点（細分化・D-030） ---------------- */
 
@@ -202,6 +248,40 @@ export function savedTidePoint() {
 export function saveTidePoint(value) {
   if (value) localStorage.setItem("tidebase.tidePoint", value);
   else localStorage.removeItem("tidebase.tidePoint");
+}
+
+/**
+ * お気に入りの潮汐地点（SCR-003 の地点切替タブ）。端末をまたいで同じ並びに
+ * したいので profiles に持つ。存在しない地点コードは読み飛ばす。
+ */
+export async function listFavoriteTidePoints(points) {
+  const userId = await currentUserId();
+  if (!userId) return [];
+  const { data, error } = await client
+    .from("profiles").select("favorite_tide_points").eq("id", userId).maybeSingle();
+  if (error) throw error;
+  const byValue = new Map(points.map((p) => [p.value, p]));
+  return (data?.favorite_tide_points ?? []).map((v) => byValue.get(v)).filter(Boolean);
+}
+
+export async function saveFavoriteTidePoints(values) {
+  const userId = await requireUserId();
+  const { error } = await client
+    .from("profiles").update({ favorite_tide_points: values }).eq("id", userId);
+  if (error) throw error;
+}
+
+/** JST 基準で日付を進める / 戻す。 */
+export function addJstDays(isoDate, days) {
+  return new Date(Date.parse(`${isoDate}T00:00:00Z`) + days * 86400000)
+    .toISOString().slice(0, 10);
+}
+
+/** その日を含む週（日曜始まり）の日付 7 件。 */
+export function weekOf(isoDate) {
+  const weekday = new Date(`${isoDate}T00:00:00Z`).getUTCDay();  // 0 = 日曜
+  const sunday = addJstDays(isoDate, -weekday);
+  return Array.from({ length: 7 }, (_, i) => addJstDays(sunday, i));
 }
 
 /** スポットに紐付いた潮汐地点を選択肢の value 形式で返す。 */
@@ -331,8 +411,8 @@ export async function fetchWeather(lat, lng, date) {
   const marineUrl = "https://marine-api.open-meteo.com/v1/marine?" + base + "&hourly=wave_height";
 
   const [forecastRes, marineRes] = await Promise.all([
-    fetch(forecastUrl),
-    fetch(marineUrl).catch(() => null),
+    fetchWithTimeout(forecastUrl),
+    fetchWithTimeout(marineUrl).catch(() => null),
   ]);
   if (!forecastRes.ok) throw new Error(`天気データを取得できませんでした (${forecastRes.status})`);
 
@@ -371,6 +451,28 @@ export function isCoordinateInJapan(lat, lng) {
   const y = Number(lat), x = Number(lng);
   return Number.isFinite(y) && Number.isFinite(x)
     && y >= 20 && y <= 46 && x >= 122 && x <= 154;
+}
+
+/**
+ * 週間カレンダー用の日別天気。予報は 16 日先までなので、範囲外の日は
+ * 単に結果に含まれない（呼び出し側は「天気なし」として扱う）。
+ * @returns {Promise<Record<string, number>>} 日付 → WMO 天気コード
+ */
+export async function fetchDailyWeather(lat, lng, startDate, endDate) {
+  const url = "https://api.open-meteo.com/v1/forecast?"
+    + `latitude=${lat}&longitude=${lng}&timezone=Asia%2FTokyo`
+    + `&start_date=${startDate}&end_date=${endDate}&daily=weather_code`;
+  try {
+    const response = await fetchWithTimeout(url);
+    if (!response.ok) return {};
+    const { daily } = await response.json();
+    if (!daily?.time) return {};
+    return Object.fromEntries(
+      daily.time.map((date, i) => [date, daily.weather_code[i]])
+        .filter(([, code]) => code != null));
+  } catch {
+    return {};   // 天気が出なくても潮回りは表示できる
+  }
 }
 
 /** "HH:MM" を小数の時刻に変換する（グラフの横位置計算用）。 */
