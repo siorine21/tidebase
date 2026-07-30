@@ -81,10 +81,9 @@
   const state = { addMode: false, draft: null, water: "saltwater", type: null };
   let spots = await listSpots().catch(() => []);
 
-  const { map, layers } = createMap("map", {
-    center: spots.length ? [spots[0].latitude, spots[0].longitude] : [35.6544, 139.7708],
-    zoom: spots.length ? 13 : 10,
-  });
+  const { map, layers } = createMap("map", spots.length
+    ? { center: [spots[0].latitude, spots[0].longitude], zoom: 13 }
+    : {});   // スポットがなければ静岡県（浜名湖〜遠州灘）を初期表示
   let markerLayer = L.layerGroup().addTo(map);
   let draftMarker = null;
 

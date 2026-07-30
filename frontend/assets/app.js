@@ -123,6 +123,158 @@ export async function fetchTide(station, date) {
   return response.json();
 }
 
+/* ---------------- 潮汐地点（細分化・D-030） ---------------- */
+
+/** 気象庁の潮位表地点。pref を指定すると絞り込む（既定は静岡県）。 */
+export async function listTideStations({ pref = "静岡県" } = {}) {
+  let query = client.from("tide_stations").select("code, name, lat, lng, pref").order("lng");
+  if (pref) query = query.eq("pref", pref);
+  const { data, error } = await query;
+  if (error) throw error;
+  return data;
+}
+
+/** 潮位表地点がない場所の細分地点（基準観測点＋時差・潮高比）。 */
+export async function listTideAreas({ pref = "静岡県" } = {}) {
+  let query = client
+    .from("tide_areas")
+    .select("code, name, pref, water_body, base_station_code, lag_minutes, level_ratio, lat, lng, note, source")
+    .order("water_body")
+    .order("lag_minutes");
+  if (pref) query = query.eq("pref", pref);
+  const { data, error } = await query;
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * 潮汐地点の選択肢。観測点（補正なし）と細分地点（補正あり）をまとめて返す。
+ * value は "ST:MI" / "AR:HN-MURAKUSHI" の形式で、そのまま localStorage に持てる。
+ */
+export async function listTidePoints({ pref = "静岡県" } = {}) {
+  const [stations, areas] = await Promise.all([
+    listTideStations({ pref }).catch(() => []),
+    listTideAreas({ pref }).catch(() => []),
+  ]);
+  const stationName = new Map(stations.map((s) => [s.code, s.name]));
+  return [
+    ...stations.map((s) => ({
+      value: `ST:${s.code}`, group: "潮位表地点（気象庁）", label: s.name, name: s.name,
+      station: s.code, area: null, lagMinutes: 0, levelRatio: 1,
+      lat: Number(s.lat), lng: Number(s.lng),
+    })),
+    ...areas.map((a) => ({
+      value: `AR:${a.code}`,
+      group: `${a.water_body ?? a.pref}（推算）`,
+      label: a.lag_minutes
+        ? `${a.name}（${stationName.get(a.base_station_code) ?? a.base_station_code} ${formatLag(a.lag_minutes)}）`
+        : `${a.name}（${stationName.get(a.base_station_code) ?? a.base_station_code} と同時刻）`,
+      name: a.name,
+      station: a.base_station_code, area: a.code,
+      lagMinutes: a.lag_minutes, levelRatio: Number(a.level_ratio),
+      lat: Number(a.lat), lng: Number(a.lng),
+      baseName: stationName.get(a.base_station_code) ?? a.base_station_code,
+      note: a.note, source: a.source,
+    })),
+  ];
+}
+
+/** 時差を「+2:00」の形で表す。 */
+export function formatLag(minutes) {
+  const sign = minutes < 0 ? "-" : "+";
+  const abs = Math.abs(minutes);
+  return `${sign}${Math.floor(abs / 60)}:${String(abs % 60).padStart(2, "0")}`;
+}
+
+/** localStorage に保存した潮汐地点の選択。 */
+export function savedTidePoint() {
+  return localStorage.getItem("tidebase.tidePoint");
+}
+export function saveTidePoint(value) {
+  if (value) localStorage.setItem("tidebase.tidePoint", value);
+  else localStorage.removeItem("tidebase.tidePoint");
+}
+
+/** スポットに紐付いた潮汐地点を選択肢の value 形式で返す。 */
+export function tidePointOfSpot(spot) {
+  if (!spot) return null;
+  if (spot.tide_area_code) return `AR:${spot.tide_area_code}`;
+  if (spot.tide_station_code) return `ST:${spot.tide_station_code}`;
+  return null;
+}
+
+/**
+ * 潮汐地点の推算値を取得する。細分地点は基準観測点の推算値に
+ * 時差（lagMinutes）と潮高比（levelRatio）を掛けて推定する。
+ * 潮高比は日内の平均潮位まわりでかける（潮見表の潮高改正と同じ考え方）。
+ */
+export async function fetchTideForPoint(point, date) {
+  const base = await fetchTide(point.station, date);
+  if (!point.area || (!point.lagMinutes && point.levelRatio === 1)) {
+    return { ...base, point, corrected: false };
+  }
+
+  // 時差ぶん前の時刻の潮位を読む必要があるため、前日ぶんもつなげる
+  const previous = point.lagMinutes > 0
+    ? await fetchTide(point.station, addDays(date, -1)).catch(() => null)
+    : null;
+  const next = point.lagMinutes < 0
+    ? await fetchTide(point.station, addDays(date, 1)).catch(() => null)
+    : null;
+
+  const series = [
+    ...(previous?.hourly_levels_cm ?? Array(24).fill(null)),
+    ...base.hourly_levels_cm,
+    ...(next?.hourly_levels_cm ?? Array(24).fill(null)),
+  ];
+  const known = base.hourly_levels_cm.filter((v) => v != null);
+  const mean = known.length ? known.reduce((a, b) => a + b, 0) / known.length : 0;
+  const lagHours = point.lagMinutes / 60;
+
+  const shifted = Array.from({ length: 24 }, (_, hour) => {
+    const level = interpolate(series, 24 + hour - lagHours);
+    if (level == null) return null;
+    return Math.round(mean + (level - mean) * point.levelRatio);
+  });
+
+  return {
+    ...base,
+    hourly_levels_cm: shifted,
+    high_tides: shiftEvents(base.high_tides, point.lagMinutes),
+    low_tides: shiftEvents(base.low_tides, point.lagMinutes),
+    point,
+    corrected: true,
+    base_station: base.station,
+  };
+}
+
+function addDays(date, days) {
+  return new Date(Date.parse(`${date}T00:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
+}
+
+/** 連続した毎時系列を線形補間する（index は小数可）。 */
+function interpolate(series, index) {
+  const i = Math.floor(index);
+  const a = series[i], b = series[i + 1];
+  if (a == null) return null;
+  if (b == null) return a;
+  return a + (b - a) * (index - i);
+}
+
+/** 満潮・干潮の時刻を時差ぶんずらす。日をまたぐものは落とす。 */
+function shiftEvents(events, lagMinutes) {
+  return (events ?? []).flatMap((e) => {
+    if (!e.time) return [];
+    const [h, m] = e.time.split(":").map(Number);
+    const total = h * 60 + m + lagMinutes;
+    if (total < 0 || total >= 24 * 60) return [];   // 前日・翌日に出るぶんは表示しない
+    return [{
+      ...e,
+      time: `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`,
+    }];
+  });
+}
+
 /* ---------------- 天気（Open-Meteo・API キー不要） ---------------- */
 
 const WMO = {
@@ -488,8 +640,12 @@ export function setNightMap(on) {
   });
 }
 
+/** スポットが 1 件もないときの地図の初期表示（静岡県特化・浜名湖〜遠州灘）。 */
+export const DEFAULT_MAP_CENTER = [34.7100, 137.6000];
+export const DEFAULT_MAP_ZOOM = 11;
+
 /** 地図を生成する。tiles: "pale"（淡色・既定）/ "photo"（航空写真）。 */
-export function createMap(element, { center = [35.6544, 139.7708], zoom = 12 } = {}) {
+export function createMap(element, { center = DEFAULT_MAP_CENTER, zoom = DEFAULT_MAP_ZOOM } = {}) {
   const map = L.map(element, { center, zoom, zoomControl: true, attributionControl: true });
   if (isNightMap()) map.getContainer().classList.add("night-map");
   const layers = {

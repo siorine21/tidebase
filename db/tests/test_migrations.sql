@@ -44,8 +44,10 @@ BEGIN
   ------------------------------------------------------------
   INSERT INTO public.spots (user_id, name, latitude, longitude)
   VALUES (u, '東京湾テスト', 35.1234, 139.5678) RETURNING id INTO spot_tokyo;
-  IF (SELECT tide_station_code FROM public.spots WHERE id = spot_tokyo) IS DISTINCT FROM 'TK' THEN
-    RAISE EXCEPTION 'TEST FAIL: 東京湾スポットに TK が自動設定されない';
+  -- 観測点マスタの件数に依存しないよう「最近傍と一致するか」で検証する
+  IF (SELECT tide_station_code FROM public.spots WHERE id = spot_tokyo)
+     IS DISTINCT FROM public.nearest_tide_station(35.1234, 139.5678) THEN
+    RAISE EXCEPTION 'TEST FAIL: 海水スポットに最近傍の観測点が自動設定されない';
   END IF;
 
   INSERT INTO public.spots (user_id, name, latitude, longitude)
@@ -62,7 +64,8 @@ BEGIN
 
   -- 座標変更で再計算（札幌 → 東京湾）
   UPDATE public.spots SET latitude = 35.2, longitude = 139.7 WHERE id = spot_sapporo;
-  IF (SELECT tide_station_code FROM public.spots WHERE id = spot_sapporo) IS DISTINCT FROM 'TK' THEN
+  IF (SELECT tide_station_code FROM public.spots WHERE id = spot_sapporo)
+     IS DISTINCT FROM public.nearest_tide_station(35.2, 139.7) THEN
     RAISE EXCEPTION 'TEST FAIL: 座標変更で観測点が再計算されない';
   END IF;
 
@@ -274,6 +277,84 @@ BEGIN
         AND b.user_id IS NULL AND b.name = 'キビレ'
         AND a.category = '汽水' AND b.category = '汽水') IS DISTINCT FROM 10 THEN
     RAISE EXCEPTION 'TEST FAIL: クロダイとキビレが汽水で隣接していない';
+  END IF;
+
+  ------------------------------------------------------------
+  -- 潮汐地点の細分化（007・浜名湖の時差補正）
+  ------------------------------------------------------------
+  -- 静岡県の潮位表地点が 10 点そろっていること
+  IF (SELECT COUNT(*) FROM public.tide_stations WHERE pref = '静岡県') <> 10 THEN
+    RAISE EXCEPTION 'TEST FAIL: 静岡県の観測点が 10 点でない（実際: %）',
+      (SELECT COUNT(*) FROM public.tide_stations WHERE pref = '静岡県');
+  END IF;
+
+  -- 浜名湖の細分地点はすべて舞阪基準で、時差が 0〜3 時間の範囲
+  IF EXISTS (SELECT 1 FROM public.tide_areas
+             WHERE water_body = '浜名湖'
+               AND (base_station_code <> 'MI' OR lag_minutes NOT BETWEEN 0 AND 180)) THEN
+    RAISE EXCEPTION 'TEST FAIL: 浜名湖の潮汐地点の基準観測点または時差が不正';
+  END IF;
+
+  -- 出典どおりの時差になっていること（村櫛 2 時間 / 細江湖・猪鼻瀬戸 3 時間 / 湖口 0）
+  IF (SELECT lag_minutes FROM public.tide_areas WHERE code = 'HN-MURAKUSHI') <> 120
+     OR (SELECT lag_minutes FROM public.tide_areas WHERE code = 'HN-HOSOE') <> 180
+     OR (SELECT lag_minutes FROM public.tide_areas WHERE code = 'HN-SETO') <> 180
+     OR (SELECT lag_minutes FROM public.tide_areas WHERE code = 'HN-IMAGIRI') <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL: 浜名湖の時差が出典と一致しない';
+  END IF;
+
+  -- 湖内スポットは細分地点が自動設定される（村櫛のすぐ近く）
+  INSERT INTO public.spots (user_id, name, latitude, longitude)
+  VALUES (u, '村櫛の近く', 34.7190, 137.5940) RETURNING id INTO spot_target;
+  IF (SELECT tide_area_code FROM public.spots WHERE id = spot_target)
+     IS DISTINCT FROM 'HN-MURAKUSHI' THEN
+    RAISE EXCEPTION 'TEST FAIL: 浜名湖内スポットに潮汐地点が自動設定されない（実際: %）',
+      (SELECT tide_area_code FROM public.spots WHERE id = spot_target);
+  END IF;
+  -- 基準観測点としては舞阪が入ること
+  IF (SELECT tide_station_code FROM public.spots WHERE id = spot_target) IS DISTINCT FROM 'MI' THEN
+    RAISE EXCEPTION 'TEST FAIL: 浜名湖内スポットの観測点が舞阪でない';
+  END IF;
+
+  -- 湖から離れた場所（御前崎沖）では細分地点を付けない
+  INSERT INTO public.spots (user_id, name, latitude, longitude)
+  VALUES (u, '御前崎の近く', 34.6200, 138.2200) RETURNING id INTO spot_fresh;
+  IF (SELECT tide_area_code FROM public.spots WHERE id = spot_fresh) IS NOT NULL THEN
+    RAISE EXCEPTION 'TEST FAIL: 浜名湖圏外で潮汐地点が付いてしまう';
+  END IF;
+
+  -- 淡水スポットは潮汐地点も NULL になること
+  UPDATE public.spots SET water_type = 'freshwater' WHERE id = spot_target;
+  IF (SELECT tide_area_code FROM public.spots WHERE id = spot_target) IS NOT NULL THEN
+    RAISE EXCEPTION 'TEST FAIL: 淡水化しても潮汐地点が残る';
+  END IF;
+
+  -- 潮汐地点を明示指定した UPDATE では自動割り当てが優先しないこと
+  -- （観測点 tide_station_code と同じ扱い。座標だけを後から動かせば再計算される）
+  UPDATE public.spots
+  SET water_type = 'saltwater', latitude = 34.6817, longitude = 137.5839,
+      tide_area_code = 'HN-KIGA'
+  WHERE id = spot_target;
+  IF (SELECT tide_area_code FROM public.spots WHERE id = spot_target) IS DISTINCT FROM 'HN-KIGA' THEN
+    RAISE EXCEPTION 'TEST FAIL: 潮汐地点の明示指定が上書きされる';
+  END IF;
+
+  -- 座標だけを動かしたときは最近傍で再計算される
+  UPDATE public.spots SET latitude = 34.7856, longitude = 137.6108 WHERE id = spot_target;
+  IF (SELECT tide_area_code FROM public.spots WHERE id = spot_target) IS DISTINCT FROM 'HN-HOSOE' THEN
+    RAISE EXCEPTION 'TEST FAIL: 座標変更で潮汐地点が再計算されない（実際: %）',
+      (SELECT tide_area_code FROM public.spots WHERE id = spot_target);
+  END IF;
+
+  -- NULL に戻すと「自動で決める」として再計算される（UI の既定選択）
+  UPDATE public.spots SET tide_area_code = NULL WHERE id = spot_target;
+  IF (SELECT tide_area_code FROM public.spots WHERE id = spot_target) IS DISTINCT FROM 'HN-HOSOE' THEN
+    RAISE EXCEPTION 'TEST FAIL: NULL 指定で自動割り当てに戻らない（実際: %）',
+      (SELECT tide_area_code FROM public.spots WHERE id = spot_target);
+  END IF;
+  UPDATE public.spots SET tide_station_code = NULL WHERE id = spot_target;
+  IF (SELECT tide_station_code FROM public.spots WHERE id = spot_target) IS DISTINCT FROM 'MI' THEN
+    RAISE EXCEPTION 'TEST FAIL: 観測点も NULL 指定で自動割り当てに戻らない';
   END IF;
 
   RAISE NOTICE 'ALL DB TESTS PASSED';

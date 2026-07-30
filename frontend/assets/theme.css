@@ -319,6 +319,10 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .tide-legend .lg-sun .icon { color: var(--text-muted); }
 .tide-legend .lg-now { color: var(--mustard-lt); font-family: 'JetBrains Mono', monospace; }
 
+/* 潮汐地点の切替 */
+.tide-point { margin-top: 10px; }
+.tide-point .page-sub { margin-top: 6px; line-height: 1.5; }
+
 /* ---------- 天気の横スクロール ---------- */
 .hourly { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
 .hourly::-webkit-scrollbar { height: 4px; }

@@ -339,10 +339,9 @@
   function initSpotMap() {
     if (spotMap) { setTimeout(() => spotMap.invalidateSize(), 50); return; }
     const base = spots[0];
-    const created = createMap("spot-map", {
-      center: base ? [base.latitude, base.longitude] : [35.6544, 139.7708],
-      zoom: base ? 13 : 10,
-    });
+    // スポットがなければ静岡県（浜名湖〜遠州灘）を初期表示する
+    const created = createMap("spot-map",
+      base ? { center: [base.latitude, base.longitude], zoom: 13 } : {});
     spotMap = created.map;
     // 登録済みスポットも表示して、同じ場所を重複登録しにくくする
     for (const s of spots) {

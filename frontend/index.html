@@ -36,6 +36,11 @@
   <div class="card" id="tide-card">
     <div class="empty" id="tide-empty">読み込み中…</div>
   </div>
+  <div class="field tide-point">
+    <label for="tide-point">潮汐地点</label>
+    <select id="tide-point"></select>
+    <div class="page-sub" id="tide-point-note"></div>
+  </div>
 
   <div class="section-label"><span>HOURLY WEATHER</span><span class="note">← スクロール →</span></div>
   <div class="card">
@@ -59,7 +64,11 @@
     fetchTide, fetchWeather, todayInJst, formatJstDate, formatShortDate, relativeDays,
     describeWeather, windDirection, fishingScore, listSpots, listRecords, tideCorrelation, icon,
     recordFishName, nowInJst, hoursFromHhmm,
+    listTidePoints, fetchTideForPoint, tidePointOfSpot, savedTidePoint, saveTidePoint, formatLag,
   } from "./assets/app.js";
+
+  // 静岡県特化のため既定は舞阪（浜名湖口・遠州灘西部の基準）
+  const DEFAULT_POINT = "ST:MI";
 
   const session = await requireSession();
   if (session) {
@@ -71,15 +80,40 @@
     const spots = await listSpots().catch(() => []);
     const baseSpot = spots.find((s) => s.water_type !== "freshwater") ?? spots[0] ?? null;
 
+    // 潮汐地点: 明示的な選択 → 基準スポットの地点 → 静岡県の既定（舞阪）
+    const points = await listTidePoints().catch(() => []);
+    const pick = (value) => points.find((p) => p.value === value) ?? null;
+    let point = pick(savedTidePoint()) ?? pick(tidePointOfSpot(baseSpot)) ?? pick(DEFAULT_POINT)
+      ?? points[0] ?? null;
+    renderPointPicker(points, point);
+
+    // 天気はスポットの座標で取る。スポット未登録なら潮汐地点の座標で代用する
+    // （日の出・日没だけでも出せるようにする）
+    const weatherAt = baseSpot
+      ? { lat: baseSpot.latitude, lng: baseSpot.longitude }
+      : (point?.lat != null ? { lat: point.lat, lng: point.lng } : null);
+
     const [tide, forecast] = await Promise.all([
-      loadTide(baseSpot, today),
-      baseSpot ? fetchWeather(baseSpot.latitude, baseSpot.longitude, today).catch(() => null) : null,
+      loadTide(point, today),
+      weatherAt ? fetchWeather(weatherAt.lat, weatherAt.lng, today).catch(() => null) : null,
     ]);
     const weather = forecast?.hours ?? null;
+    const sun = forecast?.sun ?? null;
 
-    renderHero(baseSpot, tide, weather);
-    renderTideGraph(tide, forecast?.sun ?? null);
+    renderHero(baseSpot, tide, weather, point);
+    renderTideGraph(tide, sun);
     renderHourly(weather);
+
+    // 地点を変えたら潮汐だけ差し替える（天気はスポット座標のままで変わらない）
+    document.getElementById("tide-point").addEventListener("change", async (e) => {
+      const chosen = pick(e.currentTarget.value);
+      if (!chosen) return;
+      saveTidePoint(chosen.value);
+      renderPointNote(chosen);
+      document.getElementById("tide-card").innerHTML =
+        `<div class="empty" id="tide-empty">読み込み中…</div>`;
+      renderTideGraph(await loadTide(chosen, today), sun);
+    });
 
     const [recent, correlation] = await Promise.all([
       listRecords({ limit: 2 }).catch(() => []),
@@ -89,19 +123,48 @@
     renderCorrelation(correlation);
   }
 
-  async function loadTide(spot, date) {
-    const station = spot?.tide_station_code ?? "TK";
-    try { return await fetchTide(station, date); } catch { return null; }
+  async function loadTide(point, date) {
+    if (!point) return null;
+    try { return await fetchTideForPoint(point, date); } catch { return null; }
   }
 
-  function renderHero(spot, tide, weather) {
+  function renderPointPicker(points, selected) {
+    const select = document.getElementById("tide-point");
+    if (!points.length) {
+      document.querySelector(".tide-point").hidden = true;
+      return;
+    }
+    const groups = [...new Set(points.map((p) => p.group))];
+    select.innerHTML = groups.map((group) => `
+      <optgroup label="${escapeHtml(group)}">
+        ${points.filter((p) => p.group === group)
+          .map((p) => `<option value="${escapeHtml(p.value)}"${p.value === selected?.value ? " selected" : ""}
+                  >${escapeHtml(p.label)}</option>`).join("")}
+      </optgroup>`).join("");
+    renderPointNote(selected);
+  }
+
+  function renderPointNote(point) {
+    const box = document.getElementById("tide-point-note");
+    if (!point?.area) {
+      box.textContent = "気象庁の潮位表推算値をそのまま表示しています。";
+      return;
+    }
+    // 推算値であること・根拠を必ず明示する（公的な潮位表ではない）
+    box.textContent = `${point.baseName}の推算値を ${formatLag(point.lagMinutes)} ずらした推定値`
+      + `${point.levelRatio === 1 ? "（潮位の振幅は補正していません）" : `・潮高比 ${point.levelRatio}`}。`
+      + `${point.note ? ` ${point.note}。` : ""}${point.source ? ` 出典: ${point.source}` : ""}`;
+  }
+
+  function renderHero(spot, tide, weather, point) {
     const meta = document.getElementById("hero-meta");
     const tags = document.getElementById("hero-tags");
     const now = weather?.find((w) => w.hour === nowInJst().hour) ?? weather?.[0] ?? null;
 
     const parts = [];
+    // スポット未登録でも、潮汐地点の名前と天気を出して使える状態にする
     parts.push(`${icon("map-pin", { size: 13 })} `
-      + (spot ? escapeHtml(spot.name ?? "無名スポット") : "スポット未登録"));
+      + escapeHtml(spot ? (spot.name ?? "無名スポット") : (point?.label ?? "スポット未登録")));
     if (tide) parts.push(tide.tide_type);
     if (now) {
       const { label, icon: weatherIcon } = describeWeather(now.weather_code);
@@ -127,7 +190,10 @@
   function renderTideGraph(tide, sun) {
     const card = document.getElementById("tide-card");
     if (!tide) { document.getElementById("tide-empty").textContent = "潮汐データを取得できませんでした"; return; }
-    document.getElementById("tide-station").textContent = `${tide.station} / ${tide.date}`;
+    // 地点は地点記号ではなく名前で示す。補正した地点は「推算」と付けて観測点と区別する
+    // （基準観測点と時差は下の「潮汐地点」欄に出るので、ここは短くまとめる）
+    document.getElementById("tide-station").textContent =
+      `${tide.point?.name ?? tide.station}${tide.corrected ? " 推算" : ""}`;
 
     const levels = tide.hourly_levels_cm;
     const valid = levels.filter((v) => v != null);

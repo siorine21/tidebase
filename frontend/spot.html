@@ -28,7 +28,7 @@
     client, requireSession, renderNav, escapeHtml, toJapaneseError,
     listSpots, listRecords, createMap, spotMarker, spotType, waterLabel,
     SPOT_TYPES, WATER_TYPES, googleMapsUrl, googleDirectionsUrl, formatJstDate, icon,
-    recordFishName,
+    recordFishName, listTidePoints, tidePointOfSpot, formatLag,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -47,6 +47,7 @@
   let allSpots = [];
   let editMap = null;
   const edit = { lat: null, lng: null, water: null, type: null };
+  const tidePoints = await listTidePoints().catch(() => []);
 
   await load();
 
@@ -122,6 +123,11 @@
           <input type="checkbox" id="e-lowtide" style="width:auto">
         </div>
         <div class="field"><label for="e-memo">メモ</label><textarea id="e-memo" maxlength="2000"></textarea></div>
+        <div class="field">
+          <label for="e-tide-point">潮汐地点</label>
+          <select id="e-tide-point"></select>
+          <div class="page-sub" id="e-tide-note" style="margin-top:6px;line-height:1.5"></div>
+        </div>
         <div class="field">
           <label>座標（地図をタップして変更）</label>
           <div class="map-box" id="edit-map" style="height:200px;margin-bottom:6px"></div>
@@ -202,6 +208,7 @@
       water: spot.water_type, type: spot.spot_type,
     });
     renderEditChips();
+    renderTidePointSelect();
     updateCoordsLabel();
 
     if (!editMap) {
@@ -221,6 +228,35 @@
 
   function updateCoordsLabel() {
     document.getElementById("e-coords").textContent = `緯度 ${edit.lat} / 経度 ${edit.lng}`;
+  }
+
+  /* ---------- 潮汐地点（浜名湖などは基準観測点＋時差で推算する） ---------- */
+  function renderTidePointSelect() {
+    const select = document.getElementById("e-tide-point");
+    const current = tidePointOfSpot(spot);
+    const groups = [...new Set(tidePoints.map((p) => p.group))];
+    select.innerHTML = `<option value="">座標から自動で決める</option>`
+      + groups.map((group) => `
+        <optgroup label="${escapeHtml(group)}">
+          ${tidePoints.filter((p) => p.group === group)
+            .map((p) => `<option value="${escapeHtml(p.value)}"${p.value === current ? " selected" : ""}
+                    >${escapeHtml(p.label)}</option>`).join("")}
+        </optgroup>`).join("");
+    renderTidePointNote(select.value);
+    select.onchange = () => renderTidePointNote(select.value);
+  }
+
+  function renderTidePointNote(value) {
+    const box = document.getElementById("e-tide-note");
+    const point = tidePoints.find((p) => p.value === value);
+    if (!point) {
+      box.textContent = "保存時に、座標から最も近い地点を自動で選びます。";
+      return;
+    }
+    box.textContent = point.area
+      ? `${point.baseName}の推算値を ${formatLag(point.lagMinutes)} ずらした推定値です。`
+        + `${point.note ? ` ${point.note}。` : ""}${point.source ? ` 出典: ${point.source}` : ""}`
+      : "気象庁の潮位表推算値をそのまま使います。";
   }
 
   function renderEditChips() {
@@ -243,13 +279,21 @@
   async function saveEdit(e) {
     const button = e.currentTarget;
     button.disabled = true; button.textContent = "保存中…";
-    const { error } = await client.from("spots").update({
+
+    // 空選択なら NULL を送り、トリガーに座標からの自動割り当てをさせる
+    const chosen = tidePoints.find((p) => p.value === document.getElementById("e-tide-point").value);
+    const payload = {
       name: document.getElementById("e-name").value.trim() || null,
       memo: document.getElementById("e-memo").value.trim() || null,
       latitude: edit.lat, longitude: edit.lng,
       water_type: edit.water, spot_type: edit.type,
       low_tide_only: document.getElementById("e-lowtide").checked,
-    }).eq("id", spot.id);
+      tide_area_code: chosen?.area ?? null,
+    };
+    // 観測点そのものを選んだときは基準観測点も合わせて上書きする
+    if (chosen && !chosen.area) payload.tide_station_code = chosen.station;
+
+    const { error } = await client.from("spots").update(payload).eq("id", spot.id);
     button.disabled = false; button.textContent = "変更を保存";
     if (error) return message(toJapaneseError(error), "error");
     editMap = null;
