@@ -178,6 +178,148 @@ export const TIDE_TYPE_COLORS = {
   若潮: "#4CAF50",
 };
 
+/* ---------------- 潮汐グラフ（時間軸で連続・D-036） ----------------
+   ホーム（SCR-001）と潮汐詳細（SCR-003）で同じ描画を使う。
+   夜釣りは日をまたぐので、日単位で区切らず 1 本の曲線としてつなぐ。 */
+
+/** 毎時値を線形補間して任意の時刻の潮位を求める。 */
+export function tideLevelAt(levels, hours) {
+  const i = Math.floor(hours);
+  const a = levels?.[Math.min(i, 23)], b = levels?.[Math.min(i + 1, 23)];
+  if (a == null) return null;
+  if (b == null) return a;
+  return a + (b - a) * (hours - i);
+}
+
+const WEEKDAYS_SHORT = ["日", "月", "火", "水", "木", "金", "土"];
+
+/**
+ * 複数日を 1 本につないだ潮位グラフの SVG を返す。
+ * @param {object} options
+ * @param {string[]} options.days      連続した日付（昇順）
+ * @param {object[]} options.tides     days と同じ並びの潮汐（未取得は null）
+ * @param {Map<string,object>} options.suns 日付 → {rise, set}
+ * @param {string} options.today       今日の日付（TODAY 表示用）
+ * @param {number} options.dayUnits    1 日ぶんの viewBox 幅（= 画面 1 枚ぶん）
+ * @returns {{svg: string, min: number, max: number}|null} データが無ければ null
+ */
+export function tideTimelineSvg({
+  days, tides, suns = new Map(), today = null,
+  dayUnits = 320, height = 176, padTop = 30, padBottom = 30,
+}) {
+  const width = dayUnits * days.length;
+  const totalHours = days.length * 24;
+  const all = tides.flatMap((t) => t?.hourly_levels_cm ?? []).filter((v) => v != null);
+  if (!all.length) return null;
+
+  const min = Math.min(...all), max = Math.max(...all);
+  const x = (hours) => (hours / totalHours) * width;
+  const y = (v) => height - padBottom
+    - ((v - min) / Math.max(1, max - min)) * (height - padTop - padBottom);
+
+  // 曲線は日をまたいでつなぐ。未取得の日はそこで区切る
+  const segments = [];
+  let current = [];
+  days.forEach((date, d) => {
+    const tide = tides[d];
+    if (!tide) { if (current.length) segments.push(current); current = []; return; }
+    tide.hourly_levels_cm.forEach((v, h) => {
+      if (v == null) return;
+      current.push(`${x(d * 24 + h).toFixed(2)},${y(v).toFixed(2)}`);
+    });
+  });
+  if (current.length) segments.push(current);
+
+  const lines = segments.map((pts) => `<path class="curve-line" d="M${pts.join(" L")}"/>`).join("");
+  const areas = segments.map((pts) => {
+    const first = pts[0].split(",")[0], last = pts[pts.length - 1].split(",")[0];
+    return `<path class="curve-area" d="M${first},${height - padBottom} L${pts.join(" L")} L${last},${height - padBottom} Z"/>`;
+  }).join("");
+
+  // 夜（日の出前・日没後）を塗る。夜釣りの時間帯が帯で分かる
+  const nights = days.map((date, d) => {
+    const sun = suns.get?.(date) ?? suns[date];
+    if (!sun) return "";
+    const rise = hoursFromHhmm(sun.rise), set = hoursFromHhmm(sun.set);
+    if (rise == null || set == null) return "";
+    const band = (from, to) => `<rect class="night" x="${x(d * 24 + from)}" y="${padTop - 8}"
+      width="${Math.max(0, x(d * 24 + to) - x(d * 24 + from))}"
+      height="${height - padBottom - padTop + 8}"/>`;
+    return band(0, rise) + band(set, 24);
+  }).join("");
+
+  // 目盛り: 2 時間ごとに細い線、6 時間ごとに太めの線と時刻ラベル
+  const grid = days.flatMap((date, d) => {
+    const marks = [];
+    for (let h = 0; h < 24; h += 2) {
+      if (h === 0) continue;                       // 0 時は日境界の線が担う
+      const cls = h % 6 === 0 ? "grid" : "grid-minor";
+      marks.push(`<line class="${cls}" x1="${x(d * 24 + h)}" y1="${padTop - 8}"
+        x2="${x(d * 24 + h)}" y2="${height - padBottom}"/>`);
+    }
+    for (const h of [0, 6, 12, 18]) {
+      marks.push(`<text x="${x(d * 24 + h) + 3}" y="${height - 10}">${h}:00</text>`);
+    }
+    return marks;
+  }).join("");
+
+  // 日境界と日付ラベル
+  const boundaries = days.map((date, d) => {
+    const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
+    return `
+      <line class="day-line" x1="${x(d * 24)}" y1="0" x2="${x(d * 24)}" y2="${height - padBottom}"/>
+      <text class="day-label" x="${x(d * 24) + 4}" y="12">${
+        date.slice(5).replace("-", "/")} ${WEEKDAYS_SHORT[weekday]}${date === today ? " TODAY" : ""}</text>`;
+  }).join("");
+
+  // 満潮・干潮
+  const marks = days.flatMap((date, d) => {
+    const tide = tides[d];
+    if (!tide) return [];
+    return [
+      ...(tide.high_tides ?? []).map((e) => ({ ...e, kind: "high", mark: "満" })),
+      ...(tide.low_tides ?? []).map((e) => ({ ...e, kind: "low", mark: "干" })),
+    ].filter((e) => e.time).map((e) => {
+      const hours = hoursFromHhmm(e.time);
+      const cx = x(d * 24 + hours);
+      const cy = e.level_cm != null ? y(e.level_cm)
+        : y(tideLevelAt(tide.hourly_levels_cm, hours) ?? min);
+      // 干潮は点の下だが、谷が深いと時刻の目盛りと重なるので上へ逃がす
+      const ty = e.kind === "high" || cy > height - padBottom - 18 ? cy - 10 : cy + 15;
+      return `
+        <circle class="peak-dot ${e.kind}" cx="${cx}" cy="${cy}" r="3.5"/>
+        <text class="peak ${e.kind}" x="${cx}" y="${ty}" text-anchor="middle">${e.mark} ${e.time}</text>`;
+    });
+  }).join("");
+
+  // 現在時刻
+  const now = nowInJst();
+  const nowIndex = days.indexOf(now.date);
+  let nowMark = "";
+  if (nowIndex >= 0) {
+    const hours = Math.min(now.hours, 23);
+    const nx = x(nowIndex * 24 + hours);
+    const level = tideLevelAt(tides[nowIndex]?.hourly_levels_cm, hours);
+    nowMark = `<line class="now" x1="${nx}" y1="${padTop - 8}" x2="${nx}" y2="${height - padBottom}"/>`
+      + (level != null ? `<circle class="now-dot" cx="${nx}" cy="${y(level)}" r="4"/>` : "");
+  }
+
+  const svg = `
+    <svg class="tide-graph tide-graph-lg" viewBox="0 0 ${width} ${height}"
+         preserveAspectRatio="none" role="img"
+         aria-label="${days[0]} から ${days[days.length - 1]} までの潮位グラフ">
+      ${nights}
+      ${grid}
+      <line class="axis" x1="0" y1="${height - padBottom}" x2="${width}" y2="${height - padBottom}"/>
+      ${areas}
+      ${lines}
+      ${boundaries}
+      ${nowMark}
+      ${marks}
+    </svg>`;
+  return { svg, min, max };
+}
+
 /* ---------------- 潮汐地点（細分化・D-030） ---------------- */
 
 /** 気象庁の潮位表地点。pref を指定すると絞り込む（既定は静岡県）。 */

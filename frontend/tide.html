@@ -77,7 +77,7 @@
     listSpots, listTidePoints, fetchTideForPoint, tidePointOfSpot,
     savedTidePoint, saveTidePoint, formatLag,
     listFavoriteTidePoints, saveFavoriteTidePoints,
-    tideType, TIDE_TYPE_COLORS, isCoordinateInJapan,
+    tideType, TIDE_TYPE_COLORS, isCoordinateInJapan, tideTimelineSvg, tideLevelAt,
   } from "./assets/app.js";
 
   const DEFAULT_POINT = "ST:MI";   // 静岡特化の既定（D-030）
@@ -152,6 +152,7 @@
     renderTabs();
     renderChart();
     renderWeek();
+    applyDate();        // 地点名・推算表記もここで更新する
     await loadVisibleDays();
   }
 
@@ -200,13 +201,9 @@
 
   const DAY_UNITS = 320;              // 1 日ぶんの viewBox 幅（= 画面 1 枚ぶん）
   const CHART_DAYS = 7;
-  const CHART_W = DAY_UNITS * CHART_DAYS;
   const CHART_H = 176, PAD_TOP = 30, PAD_BOTTOM = 30;
   const scroller = document.getElementById("tide-scroller");
   const track = document.getElementById("tide-track");
-
-  /** 週の開始からの経過時間（時）→ viewBox の x 座標。 */
-  const xAt = (hours) => (hours / (CHART_DAYS * 24)) * CHART_W;
 
   /** 日付 → 週の何日目か。 */
   function dayIndex(date) {
@@ -215,117 +212,21 @@
 
   function renderChart() {
     const days = weekOf(state.week);
-    const loaded = days.map((date) => tideOf(date));
-
-    // 縦軸は週全体で共通にする（スクロール中に目盛りが動くと読めないため）
-    const all = loaded.flatMap((t) => t?.hourly_levels_cm ?? []).filter((v) => v != null);
-    if (!all.length) {
-      track.innerHTML = `<div class="empty">読み込み中…</div>`;
-      return;
-    }
-    const min = Math.min(...all), max = Math.max(...all);
-    const y = (v) => CHART_H - PAD_BOTTOM
-      - ((v - min) / Math.max(1, max - min)) * (CHART_H - PAD_TOP - PAD_BOTTOM);
-
-    // 曲線は日をまたいでつなぐ。未取得の日はそこで区切る
-    const segments = [];
-    let current = [];
-    days.forEach((date, d) => {
-      const tide = loaded[d];
-      if (!tide) { if (current.length) segments.push(current); current = []; return; }
-      tide.hourly_levels_cm.forEach((v, h) => {
-        if (v == null) return;
-        current.push(`${xAt(d * 24 + h).toFixed(2)},${y(v).toFixed(2)}`);
-      });
+    const result = tideTimelineSvg({
+      days, tides: days.map((date) => tideOf(date)), suns: sunCache, today,
+      dayUnits: DAY_UNITS, height: CHART_H, padTop: PAD_TOP, padBottom: PAD_BOTTOM,
     });
-    if (current.length) segments.push(current);
-
-    const curves = segments.map((points) => `<path class="curve-line" d="M${points.join(" L")}"/>`).join("");
-    const areas = segments.map((points) => {
-      const first = points[0].split(",")[0], last = points[points.length - 1].split(",")[0];
-      return `<path class="curve-area" d="M${first},${CHART_H - PAD_BOTTOM} L${points.join(" L")} L${last},${CHART_H - PAD_BOTTOM} Z"/>`;
-    }).join("");
-
-    // 夜（日の出前・日没後）を塗る。夜釣りの時間帯が一目で分かる
-    const nights = days.map((date, d) => {
-      const sun = sunCache.get(date);
-      if (!sun) return "";
-      const rise = hoursFromHhmm(sun.rise), set = hoursFromHhmm(sun.set);
-      const band = (from, to) => `<rect class="night" x="${xAt(d * 24 + from)}" y="${PAD_TOP - 8}"
-        width="${Math.max(0, xAt(d * 24 + to) - xAt(d * 24 + from))}"
-        height="${CHART_H - PAD_BOTTOM - PAD_TOP + 8}"/>`;
-      return band(0, rise) + band(set, 24);
-    }).join("");
-
-    // 日境界と日付ラベル
-    const boundaries = days.map((date, d) => {
-      const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
-      return `
-        <line class="day-line" x1="${xAt(d * 24)}" y1="0" x2="${xAt(d * 24)}" y2="${CHART_H - PAD_BOTTOM}"/>
-        <text class="day-label" x="${xAt(d * 24) + 4}" y="12">${
-          date.slice(5).replace("-", "/")} ${WEEKDAYS_JA[weekday]}${date === today ? " TODAY" : ""}</text>`;
-    }).join("");
-
-    // 時刻の目盛り（6 時間ごと）
-    const ticks = days.flatMap((date, d) => [0, 6, 12, 18].map((h) => `
-      ${h ? `<line class="grid" x1="${xAt(d * 24 + h)}" y1="${PAD_TOP - 8}" x2="${xAt(d * 24 + h)}" y2="${CHART_H - PAD_BOTTOM}"/>` : ""}
-      <text x="${xAt(d * 24 + h) + 3}" y="${CHART_H - 10}">${h}:00</text>`)).join("");
-
-    // 満潮・干潮
-    const marks = days.flatMap((date, d) => {
-      const tide = loaded[d];
-      if (!tide) return [];
-      return [
-        ...(tide.high_tides ?? []).map((e) => ({ ...e, kind: "high", mark: "満" })),
-        ...(tide.low_tides ?? []).map((e) => ({ ...e, kind: "low", mark: "干" })),
-      ].filter((e) => e.time).map((e) => {
-        const hours = hoursFromHhmm(e.time);
-        const cx = xAt(d * 24 + hours);
-        const cy = e.level_cm != null ? y(e.level_cm)
-          : y(levelAt(tide.hourly_levels_cm, hours) ?? min);
-        // 干潮は点の下だが、谷が深いと目盛りと重なるので上へ逃がす
-        const ty = e.kind === "high" || cy > CHART_H - PAD_BOTTOM - 18 ? cy - 10 : cy + 15;
-        return `
-          <circle class="peak-dot ${e.kind}" cx="${cx}" cy="${cy}" r="3.5"/>
-          <text class="peak ${e.kind}" x="${cx}" y="${ty}" text-anchor="middle">${e.mark} ${e.time}</text>`;
-      });
-    }).join("");
-
-    // 現在時刻
-    const now = nowInJst();
-    const nowIndex = days.indexOf(now.date);
-    let nowMark = "";
-    if (nowIndex >= 0) {
-      const nx = xAt(nowIndex * 24 + Math.min(now.hours, 23));
-      const level = levelAt(loaded[nowIndex]?.hourly_levels_cm ?? [], Math.min(now.hours, 23));
-      nowMark = `<line class="now" x1="${nx}" y1="${PAD_TOP - 8}" x2="${nx}" y2="${CHART_H - PAD_BOTTOM}"/>`
-        + (level != null ? `<circle class="now-dot" cx="${nx}" cy="${y(level)}" r="4"/>` : "");
-    }
-
-    track.innerHTML = `
-      <svg class="tide-graph tide-graph-lg" viewBox="0 0 ${CHART_W} ${CHART_H}"
-           preserveAspectRatio="none" role="img"
-           aria-label="${escapeHtml(days[0])} から ${escapeHtml(days[6])} までの潮位グラフ">
-        ${nights}
-        ${ticks}
-        <line class="axis" x1="0" y1="${CHART_H - PAD_BOTTOM}" x2="${CHART_W}" y2="${CHART_H - PAD_BOTTOM}"/>
-        ${areas}
-        ${curves}
-        ${boundaries}
-        ${nowMark}
-        ${marks}
-      </svg>`;
-    renderLegend(min, max);
+    if (!result) { track.innerHTML = `<div class="empty">読み込み中…</div>`; return; }
+    track.innerHTML = result.svg;
+    renderLegend(result.min, result.max);
   }
-
-  const WEEKDAYS_JA = ["日", "月", "火", "水", "木", "金", "土"];
 
   function renderLegend(min, max) {
     const sun = sunCache.get(state.date);
     const now = nowInJst();
     const showNow = weekOf(state.week).includes(now.date);
     const level = showNow
-      ? levelAt(tideOf(now.date)?.hourly_levels_cm ?? [], Math.min(now.hours, 23)) : null;
+      ? tideLevelAt(tideOf(now.date)?.hourly_levels_cm, Math.min(now.hours, 23)) : null;
     document.getElementById("tide-legend").innerHTML =
       (sun ? `<span class="lg lg-sun">${icon("sunrise", { size: 13 })} 日の出 ${sun.rise}</span>
               <span class="lg lg-sun">${icon("sunset", { size: 13 })} 日没 ${sun.set}</span>` : "")
@@ -342,14 +243,6 @@
     } else {
       note.hidden = true;
     }
-  }
-
-  function levelAt(levels, hours) {
-    const i = Math.floor(hours);
-    const a = levels[Math.min(i, 23)], b = levels[Math.min(i + 1, 23)];
-    if (a == null) return null;
-    if (b == null) return a;
-    return a + (b - a) * (hours - i);
   }
 
   /** 指定日の 0 時を左端に合わせる。 */

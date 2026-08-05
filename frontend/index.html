@@ -36,10 +36,17 @@
     <span>TIDE GRAPH — 本日</span>
     <a class="note" id="tide-detail-link" href="tide.html">詳細 →</a>
   </div>
-  <div class="card" id="tide-card">
-    <div class="empty" id="tide-empty">読み込み中…</div>
+  <div class="card tide-chart-card">
+    <div class="tide-scroller" id="tide-scroller" tabindex="0"
+         aria-label="潮位グラフ。左右にスクロールすると前後の時間を表示します">
+      <div class="tide-track tide-track-3" id="tide-track"></div>
+    </div>
+    <div class="tide-legend" id="tide-legend"></div>
   </div>
-  <div class="page-sub" id="tide-station" style="margin:-8px 0 12px"></div>
+  <div class="scroll-hint">
+    <span data-icon="back"></span>横にスクロールで前後の時間へ（日をまたいで連続）<span data-icon="chevron-right"></span>
+  </div>
+  <div class="page-sub" id="tide-station" style="margin:0 0 12px"></div>
   <div class="field tide-point">
     <label for="tide-point">潮汐地点</label>
     <select id="tide-point"></select>
@@ -67,13 +74,18 @@
     client, requireSession, renderNav, escapeHtml,
     fetchTide, fetchWeather, todayInJst, formatJstDate, formatShortDate, relativeDays,
     describeWeather, windDirection, fishingScore, listSpots, listRecords, tideCorrelation, icon,
-    recordFishName, nowInJst, hoursFromHhmm,
+    recordFishName, nowInJst, hoursFromHhmm, addJstDays,
     listTidePoints, fetchTideForPoint, tidePointOfSpot, savedTidePoint, saveTidePoint, formatLag,
-    isCoordinateInJapan,
+    isCoordinateInJapan, tideTimelineSvg, tideLevelAt,
   } from "./assets/app.js";
 
   // 静岡県特化のため既定は舞阪（浜名湖口・遠州灘西部の基準）
   const DEFAULT_POINT = "ST:MI";
+
+  // グラフの状態（宣言はセッション処理より前に置く。const/let は巻き上がらない）
+  let chartDays = [];
+  let tideCache = new Map();          // 日付 → 潮汐
+  const sunCache = new Map();         // 日付 → 日の出・日没
 
   const session = await requireSession();
   if (session) {
@@ -105,16 +117,25 @@
       : (point?.lat != null ? { lat: point.lat, lng: point.lng } : null);
     if (baseSpot && !spotUsable) warnSpotCoordinates(baseSpot);
 
+    // グラフは昨日〜明日の 3 日ぶんを 1 本につないで表示する（夜釣りは日をまたぐ）。
+    // まず今日ぶんだけ描いて、前後の日は後から足す（ホームの表示を待たせない）
+    chartDays = [addJstDays(today, -1), today, addJstDays(today, 1)];
+
     const [tide, forecast] = await Promise.all([
       loadTide(point, today),
       weatherAt ? fetchWeather(weatherAt.lat, weatherAt.lng, today).catch(() => null) : null,
     ]);
     const weather = forecast?.hours ?? null;
-    const sun = forecast?.sun ?? null;
+    if (forecast?.sun) sunCache.set(today, forecast.sun);
+    tideCache.set(today, tide);
 
     renderHero(baseSpot, tide, weather, point);
-    renderTideGraph(tide, sun);
+    renderChart();
     renderHourly(weather);
+    scrollToNow("auto");
+
+    // 前後の日をあとから読み足す
+    loadNeighbours(point, weatherAt);
 
     // 地点を変えたら潮汐だけ差し替える（天気はスポット座標のままで変わらない）
     document.getElementById("tide-point").addEventListener("change", async (e) => {
@@ -123,9 +144,13 @@
       saveTidePoint(chosen.value);
       renderPointNote(chosen);
       document.getElementById("tide-detail-link").href = `tide.html?point=${encodeURIComponent(chosen.value)}`;
-      document.getElementById("tide-card").innerHTML =
-        `<div class="empty" id="tide-empty">読み込み中…</div>`;
-      renderTideGraph(await loadTide(chosen, today), sun);
+      tideCache = new Map();
+      document.getElementById("tide-track").innerHTML =
+        `<div class="empty">読み込み中…</div>`;
+      tideCache.set(today, await loadTide(chosen, today));
+      renderChart();
+      scrollToNow("auto");
+      loadNeighbours(chosen, weatherAt);
     });
 
     const [recent, correlation] = await Promise.all([
@@ -210,87 +235,61 @@
     }
   }
 
-  function renderTideGraph(tide, sun) {
-    const card = document.getElementById("tide-card");
-    if (!tide) { document.getElementById("tide-empty").textContent = "潮汐データを取得できませんでした"; return; }
-    // 地点は地点記号ではなく名前で示す。補正した地点は「推算」と付けて観測点と区別する
-    // （基準観測点と時差は下の「潮汐地点」欄に出るので、ここは短くまとめる）
-    document.getElementById("tide-station").textContent =
-      `${tide.point?.name ?? tide.station}${tide.corrected ? " 推算" : ""}`;
-
-    const levels = tide.hourly_levels_cm;
-    const valid = levels.filter((v) => v != null);
-    const min = Math.min(...valid), max = Math.max(...valid);
-    const W = 320, H = 132, padY = 22, padX = 6;
-    const x = (i) => padX + (i / 23) * (W - padX * 2);
-    const y = (v) => H - padY - ((v - min) / Math.max(1, max - min)) * (H - padY * 2);
-
-    const points = levels.map((v, i) => (v == null ? null : `${x(i)},${y(v)}`)).filter(Boolean);
-    const area = `M${padX},${H - padY} L${points.join(" L")} L${W - padX},${H - padY} Z`;
+  /* ---------- 潮汐グラフ（日をまたいで連続・D-036） ---------- */
+  function renderChart() {
+    const track = document.getElementById("tide-track");
+    const tides = chartDays.map((date) => tideCache.get(date) ?? null);
+    const result = tideTimelineSvg({
+      days: chartDays, tides, suns: sunCache, today: todayInJst(),
+      dayUnits: 320, height: 152, padTop: 28, padBottom: 28,
+    });
+    if (!result) {
+      track.innerHTML = `<div class="empty">潮汐データを取得できませんでした</div>`;
+      document.getElementById("tide-legend").innerHTML = "";
+      return;
+    }
+    track.innerHTML = result.svg;
 
     const now = nowInJst();
-    // 毎時値は 0〜23 時の 24 点なので、23 時台は軸の右端に留める
-    const nowHours = Math.min(now.hours, 23);
-    // 表示中の日付が今日でなければ現在時刻の線は出さない
-    const showNow = tide.date === now.date;
-    const nowLevel = levelAt(levels, now.hours);
+    const sun = sunCache.get(now.date);
+    const level = tideLevelAt(tideCache.get(now.date)?.hourly_levels_cm, Math.min(now.hours, 23));
+    document.getElementById("tide-legend").innerHTML =
+      (sun ? `<span class="lg lg-sun">${icon("sunrise", { size: 13 })} 日の出 ${sun.rise}</span>
+              <span class="lg lg-sun">${icon("sunset", { size: 13 })} 日没 ${sun.set}</span>` : "")
+      + `<span class="lg lg-now">${icon("clock", { size: 13 })} 現在 ${now.hhmm}${
+          level != null ? ` · 潮位 ${Math.round(level)}cm` : ""}</span>`
+      + `<span class="lg">潮位 ${result.min}〜${result.max}cm</span>`;
 
-    const riseH = hoursFromHhmm(sun?.rise);
-    const setH = hoursFromHhmm(sun?.set);
-
-    // 夜間（日の出前・日没後）を薄く塗って昼夜を一目で分かるようにする
-    const night = riseH != null && setH != null
-      ? `<rect class="night" x="${padX}" y="8" width="${Math.max(0, x(riseH) - padX)}" height="${H - padY - 8}"/>
-         <rect class="night" x="${x(setH)}" y="8" width="${Math.max(0, W - padX - x(setH))}" height="${H - padY - 8}"/>`
-      : "";
-
-    const sunLine = (hours, label) => hours == null ? "" : `
-      <line class="sun-line" x1="${x(hours)}" y1="8" x2="${x(hours)}" y2="${H - padY}"/>
-      <text class="sun-time" x="${x(hours)}" y="${H - padY - 5}" text-anchor="middle">${label}</text>`;
-
-    const peaks = [
-      ...tide.high_tides.map((e) => ({ ...e, mark: "満" })),
-      ...tide.low_tides.map((e) => ({ ...e, mark: "干" })),
-    ].filter((e) => e.time);
-
-    card.innerHTML = `
-      <svg class="tide-graph" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
-           aria-label="本日の潮位グラフ（日の出・日没・現在時刻つき）">
-        ${night}
-        <line class="axis" x1="${padX}" y1="${H - padY}" x2="${W - padX}" y2="${H - padY}"/>
-        ${sunLine(riseH, sun?.rise ?? "")}
-        ${sunLine(setH, sun?.set ?? "")}
-        <path class="curve" d="${area}"/>
-        ${showNow ? `
-          <line class="now" x1="${x(nowHours)}" y1="8" x2="${x(nowHours)}" y2="${H - padY}"/>
-          ${nowLevel != null ? `<circle class="now-dot" cx="${x(nowHours)}" cy="${y(nowLevel)}" r="3.5"/>` : ""}` : ""}
-        ${[0, 6, 12, 18].map((h) => `<text x="${x(h)}" y="${H - 8}">${h}:00</text>`).join("")}
-        <text x="${W - padX}" y="${H - 8}" text-anchor="end">23:00</text>
-        ${peaks.map((e) => {
-          const hour = Number(e.time.slice(0, 2)) + Number(e.time.slice(3, 5)) / 60;
-          const cx = x(hour);
-          // 端では基準点を切り替えてラベルが見切れないようにする
-          const anchor = cx < 30 ? "start" : cx > W - 30 ? "end" : "middle";
-          const px = anchor === "start" ? 4 : anchor === "end" ? W - 4 : cx;
-          return `<text class="peak" x="${px}" y="${e.mark === "満" ? 12 : 22}"
-                        text-anchor="${anchor}">${e.mark} ${e.time}</text>`;
-        }).join("")}
-      </svg>
-      <div class="tide-legend">
-        ${sun ? `<span class="lg lg-sun">${icon("sunrise", { size: 13 })} 日の出 ${sun.rise}</span>
-                 <span class="lg lg-sun">${icon("sunset", { size: 13 })} 日没 ${sun.set}</span>` : ""}
-        ${showNow ? `<span class="lg lg-now">${icon("clock", { size: 13 })} 現在 ${now.hhmm}${
-          nowLevel != null ? ` · 潮位 ${Math.round(nowLevel)}cm` : ""}</span>` : ""}
-      </div>`;
+    // 地点名は「推算」かどうかも含めてグラフの下に出す
+    const tide = tideCache.get(now.date) ?? tides.find(Boolean);
+    document.getElementById("tide-station").textContent =
+      `${tide?.point?.name ?? tide?.station ?? ""}${tide?.corrected ? " 推算" : ""}`;
   }
 
-  /** 毎時の潮位を線形補間して、任意の時刻の潮位を求める。 */
-  function levelAt(levels, hours) {
-    const i = Math.floor(hours);
-    const a = levels[Math.min(i, 23)], b = levels[Math.min(i + 1, 23)];
-    if (a == null) return null;
-    if (b == null) return a;
-    return a + (b - a) * (hours - i);
+  /** 現在時刻が画面中央に来るようにスクロールする。 */
+  function scrollToNow(behavior = "smooth") {
+    const scroller = document.getElementById("tide-scroller");
+    const now = nowInJst();
+    const index = chartDays.indexOf(now.date);
+    if (index < 0) return;
+    const width = scroller.clientWidth;
+    scroller.scrollTo({
+      left: Math.max(0, (index + now.hours / 24) * width - width / 2), behavior,
+    });
+  }
+
+  /** 前後の日を読み足してグラフを伸ばす。 */
+  async function loadNeighbours(point, weatherAt) {
+    const others = chartDays.filter((date) => !tideCache.has(date));
+    await Promise.all(others.map(async (date) => {
+      const [tide, forecast] = await Promise.all([
+        loadTide(point, date),
+        weatherAt ? fetchWeather(weatherAt.lat, weatherAt.lng, date).catch(() => null) : null,
+      ]);
+      tideCache.set(date, tide);
+      if (forecast?.sun) sunCache.set(date, forecast.sun);
+      renderChart();
+    }));
   }
 
   function renderHourly(weather) {
