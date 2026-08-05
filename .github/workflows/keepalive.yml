@@ -1,5 +1,11 @@
 # Supabase 無料プランの自動停止防止 ping（旧 EventBridge + Lambda の置き換え、D-021）
 # リポジトリ Secrets に SUPABASE_URL / SUPABASE_ANON_KEY を設定すること
+#
+# 実テーブルを 1 行読む。無料プランの一時停止は「データベースへのアクセスがない
+# こと」で判定されるため、DB に届くリクエストである必要がある。
+# （旧実装は /rest/v1/ を叩いていたが、これは OpenAPI スキーマを返すだけの
+#   エンドポイントで DB に触らないうえ、2025 年の API キー刷新でシークレット
+#   キー必須になり publishable キーでは 401 になった → D-033）
 name: Supabase keepalive
 
 on:
@@ -20,7 +26,22 @@ jobs:
             echo "::warning::SUPABASE_URL / SUPABASE_ANON_KEY 未設定のためスキップ"
             exit 0
           fi
-          status=$(curl -s -o /dev/null -w "%{http_code}" \
-            "$SUPABASE_URL/rest/v1/" -H "apikey: $SUPABASE_ANON_KEY")
-          echo "Supabase ping: $status"
-          test "$status" = "200"
+
+          # 公開読み取り可能なマスタを 1 行だけ読む（RLS で全ユーザー SELECT 可）
+          endpoint="$SUPABASE_URL/rest/v1/tide_stations?select=code&limit=1"
+
+          # 一時的な失敗でメールが飛ばないよう 3 回まで試す
+          for attempt in 1 2 3; do
+            status=$(curl -s -o /tmp/keepalive-body.txt -w "%{http_code}" \
+              --max-time 30 "$endpoint" -H "apikey: $SUPABASE_ANON_KEY")
+            echo "attempt $attempt: HTTP $status"
+            if [ "$status" = "200" ]; then
+              echo "Supabase ping OK: $(cat /tmp/keepalive-body.txt)"
+              exit 0
+            fi
+            [ "$attempt" -lt 3 ] && sleep 20
+          done
+
+          echo "::error::Supabase への ping が失敗しました (HTTP $status)"
+          cat /tmp/keepalive-body.txt
+          exit 1
