@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SETTINGS | TIDEBASE</title>
+<link rel="stylesheet" href="vendor/fonts/fonts.css">
+<link rel="stylesheet" href="assets/theme.css">
+</head>
+<body class="app-body">
+<!-- SCR-014 設定（まずはアカウント周りのみ。他項目は順次追加） -->
+<header class="page-head">
+  <button type="button" class="back" id="back" aria-label="戻る">←</button>
+  <div class="page-title">SETTINGS</div>
+</header>
+
+<main>
+  <div id="message" class="message" hidden role="alert"></div>
+
+  <!-- プロフィール -->
+  <div class="section-label"><span>PROFILE</span></div>
+  <div class="card">
+    <div class="field">
+      <label for="username">表示名</label>
+      <input type="text" id="username" maxlength="40" placeholder="未設定">
+    </div>
+    <div class="rows" style="margin-bottom:12px">
+      <div class="row"><span class="label">メールアドレス</span>
+        <span class="val" id="email">—</span></div>
+    </div>
+    <button type="button" class="btn btn-quiet" id="save-profile">
+      <span data-icon="save"></span>表示名を保存
+    </button>
+  </div>
+
+  <!-- アカウント -->
+  <div class="section-label"><span>ACCOUNT</span></div>
+  <div class="card">
+    <h2><span data-icon="key"></span> パスワード変更</h2>
+    <div class="field">
+      <label for="current-password">現在のパスワード</label>
+      <input type="password" id="current-password" autocomplete="current-password">
+    </div>
+    <div class="field">
+      <label for="new-password">新しいパスワード</label>
+      <input type="password" id="new-password" autocomplete="new-password">
+      <div class="hint">8 文字以上</div>
+    </div>
+    <div class="field">
+      <label for="confirm-password">新しいパスワード（確認）</label>
+      <input type="password" id="confirm-password" autocomplete="new-password">
+    </div>
+    <button type="button" class="btn" id="change-password">パスワードを変更する</button>
+  </div>
+
+  <div class="card">
+    <button type="button" class="btn btn-quiet" id="signout">
+      <span data-icon="back"></span>ログアウト
+    </button>
+  </div>
+
+  <div class="page-sub" style="text-align:center;margin-top:18px">TIDEBASE</div>
+</main>
+
+<script src="vendor/supabase.js"></script>
+<script src="assets/config.js"></script>
+<script type="module">
+  import {
+    client, requireSession, renderNav, toJapaneseError, requireUserId, currentUserId,
+  } from "./assets/app.js";
+
+  const MIN_PASSWORD_LENGTH = 8;   // Supabase 側の password_min_length と揃える
+
+  const session = await requireSession();
+  if (!session) throw new Error("unauthenticated");
+  renderNav("home");
+  document.getElementById("back").addEventListener("click", () => history.back());
+
+  /* ---------- プロフィール ---------- */
+  document.getElementById("email").textContent = session.user?.email ?? "—";
+
+  document.getElementById("save-profile").addEventListener("click", async (e) => {
+    const button = e.currentTarget;
+    const username = document.getElementById("username").value.trim() || null;
+    button.disabled = true;
+    try {
+      const { error } = await client.from("profiles")
+        .update({ username }).eq("id", await requireUserId());
+      if (error) throw error;
+      message("表示名を保存しました。", "success");
+    } catch (error) {
+      message(toJapaneseError(error), "error");
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  /* ---------- パスワード変更 ---------- */
+  document.getElementById("change-password").addEventListener("click", async (e) => {
+    const current = document.getElementById("current-password").value;
+    const next = document.getElementById("new-password").value;
+    const confirm = document.getElementById("confirm-password").value;
+
+    if (!current || !next) return message("現在のパスワードと新しいパスワードを入力してください。", "error");
+    if (next.length < MIN_PASSWORD_LENGTH) {
+      return message(`新しいパスワードは ${MIN_PASSWORD_LENGTH} 文字以上にしてください。`, "error");
+    }
+    if (next !== confirm) return message("新しいパスワードが一致しません。", "error");
+    if (next === current) return message("現在と同じパスワードです。", "error");
+
+    const button = e.currentTarget;
+    button.disabled = true; button.textContent = "変更中…";
+    try {
+      // Supabase 側は再認証なしでも変更できる設定だが、端末を放置したまま
+      // 第三者に変更されると締め出されるため、現在のパスワードを必ず確認する
+      const email = session.user?.email;
+      if (!email) throw new Error("メールアドレスを確認できませんでした。再度ログインしてください。");
+      const { error: signInError } =
+        await client.auth.signInWithPassword({ email, password: current });
+      if (signInError) {
+        message(/Invalid login credentials/i.test(signInError.message)
+          ? "現在のパスワードが違います。" : toJapaneseError(signInError), "error");
+        return;
+      }
+
+      const { error } = await client.auth.updateUser({ password: next });
+      if (error) throw error;
+
+      document.querySelectorAll("#current-password, #new-password, #confirm-password")
+        .forEach((input) => { input.value = ""; });
+      message("パスワードを変更しました。次回のログインから新しいパスワードを使ってください。", "success");
+    } catch (error) {
+      message(toJapaneseError(error), "error");
+    } finally {
+      button.disabled = false; button.textContent = "パスワードを変更する";
+    }
+  });
+
+  /* ---------- ログアウト ---------- */
+  document.getElementById("signout").addEventListener("click", async () => {
+    await client.auth.signOut();
+    location.replace("login.html");
+  });
+
+  function message(text, kind) {
+    const box = document.getElementById("message");
+    box.textContent = text;
+    box.className = `message ${kind}`;
+    box.hidden = false;
+    window.scrollTo(0, 0);
+  }
+
+  /* ---------- 初期化 ---------- */
+  const userId = await currentUserId();
+  if (userId) {
+    const { data } = await client.from("profiles")
+      .select("username").eq("id", userId).maybeSingle();
+    if (data?.username) document.getElementById("username").value = data.username;
+  }
+</script>
+</body>
+</html>

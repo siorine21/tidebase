@@ -662,3 +662,12 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .week-grid .tt { font-size: 9px; font-weight: 700; }
 .week-grid .wx { height: 18px; display: flex; align-items: center; }
 .week-grid .wx .icon { width: 15px; height: 15px; color: var(--text-secondary); }
+
+/* ---------- SCR-014 設定 ---------- */
+.app-header .link-btn {
+  width: auto; display: inline-flex; align-items: center; gap: 5px;
+  padding: 7px 12px; font-size: 13px;
+}
+.card h2 { display: flex; align-items: center; gap: 6px; }
+.card h2 .icon { color: var(--mustard); }
+#settings-link .icon { width: 15px; height: 15px; }

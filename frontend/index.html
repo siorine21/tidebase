@@ -11,7 +11,8 @@
 <!-- SCR-001 ホーム（ダッシュボード） -->
 <header class="app-header">
   <h1>TIDEBASE</h1>
-  <button type="button" class="btn btn-quiet" id="signout">ログアウト</button>
+  <a class="btn btn-quiet link-btn" href="settings.html" id="settings-link"
+     aria-label="設定"><span data-icon="settings"></span>設定</a>
 </header>
 
 <main>
@@ -352,10 +353,7 @@
       </div>`).join("");
   }
 
-  document.getElementById("signout").addEventListener("click", async () => {
-    await client.auth.signOut();
-    location.replace("login.html");
-  });
+  // ログアウトは設定画面（SCR-014）へ移した
 </script>
 </body>
 </html>
