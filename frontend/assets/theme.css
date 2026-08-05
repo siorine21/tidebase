@@ -625,8 +625,26 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
   font-family: 'JetBrains Mono', monospace; font-size: 14px; color: var(--text-primary);
 }
 
-/* 大型潮汐グラフ */
+/* 大型潮汐グラフ（横スクロールで日送り） */
 .tide-graph-lg { height: 176px; }
+.tide-scroller {
+  display: flex; overflow-x: auto; scroll-snap-type: x mandatory;
+  gap: 0; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+}
+.tide-scroller::-webkit-scrollbar { display: none; }
+.tide-scroller:focus-visible { outline: 1px solid var(--border-strong); outline-offset: 2px; }
+.tide-day { flex: 0 0 100%; scroll-snap-align: center; }
+.tide-day-head .today-mark { color: var(--mustard); }
+.tide-day-head {
+  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  color: var(--text-muted); margin-bottom: 6px;
+}
+.tide-day-card { margin-bottom: 0; }
+.scroll-hint {
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  margin: 8px 0 14px; font-size: 11px; color: var(--text-muted);
+}
+.scroll-hint .icon { width: 13px; height: 13px; }
 .tide-graph .grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 4; }
 .tide-graph .peak-dot { stroke: var(--bg-card); stroke-width: 1.5; }
 .tide-graph .peak-dot.high { fill: #FF9800; }

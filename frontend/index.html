@@ -229,6 +229,8 @@
     const area = `M${padX},${H - padY} L${points.join(" L")} L${W - padX},${H - padY} Z`;
 
     const now = nowInJst();
+    // 毎時値は 0〜23 時の 24 点なので、23 時台は軸の右端に留める
+    const nowHours = Math.min(now.hours, 23);
     // 表示中の日付が今日でなければ現在時刻の線は出さない
     const showNow = tide.date === now.date;
     const nowLevel = levelAt(levels, now.hours);
@@ -260,10 +262,10 @@
         ${sunLine(setH, sun?.set ?? "")}
         <path class="curve" d="${area}"/>
         ${showNow ? `
-          <line class="now" x1="${x(now.hours)}" y1="8" x2="${x(now.hours)}" y2="${H - padY}"/>
-          ${nowLevel != null ? `<circle class="now-dot" cx="${x(now.hours)}" cy="${y(nowLevel)}" r="3.5"/>` : ""}` : ""}
+          <line class="now" x1="${x(nowHours)}" y1="8" x2="${x(nowHours)}" y2="${H - padY}"/>
+          ${nowLevel != null ? `<circle class="now-dot" cx="${x(nowHours)}" cy="${y(nowLevel)}" r="3.5"/>` : ""}` : ""}
         ${[0, 6, 12, 18].map((h) => `<text x="${x(h)}" y="${H - 8}">${h}:00</text>`).join("")}
-        <text x="${W - padX}" y="${H - 8}" text-anchor="end">24:00</text>
+        <text x="${W - padX}" y="${H - 8}" text-anchor="end">23:00</text>
         ${peaks.map((e) => {
           const hour = Number(e.time.slice(0, 2)) + Number(e.time.slice(3, 5)) / 60;
           const cx = x(hour);
