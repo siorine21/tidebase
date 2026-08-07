@@ -22,6 +22,10 @@
 
 <main>
   <div id="message" class="message" hidden role="alert"></div>
+  <div id="draft-notice" class="message draft-notice" hidden>
+    <span>入力途中の内容を復元しました。</span>
+    <button type="button" class="chip" id="draft-discard">破棄して最初から</button>
+  </div>
 
   <!-- STEP 1: 魚種・サイズ・匹数 -->
   <section class="card step-panel" data-step="1">
@@ -80,6 +84,10 @@
 
   <!-- STEP 3: スポット -->
   <section class="card step-panel" data-step="3" hidden>
+    <div class="draft-notice" id="skunk-notice" hidden>
+      <span>ボウズとして記録します。</span>
+      <button type="button" class="chip" id="unskunk">釣果を入力する</button>
+    </div>
     <div class="field">
       <label for="fished-at">釣行日</label>
       <input type="date" id="fished-at">
@@ -159,10 +167,19 @@
   const STEPS = ["魚種", "タックル", "スポット", "写真", "メモ"];
   const state = { step: 1, isSkunked: false, spotId: null, layer: null, visibility: "group" };
 
+  // 既存の釣果を編集する場合は ?id= が付く
+  const recordId = new URLSearchParams(location.search).get("id");
+  const DRAFT_KEY = "tidebase.recordDraft";
+
   const session = await requireSession();
   if (!session) throw new Error("unauthenticated");
   renderNav("records");
 
+  if (recordId) {
+    document.getElementById("mode-title").textContent = "EDIT CATCH";
+    document.title = "EDIT CATCH | TIDEBASE";
+    document.getElementById("submit").textContent = "変更を保存する";
+  }
   document.getElementById("fished-at").value = todayInJst();
   renderStepper();
 
@@ -190,10 +207,11 @@
       const cls = n < state.step ? "done" : n === state.step ? "active" : "";
       const skipped = state.isSkunked && (n === 1 || n === 2);
       return `
-        <div class="step">
-          <div class="step-dot ${cls}">${skipped ? "–" : n < state.step ? "&#10003;" : n}</div>
-          <div class="step-label ${n === state.step ? "active" : ""}">${label}</div>
-        </div>`;
+        <button type="button" class="step" data-step="${n}"
+                ${skipped ? "disabled" : ""} aria-current="${n === state.step}">
+          <span class="step-dot ${cls}">${skipped ? "–" : n < state.step ? "&#10003;" : n}</span>
+          <span class="step-label ${n === state.step ? "active" : ""}">${label}</span>
+        </button>`;
     }).join("");
     document.getElementById("step-sub").textContent = `STEP ${state.step}/5`;
   }
@@ -209,7 +227,16 @@
     if (step === 5) renderSummary();
     renderStepper();
     window.scrollTo(0, 0);
+    saveDraft();
   }
+
+  // ステップの丸は押せる。見た目が押せそうなのに反応しないと迷うため
+  document.getElementById("stepper").addEventListener("click", (e) => {
+    const button = e.target.closest(".step");
+    if (!button || button.disabled) return;
+    hideMessage();
+    show(Number(button.dataset.step));
+  });
 
   // ボウズは STEP1・2 をスキップ（確定仕様書 6.1 章）
   const nextStep = (from) => (state.isSkunked && from === 2 ? 3 : from + 1);
@@ -228,10 +255,24 @@
   });
   document.getElementById("back").addEventListener("click", () => history.back());
 
+  function setSkunked(on) {
+    state.isSkunked = on;
+    const base = recordId ? "EDIT CATCH" : "NEW CATCH";
+    document.getElementById("mode-title").textContent = on ? `${base} — SKUNK` : base;
+    document.getElementById("skunk-notice").hidden = !on;
+  }
+
   document.getElementById("skunk-btn").addEventListener("click", () => {
-    state.isSkunked = true;
-    document.getElementById("mode-title").textContent = "NEW CATCH — SKUNK";
+    setSkunked(true);
     show(3);
+    saveDraft();
+  });
+
+  // ボウズだと STEP1・2 が押せなくなるため、解除の導線を STEP3 に置く
+  document.getElementById("unskunk").addEventListener("click", () => {
+    setSkunked(false);
+    show(1);
+    saveDraft();
   });
 
   /* ---------- チップ選択 ---------- */
@@ -243,6 +284,7 @@
       chip.parentElement.querySelectorAll(".chip").forEach((c) => c.classList.remove("selected"));
       if (!(toggle && already)) chip.classList.add("selected");
       onSelect(toggle && already ? null : chip.dataset.value);
+      saveDraft();
     });
   }
   bindChips("layer-chips", (v) => { state.layer = v; }, { toggle: true });
@@ -283,6 +325,7 @@
     if (!button) return;
     state.displayName = button.dataset.name;
     suggestBox.innerHTML = `<div class="suggest">呼称: ${escapeHtml(state.displayName)}</div>`;
+    saveDraft();
   });
 
   document.getElementById("length").addEventListener("change", updateSuggestion);
@@ -314,9 +357,7 @@
     }).join("");
   }
 
-  document.getElementById("spot-list").addEventListener("click", (e) => {
-    const item = e.target.closest(".spot-option");
-    if (!item) return;
+  function selectSpot(item) {
     state.spotId = item.dataset.id;
     document.querySelectorAll(".spot-option").forEach((el) => {
       el.style.borderColor = "";
@@ -324,6 +365,13 @@
     });
     item.style.borderColor = "var(--mustard)";
     item.querySelector(".select-mark").innerHTML = icon("check", { size: 16 });
+  }
+
+  document.getElementById("spot-list").addEventListener("click", (e) => {
+    const item = e.target.closest(".spot-option");
+    if (!item) return;
+    selectSpot(item);
+    saveDraft();
   });
 
   /* ---------- 新規スポットは地図でピンを立てて登録する ---------- */
@@ -444,6 +492,15 @@
     };
     const text = (id) => document.getElementById(id).value.trim() || null;
 
+    // DB 側でも弾かれるが、どこを直せばよいか分かる形で先に伝える
+    if (!state.isSkunked && (num("count") ?? 1) < 1) {
+      button.disabled = false;
+      button.textContent = recordId ? "変更を保存する" : "この内容で記録する";
+      message("匹数は 1 以上で入力してください。ボウズは STEP1 の「ボウズで記録」から登録できます。", "error");
+      show(1);
+      return;
+    }
+
     let userId;
     try { userId = await requireUserId(); }
     catch (sessionError) {
@@ -459,28 +516,149 @@
       memo: text("memo"),
       visibility: state.visibility,
     };
-    if (!state.isSkunked) {
-      Object.assign(payload, {
-        fish_species_id: document.getElementById("species").value || null,
-        fish_name_local: state.displayName ?? null,
-        length_cm: num("length"),
-        weight_g: num("weight"),
-        catch_count: num("count") ?? 1,
-        quantity_note: text("quantity-note"),
-        recipe_id: document.getElementById("recipe").value || null,
-        water_layer: state.layer,
-        rod: text("rod"), reel: text("reel"), line: text("line"), leader: text("leader"),
-      });
-    }
+    // ボウズは STEP1・2 を飛ばすため、編集で切り替えたときに古い値が残らないよう明示的に消す
+    Object.assign(payload, state.isSkunked ? {
+      fish_species_id: null, fish_name_local: null, length_cm: null, weight_g: null,
+      quantity_note: null, recipe_id: null, water_layer: null,
+      rod: null, reel: null, line: null, leader: null,
+    } : {
+      fish_species_id: document.getElementById("species").value || null,
+      fish_name_local: state.displayName ?? null,
+      length_cm: num("length"),
+      weight_g: num("weight"),
+      catch_count: num("count") ?? 1,
+      quantity_note: text("quantity-note"),
+      recipe_id: document.getElementById("recipe").value || null,
+      water_layer: state.layer,
+      rod: text("rod"), reel: text("reel"), line: text("line"), leader: text("leader"),
+    });
 
-    const { error } = await client.from("fishing_records").insert(payload);
+    const { error } = recordId
+      ? await client.from("fishing_records").update(payload).eq("id", recordId)
+      : await client.from("fishing_records").insert(payload);
     if (error) {
       message(toJapaneseError(error), "error");
-      button.disabled = false; button.textContent = "この内容で記録する";
+      button.disabled = false;
+      button.textContent = recordId ? "変更を保存する" : "この内容で記録する";
       return;
     }
-    location.replace("records.html?saved=1");
+    clearDraft();
+    location.replace(recordId ? `record.html?id=${recordId}&saved=1` : "records.html?saved=1");
   });
+
+  /* ---------- 入力途中の内容を残す ----------
+     画面を離れても消えないよう、変更のたびに端末内へ保存する。
+     編集中（?id= あり）は元データが正なので下書きは使わない。 */
+  function collectDraft() {
+    const value = (id) => document.getElementById(id).value;
+    return {
+      step: state.step, isSkunked: state.isSkunked, spotId: state.spotId,
+      layer: state.layer, visibility: state.visibility, displayName: state.displayName ?? null,
+      species: value("species"), length: value("length"), weight: value("weight"),
+      count: value("count"), quantityNote: value("quantity-note"),
+      recipe: value("recipe"), rod: value("rod"), reel: value("reel"),
+      line: value("line"), leader: value("leader"),
+      fishedAt: value("fished-at"), memo: value("memo"),
+    };
+  }
+
+  // 釣行日は初期値が入るので、それ以外に入力があるときだけ「入力途中」とみなす
+  function hasInput(d) {
+    return Boolean(d.isSkunked || d.spotId || d.layer || d.displayName || d.memo
+      || d.species || d.length || d.weight || d.quantityNote
+      || d.recipe || d.rod || d.reel || d.line || d.leader);
+  }
+
+  function saveDraft() {
+    if (recordId) return;
+    const data = collectDraft();
+    try {
+      if (hasInput(data)) localStorage.setItem(DRAFT_KEY, JSON.stringify(data));
+      else localStorage.removeItem(DRAFT_KEY);
+    } catch { /* 容量超過は無視 */ }
+  }
+
+  function clearDraft() {
+    try { localStorage.removeItem(DRAFT_KEY); } catch { /* 無視 */ }
+  }
+
+  /** 下書き・既存レコードの値を画面に流し込む。 */
+  function applyValues(data) {
+    const set = (id, v) => { if (v != null) document.getElementById(id).value = v; };
+    set("species", data.species); set("length", data.length); set("weight", data.weight);
+    set("count", data.count); set("quantity-note", data.quantityNote);
+    set("recipe", data.recipe); set("rod", data.rod); set("reel", data.reel);
+    set("line", data.line); set("leader", data.leader);
+    set("fished-at", data.fishedAt); set("memo", data.memo);
+
+    setSkunked(Boolean(data.isSkunked));
+    state.spotId = data.spotId ?? null;
+    state.layer = data.layer ?? null;
+    state.visibility = data.visibility ?? "group";
+    state.displayName = data.displayName ?? null;
+
+    markChip("layer-chips", state.layer);
+    markChip("visibility-chips", state.visibility);
+    if (state.spotId) {
+      const item = document.querySelector(`.spot-option[data-id="${state.spotId}"]`);
+      if (item) selectSpot(item);
+    }
+  }
+
+  function markChip(containerId, value) {
+    document.querySelectorAll(`#${containerId} .chip`).forEach((chip) => {
+      chip.classList.toggle("selected", chip.dataset.value === value);
+    });
+  }
+
+  /** 既存レコードを下書きと同じ形にそろえる。 */
+  function draftFromRecord(r) {
+    return {
+      step: 1, isSkunked: r.is_skunked, spotId: r.spot_id,
+      layer: r.water_layer, visibility: r.visibility, displayName: r.fish_name_local,
+      species: r.fish_species_id ?? "", length: r.length_cm ?? "", weight: r.weight_g ?? "",
+      // ボウズは catch_count = 0 で保存されるが、解除したときの初期値は 1 が自然
+      count: r.is_skunked ? 1 : r.catch_count ?? 1, quantityNote: r.quantity_note ?? "",
+      recipe: r.recipe_id ?? "", rod: r.rod ?? "", reel: r.reel ?? "",
+      line: r.line ?? "", leader: r.leader ?? "",
+      fishedAt: r.fished_at, memo: r.memo ?? "",
+    };
+  }
+
+  async function restore() {
+    if (recordId) {
+      const { data, error } = await client.from("fishing_records")
+        .select("*").eq("id", recordId).maybeSingle();
+      if (error) return message(toJapaneseError(error), "error");
+      if (!data) return message("記録が見つかりません。", "error");
+      applyValues(draftFromRecord(data));
+      if (state.displayName) {
+        suggestBox.innerHTML = `<div class="suggest">呼称: ${escapeHtml(state.displayName)}</div>`;
+      }
+      show(openStep(1));
+      return;
+    }
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(DRAFT_KEY) ?? "null"); } catch { /* 壊れた下書きは捨てる */ }
+    if (!saved || !hasInput(saved)) return;
+    applyValues(saved);
+    document.getElementById("draft-notice").hidden = false;
+    show(openStep(Math.min(5, Math.max(1, Number(saved.step) || 1))));
+  }
+
+  // ボウズは STEP1・2 が無効なので、そこへは開かない
+  const openStep = (step) => (state.isSkunked && step < 3 ? 3 : step);
+
+  // 入力のたびに保存する（チップ・スポット選択は各ハンドラから呼ぶ）
+  document.querySelector("main").addEventListener("input", saveDraft);
+  document.querySelector("main").addEventListener("change", saveDraft);
+
+  document.getElementById("draft-discard").addEventListener("click", () => {
+    clearDraft();
+    location.replace("record-new.html");
+  });
+
+  await restore();
 
   function message(text, kind) {
     const box = document.getElementById("message");

@@ -389,7 +389,13 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .page-sub { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-muted); }
 
 .stepper { display: flex; padding: 14px 8px 4px; }
-.step { flex: 1; text-align: center; }
+.step {
+  flex: 1; text-align: center; cursor: pointer;
+  background: none; border: none; padding: 4px 0; font-family: inherit;
+  display: flex; flex-direction: column; align-items: center;
+}
+.step:disabled { cursor: default; opacity: 0.5; }
+.step:not(:disabled):hover .step-dot { border-color: var(--border-strong); }
 .step-dot {
   width: 26px; height: 26px; margin: 0 auto 4px; border-radius: 50%;
   border: 1px solid var(--border); background: var(--bg-card);
@@ -400,6 +406,15 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .step-dot.done { border-color: var(--green); background: var(--green-light); color: #A5D6A7; }
 .step-label { font-size: 10px; color: var(--text-muted); }
 .step-label.active { color: var(--mustard); }
+
+/* 入力途中の下書きを復元したときの通知 */
+.draft-notice {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin-bottom: 16px; padding: 10px 12px; border-radius: 8px; font-size: 13px;
+  background: var(--mustard-bg); border: 1px solid var(--border-strong); color: var(--mustard-lt);
+}
+.draft-notice[hidden] { display: none; }
+.draft-notice .chip { flex-shrink: 0; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 7px; }
 .chip {

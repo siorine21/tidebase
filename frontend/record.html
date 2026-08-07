@@ -31,10 +31,18 @@
   renderNav("records");
   document.getElementById("back").addEventListener("click", () => history.back());
 
-  const id = new URLSearchParams(location.search).get("id");
+  const params = new URLSearchParams(location.search);
+  const id = params.get("id");
   if (!id) {
     document.getElementById("detail").innerHTML = `<div class="empty">記録が指定されていません。</div>`;
     throw new Error("no id");
+  }
+  if (params.get("saved")) {
+    const box = document.getElementById("message");
+    box.textContent = "変更を保存しました。";
+    box.className = "message success";
+    box.hidden = false;
+    history.replaceState(null, "", `record.html?id=${encodeURIComponent(id)}`);
   }
 
   const { data: record, error } = await client
@@ -83,6 +91,8 @@
       ${r.memo ? `<div class="card"><h2>メモ</h2>
         <div style="white-space:pre-wrap;font-size:14px">${escapeHtml(r.memo)}</div></div>` : ""}
       <div class="actions">
+        <a class="btn btn-quiet link-btn"
+           href="record-new.html?id=${encodeURIComponent(r.id)}">${icon("edit", { size: 15 })} 編集</a>
         <button type="button" class="btn btn-quiet" id="delete">削除する</button>
       </div>`;
 
