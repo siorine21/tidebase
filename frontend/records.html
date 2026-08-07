@@ -32,6 +32,14 @@
         </select>
       </div>
     </div>
+    <div class="field" id="owner-field" style="margin:10px 0 0" hidden>
+      <label for="filter-owner">投稿者</label>
+      <select id="filter-owner">
+        <option value="mine">自分の釣果</option>
+        <option value="all">グループ全員</option>
+        <option value="others">メンバーの釣果</option>
+      </select>
+    </div>
     <div id="recipe-filter" hidden style="margin-top:10px">
       <span class="tag tag-mustard" id="recipe-filter-label"></span>
       <button type="button" class="chip" id="clear-recipe" style="margin-left:6px" data-icon="close">解除</button>
@@ -78,7 +86,7 @@
   // レシピ詳細（SCR-009）の「すべて見る」からの絞り込み
   let recipeId = new URLSearchParams(location.search).get("recipe");
   if (recipeId) {
-    const name = records.find((r) => r.recipe_id === recipeId)?.lure_recipes?.name;
+    const name = records.find((r) => r.recipe_id === recipeId)?.recipe_name;
     document.getElementById("recipe-filter").hidden = false;
     document.getElementById("recipe-filter-label").textContent = `${name ?? "指定レシピ"}`;
   }
@@ -89,18 +97,28 @@
     render();
   });
 
+  // グループの釣果が 1 件も無いうちは、投稿者の絞り込みを出さない
+  if (records.some((r) => !r.is_mine)) {
+    document.getElementById("owner-field").hidden = false;
+    document.getElementById("filter-owner").value = "all";
+  }
+
   document.getElementById("filter-spot").addEventListener("change", render);
   document.getElementById("filter-kind").addEventListener("change", render);
+  document.getElementById("filter-owner").addEventListener("change", render);
   render();
 
   function render() {
     const spotId = document.getElementById("filter-spot").value;
     const kind = document.getElementById("filter-kind").value;
+    const owner = document.getElementById("filter-owner").value;
     const filtered = records.filter((r) => {
       if (spotId && r.spot_id !== spotId) return false;
       if (recipeId && r.recipe_id !== recipeId) return false;
       if (kind === "catch" && r.is_skunked) return false;
       if (kind === "skunk" && !r.is_skunked) return false;
+      if (owner === "mine" && !r.is_mine) return false;
+      if (owner === "others" && r.is_mine) return false;
       return true;
     });
 
@@ -127,15 +145,17 @@
         : `${escapeHtml(recordFishName(r))}${r.length_cm ? ` ${r.length_cm}cm` : ""}`
           + (r.catch_count > 1 ? ` ×${r.catch_count}` : "");
       const sub = [
-        r.spots?.name, r.lure_recipes?.name, r.water_layer,
+        r.spot_name, r.recipe_name, r.water_layer,
         r.tide_type, r.quantity_note,
       ].filter(Boolean).map(escapeHtml).join(" / ");
+      // 誰の釣果かはひと目で分かるようにする（自分のものには何も付けない）
+      const owner = r.is_mine ? "" : `<span class="owner-badge">${escapeHtml(r.owner_name)}</span>`;
 
       return `${header}
-        <a class="list-item" href="record.html?id=${r.id}">
+        <a class="list-item${r.is_mine ? "" : " shared"}" href="record.html?id=${r.id}">
           <div class="thumb">${icon(r.is_skunked ? "skunk" : "fish", { size: 20 })}</div>
           <div class="list-body">
-            <div class="list-title">${title}</div>
+            <div class="list-title">${owner}${title}</div>
             <div class="list-sub">${escapeHtml(formatJstDate(r.fished_at))}${sub ? " · " + sub : ""}</div>
           </div>
           <div class="list-aside">${relativeDays(r.fished_at)}</div>

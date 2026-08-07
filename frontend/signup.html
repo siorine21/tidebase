@@ -8,7 +8,9 @@
 <link rel="stylesheet" href="assets/theme.css">
 </head>
 <body>
-<!-- SCR-017 会員登録 -->
+<!-- SCR-017 会員登録（招待制）
+     一般公開のサインアップは Supabase Auth 側で無効にしてある。
+     登録経路は招待リンク（?invite=<token>）だけ。 -->
 <div class="auth-shell">
   <div class="auth-card">
     <div class="brand">
@@ -17,8 +19,14 @@
     </div>
 
     <div id="message" class="message" hidden role="alert"></div>
+    <div id="invite-box" class="message success" hidden></div>
 
-    <form id="signup-form" novalidate>
+    <form id="signup-form" novalidate hidden>
+      <div class="field">
+        <label for="username">ニックネーム</label>
+        <input type="text" id="username" name="username" maxlength="20" autocomplete="nickname" required>
+        <p class="hint">釣果を共有したときに表示される名前です</p>
+      </div>
       <div class="field">
         <label for="email">メールアドレス</label>
         <input type="email" id="email" name="email" autocomplete="email" required>
@@ -44,7 +52,10 @@
 <script src="vendor/supabase.js"></script>
 <script src="assets/config.js"></script>
 <script type="module">
-  import { client, redirectIfSignedIn, toJapaneseError } from "./assets/app.js";
+  import {
+    client, redirectIfSignedIn, toJapaneseError, escapeHtml,
+    checkInvite, signUpWithInvite,
+  } from "./assets/app.js";
 
   const MIN_PASSWORD_LENGTH = 8;
 
@@ -53,6 +64,7 @@
   const form = document.getElementById("signup-form");
   const submit = document.getElementById("submit");
   const message = document.getElementById("message");
+  const inviteToken = new URLSearchParams(location.search).get("invite");
 
   function show(text, kind) {
     message.textContent = text;
@@ -60,48 +72,69 @@
     message.hidden = false;
   }
 
+  /* ---------- 招待の確認 ---------- */
+  if (!inviteToken) {
+    show("TIDEBASE は招待制です。招待リンクからお進みください。", "error");
+  } else {
+    show("招待を確認しています…", "success");
+    let invite;
+    try {
+      invite = await checkInvite(inviteToken);
+    } catch {
+      invite = { valid: false, error: "招待を確認できませんでした。通信環境を確認してもう一度お試しください。" };
+    }
+    if (!invite.valid) {
+      show(invite.error ?? "この招待リンクは使えません。", "error");
+    } else {
+      message.hidden = true;
+      const box = document.getElementById("invite-box");
+      box.innerHTML = `<strong>${escapeHtml(invite.inviter)}</strong> さんから`
+        + `「${escapeHtml(invite.group_name)}」への招待です。`;
+      box.hidden = false;
+      form.hidden = false;
+      if (invite.label) document.getElementById("username").value = invite.label;
+      document.getElementById("username").focus();
+    }
+  }
+
+  /* ---------- 登録 ---------- */
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
     message.hidden = true;
 
+    const username = form.username.value.trim();
     const email = form.email.value.trim();
     const password = form.password.value;
 
-    if (!email || !password) {
-      show("メールアドレスとパスワードを入力してください。", "error");
-      return;
-    }
+    if (!username) return show("ニックネームを入力してください。", "error");
+    if (!email || !password) return show("メールアドレスとパスワードを入力してください。", "error");
     if (password.length < MIN_PASSWORD_LENGTH) {
-      show(`パスワードは ${MIN_PASSWORD_LENGTH} 文字以上にしてください。`, "error");
-      return;
+      return show(`パスワードは ${MIN_PASSWORD_LENGTH} 文字以上にしてください。`, "error");
     }
-    if (password !== form.confirm.value) {
-      show("パスワードが一致しません。", "error");
-      return;
-    }
+    if (password !== form.confirm.value) return show("パスワードが一致しません。", "error");
 
     submit.disabled = true;
     submit.textContent = "登録中…";
-    // 登録が成功すると handle_new_user トリガーが
-    // profiles とメソッド 10 件を自動作成する（確定仕様書 18.3 章）
-    const { data, error } = await client.auth.signUp({ email, password });
-
-    if (error) {
-      show(toJapaneseError(error), "error");
+    try {
+      // Edge Function 側でアカウント作成 + グループ参加まで行う。
+      // 確認メールは使わない（内蔵メールは 1 時間 2 通の制限があり、
+      // 届かないと招待した人が対処できない）。
+      await signUpWithInvite({ token: inviteToken, email, password, username });
+    } catch (error) {
+      show(error.message, "error");
       submit.disabled = false;
       submit.textContent = "登録する";
       return;
     }
 
-    if (data.session) {
-      location.replace("index.html");
+    const { error } = await client.auth.signInWithPassword({ email, password });
+    if (error) {
+      // 登録自体は成功しているので、ログイン画面へ案内する
+      form.hidden = true;
+      show("登録が完了しました。ログイン画面からお進みください。", "success");
       return;
     }
-    form.hidden = true;
-    show(
-      `${email} に確認メールを送信しました。メール内のリンクを開くと登録が完了します。`,
-      "success",
-    );
+    location.replace("index.html");
   });
 </script>
 </body>

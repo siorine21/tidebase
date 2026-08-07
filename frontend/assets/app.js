@@ -130,8 +130,9 @@ export function relativeDays(isoDate) {
  */
 const FETCH_TIMEOUT_MS = 15000;
 
-function fetchWithTimeout(url, timeout = FETCH_TIMEOUT_MS) {
-  return fetch(url, { signal: AbortSignal.timeout(timeout) });
+function fetchWithTimeout(url, options = {}) {
+  const { timeout = FETCH_TIMEOUT_MS, ...init } = options;
+  return fetch(url, { ...init, signal: AbortSignal.timeout(timeout) });
 }
 
 export async function fetchTide(station, date) {
@@ -736,10 +737,15 @@ export async function listSpots() {
   return data;
 }
 
+/**
+ * 釣果一覧。読み取りは record_feed ビューから行う（010）。
+ * 自分の釣果 + 同じグループの人の公開釣果が、投稿者名つきで返る。
+ * 書き込みは fishing_records へ直接行う（他人の行は RLS が拒否する）。
+ */
 export async function listRecords({ limit = 50, spotId = null } = {}) {
   let query = client
-    .from("fishing_records")
-    .select("*, spots(name, water_type), lure_recipes(name), fish_species(name)")
+    .from("record_feed")
+    .select("*")
     .order("fished_at", { ascending: false })
     .order("created_at", { ascending: false })
     .limit(limit);
@@ -752,9 +758,105 @@ export async function listRecords({ limit = 50, spotId = null } = {}) {
 /**
  * 一覧に出す魚の名前。出世魚の呼称があればそれを、なければ魚種名を使う。
  * 呼称ルールを持たない魚種（アジ・カサゴなど）でも名前が出るようにする。
+ * record_feed（fish_label）と fishing_records（埋め込み）の両方の形に対応する。
  */
 export function recordFishName(record) {
-  return record.fish_name_local ?? record.fish_species?.name ?? "釣果";
+  return record.fish_label ?? record.fish_name_local ?? record.fish_species?.name ?? "釣果";
+}
+
+/* ---------------- グループ（招待制の共有） ---------------- */
+
+/** 自分が属するグループ。無ければ null。 */
+export async function myGroup() {
+  const { data, error } = await client
+    .from("groups")
+    .select("id, name, owner_id, created_at")
+    .order("created_at")
+    .limit(1);
+  if (error) throw error;
+  return data[0] ?? null;
+}
+
+/** グループのメンバー（表示名つき）。 */
+export async function listGroupMembers(groupId) {
+  const { data, error } = await client
+    .from("group_member_names")
+    .select("*")
+    .eq("group_id", groupId)
+    .order("joined_at");
+  if (error) throw error;
+  return data;
+}
+
+export async function createGroup(name) {
+  const userId = await requireUserId();
+  const { data, error } = await client
+    .from("groups")
+    .insert({ name, owner_id: userId })
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+/** 未使用・期限内の招待だけを返す。 */
+export async function listInvites(groupId) {
+  const { data, error } = await client
+    .from("group_invites")
+    .select("token, label, expires_at, created_at, used_at")
+    .eq("group_id", groupId)
+    .is("used_at", null)
+    .gt("expires_at", new Date().toISOString())
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data;
+}
+
+export async function createInvite(groupId, label) {
+  const userId = await requireUserId();
+  const { data, error } = await client
+    .from("group_invites")
+    .insert({ group_id: groupId, created_by: userId, label: label || null })
+    .select("token, label, expires_at")
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+export async function revokeInvite(token) {
+  const { error } = await client.from("group_invites").delete().eq("token", token);
+  if (error) throw error;
+}
+
+export async function leaveGroup(groupId) {
+  const userId = await requireUserId();
+  const { error } = await client
+    .from("group_members").delete()
+    .eq("group_id", groupId).eq("user_id", userId);
+  if (error) throw error;
+}
+
+/** 招待リンク。GitHub Pages でもローカルでも、今いる場所を基準に組み立てる。 */
+export function inviteUrl(token) {
+  return new URL(`signup.html?invite=${token}`, location.href).href;
+}
+
+/** 招待 API（Edge Function）。招待される人はまだアカウントが無いので認証しない。 */
+export async function checkInvite(token) {
+  const url = `${config.supabaseUrl}/functions/v1/invite?token=${encodeURIComponent(token)}`;
+  const response = await fetchWithTimeout(url);
+  return response.json();
+}
+
+export async function signUpWithInvite({ token, email, password, username }) {
+  const response = await fetchWithTimeout(`${config.supabaseUrl}/functions/v1/invite`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token, email, password, username }),
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error ?? "登録に失敗しました。");
+  return result;
 }
 
 /** 魚種の水域区分の表示順（確定仕様書 1.1 章の分類に合わせる）。 */

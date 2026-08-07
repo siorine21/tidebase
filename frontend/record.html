@@ -45,9 +45,10 @@
     history.replaceState(null, "", `record.html?id=${encodeURIComponent(id)}`);
   }
 
+  // 読み取りは record_feed から（自分の分 + グループの公開分。他人の非公開は行ごと出ない）
   const { data: record, error } = await client
-    .from("fishing_records")
-    .select("*, spots(name, water_type), lure_recipes(name), fish_species(name)")
+    .from("record_feed")
+    .select("*")
     .eq("id", id)
     .maybeSingle();
 
@@ -66,23 +67,29 @@
       r.is_skunked ? `${icon("skunk", { size: 15 })} ボウズ` : "CATCH DETAIL";
     const WATER = { saltwater: "海水", brackish: "汽水", freshwater: "淡水" };
     const rows = [
+      // 他人の釣果は投稿者を最初に出す（誰の記録かを見間違えないように）
+      r.is_mine ? null : ["投稿者", r.owner_name],
       ["釣行日", formatJstDate(r.fished_at, { weekday: true })],
-      ["スポット", r.spots?.name ? `${r.spots.name}（${WATER[r.spots.water_type] ?? "—"}）` : null],
+      ["スポット", r.spot_name ? `${r.spot_name}（${WATER[r.spot_water_type] ?? "—"}）` : null],
       ["潮回り", r.tide_type],
       ["月齢", r.tide_snapshot?.moon_age],
-      ["魚種", r.fish_species?.name],
+      ["魚種", r.species_name],
       ["呼称", r.fish_name_local],
       ["サイズ", r.length_cm ? `${r.length_cm} cm` : null],
       ["重量", r.weight_g ? (r.weight_g >= 1000 ? `${(r.weight_g / 1000).toFixed(1)} kg` : `${r.weight_g} g`) : null],
       ["匹数", r.is_skunked ? "0（ボウズ）" : r.catch_count],
       ["数量メモ", r.quantity_note],
-      ["ルアー", r.lure_recipes?.name],
+      ["ルアー", r.recipe_name],
       ["ヒットレンジ", r.water_layer],
       ["ロッド", r.rod], ["リール", r.reel], ["ライン", r.line], ["リーダー", r.leader],
-      ["公開範囲", r.visibility === "private" ? "自分のみ" : "グループ"],
-    ].filter(([, v]) => v != null && v !== "");
+      // 公開範囲は自分の記録にだけ意味がある設定なので、他人の記録には出さない
+      r.is_mine ? ["公開範囲", r.visibility === "private" ? "自分のみ" : "グループ"] : null,
+    ].filter((row) => row && row[1] != null && row[1] !== "");
 
     box.innerHTML = `
+      ${r.is_mine ? "" : `<div class="message shared-note">
+        <span class="owner-badge">${escapeHtml(r.owner_name)}</span> さんの釣果です（閲覧のみ）
+      </div>`}
       <div class="card">
         <div class="rows">
           ${rows.map(([k, v]) => `
@@ -92,11 +99,15 @@
       </div>
       ${r.memo ? `<div class="card"><h2>メモ</h2>
         <div style="white-space:pre-wrap;font-size:14px">${escapeHtml(r.memo)}</div></div>` : ""}
-      <div class="actions">
+      ${r.is_mine ? `<div class="actions">
         <a class="btn btn-quiet link-btn"
            href="record-new.html?id=${encodeURIComponent(r.id)}">${icon("edit", { size: 15 })} 編集</a>
         <button type="button" class="btn btn-quiet" id="delete">削除する</button>
-      </div>`;
+      </div>` : ""}`;
+
+    // 編集・削除は自分の記録だけ。ボタンを隠すのは案内であって、
+    // 実際に他人の行を書き換えられないのは RLS（fishing_records は自分の行のみ）。
+    if (!r.is_mine) return;
 
     document.getElementById("delete").addEventListener("click", async () => {
       if (!confirm("この釣果記録を削除しますか？\nこの操作は取り消せません。")) return;

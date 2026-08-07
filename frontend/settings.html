@@ -22,7 +22,7 @@
   <div class="card">
     <div class="field">
       <label for="username">表示名</label>
-      <input type="text" id="username" maxlength="40" placeholder="未設定">
+      <input type="text" id="username" maxlength="20" placeholder="未設定">
     </div>
     <div class="rows" style="margin-bottom:12px">
       <div class="row"><span class="label">メールアドレス</span>
@@ -31,6 +31,12 @@
     <button type="button" class="btn btn-quiet" id="save-profile">
       <span data-icon="save"></span>表示名を保存
     </button>
+  </div>
+
+  <!-- グループ（招待制の共有） -->
+  <div class="section-label"><span>GROUP</span></div>
+  <div class="card" id="group-card">
+    <div class="empty">読み込み中…</div>
   </div>
 
   <!-- アカウント -->
@@ -67,6 +73,9 @@
 <script type="module">
   import {
     client, requireSession, renderNav, toJapaneseError, requireUserId, currentUserId,
+    escapeHtml, icon, renderIcons, formatJstDate,
+    myGroup, listGroupMembers, createGroup, listInvites, createInvite,
+    revokeInvite, leaveGroup, inviteUrl,
   } from "./assets/app.js";
 
   const MIN_PASSWORD_LENGTH = 8;   // Supabase 側の password_min_length と揃える
@@ -150,6 +159,153 @@
     window.scrollTo(0, 0);
   }
 
+  /* ---------- グループ ----------
+     招待した人だけが登録できる仕組み（010 / Edge Function invite）。
+     リンクを LINE などで送り、受け取った人が signup.html?invite=... を開く。 */
+  const groupCard = document.getElementById("group-card");
+
+  function renderNoGroup() {
+    groupCard.innerHTML = `
+      <div class="list-sub" style="margin-bottom:12px">
+        グループを作ると、招待した人だけがアカウントを登録でき、
+        公開範囲が「グループ」の釣果をお互いに見られるようになります。
+      </div>
+      <div class="field">
+        <label for="group-name">グループ名</label>
+        <input type="text" id="group-name" maxlength="40" value="釣り仲間">
+      </div>
+      <button type="button" class="btn" id="make-group">グループを作る</button>`;
+    document.getElementById("make-group").addEventListener("click", async (e) => {
+      const name = document.getElementById("group-name").value.trim();
+      if (!name) return message("グループ名を入力してください。", "error");
+      const button = e.currentTarget;
+      button.disabled = true; button.textContent = "作成中…";
+      try {
+        await createGroup(name);
+        await loadGroup();
+        message("グループを作りました。招待リンクを作って共有してください。", "success");
+      } catch (error) {
+        button.disabled = false; button.textContent = "グループを作る";
+        message(toJapaneseError(error), "error");
+      }
+    });
+  }
+
+  function renderGroup(group, members, invites, isOwner) {
+    groupCard.innerHTML = `
+      <h2><span data-icon="groups"></span> ${escapeHtml(group.name)}</h2>
+      <div id="member-list">
+        ${members.map((m) => `
+          <div class="list-item">
+            <div class="thumb">${icon("user", { size: 18 })}</div>
+            <div class="list-body">
+              <div class="list-title">${escapeHtml(m.name)}${m.is_me ? "（自分）" : ""}</div>
+              <div class="list-sub">${m.role === "owner" ? "オーナー" : "メンバー"}</div>
+            </div>
+          </div>`).join("")}
+      </div>
+      <div class="list-sub" style="margin:12px 0">
+        公開範囲が「グループ」の釣果は、ここにいる人に共有されます（スポット名まで。
+        座標は共有しません）。見せたくない釣果は「自分のみ」にしてください。
+      </div>
+
+      ${isOwner ? `
+        <div class="field" style="margin-top:16px">
+          <label for="invite-label">招待する人（メモ・任意）</label>
+          <input type="text" id="invite-label" maxlength="20" placeholder="例: たろう">
+        </div>
+        <button type="button" class="btn" id="make-invite">招待リンクを作る</button>
+        <div id="invite-list" style="margin-top:14px">
+          ${invites.length ? `
+            <div class="list-sub" style="margin-bottom:6px">未使用の招待リンク</div>
+            ${invites.map((inv) => `
+              <div class="card" style="background:var(--bg-deep);margin-bottom:8px" data-token="${inv.token}">
+                <div class="list-title">${escapeHtml(inv.label ?? "（メモなし）")}</div>
+                <div class="list-sub">${formatJstDate(inv.expires_at.slice(0, 10))} まで有効</div>
+                <input type="text" class="invite-url" readonly value="${escapeHtml(inviteUrl(inv.token))}"
+                       style="width:100%;margin-top:8px;font-size:12px">
+                <div class="actions" style="margin-top:8px">
+                  <button type="button" class="btn btn-quiet copy-invite">リンクをコピー</button>
+                  <button type="button" class="btn btn-quiet revoke-invite">取り消す</button>
+                </div>
+              </div>`).join("")}` : ""}
+        </div>` : `
+        <button type="button" class="btn btn-quiet" id="leave-group">グループを抜ける</button>`}`;
+    renderIcons(groupCard);
+  }
+
+  async function loadGroup() {
+    const group = await myGroup().catch(() => null);
+    if (!group) return renderNoGroup();
+
+    const userId = await currentUserId();
+    const isOwner = group.owner_id === userId;
+    const [members, invites] = await Promise.all([
+      listGroupMembers(group.id).catch(() => []),
+      isOwner ? listInvites(group.id).catch(() => []) : Promise.resolve([]),
+    ]);
+    renderGroup(group, members, invites, isOwner);
+  }
+
+  // 再描画で要素が差し替わるため、カード側でクリックを受ける
+  groupCard.addEventListener("click", async (e) => {
+    const make = e.target.closest("#make-invite");
+    if (make) {
+      const group = await myGroup();
+      make.disabled = true; make.textContent = "作成中…";
+      try {
+        await createInvite(group.id, document.getElementById("invite-label").value.trim());
+        await loadGroup();
+        message("招待リンクを作りました。LINE などで本人にだけ送ってください。", "success");
+      } catch (error) {
+        make.disabled = false; make.textContent = "招待リンクを作る";
+        message(toJapaneseError(error), "error");
+      }
+      return;
+    }
+
+    const copy = e.target.closest(".copy-invite");
+    if (copy) {
+      const input = copy.closest("[data-token]").querySelector(".invite-url");
+      try {
+        await navigator.clipboard.writeText(input.value);
+        copy.textContent = "コピーしました";
+        setTimeout(() => { copy.textContent = "リンクをコピー"; }, 2000);
+      } catch {
+        // クリップボードが使えない環境では選択状態にして手動コピーへ誘導する
+        input.select();
+        message("リンクを選択しました。長押しなどでコピーしてください。", "success");
+      }
+      return;
+    }
+
+    const revoke = e.target.closest(".revoke-invite");
+    if (revoke) {
+      if (!confirm("この招待リンクを取り消しますか？\n送信済みのリンクは使えなくなります。")) return;
+      try {
+        await revokeInvite(revoke.closest("[data-token]").dataset.token);
+        await loadGroup();
+        message("招待リンクを取り消しました。", "success");
+      } catch (error) {
+        message(toJapaneseError(error), "error");
+      }
+      return;
+    }
+
+    const leave = e.target.closest("#leave-group");
+    if (leave) {
+      if (!confirm("グループを抜けますか？\nお互いの釣果が見えなくなります。")) return;
+      try {
+        const group = await myGroup();
+        await leaveGroup(group.id);
+        await loadGroup();
+        message("グループを抜けました。", "success");
+      } catch (error) {
+        message(toJapaneseError(error), "error");
+      }
+    }
+  });
+
   /* ---------- 初期化 ---------- */
   const userId = await currentUserId();
   if (userId) {
@@ -157,6 +313,7 @@
       .select("username").eq("id", userId).maybeSingle();
     if (data?.username) document.getElementById("username").value = data.username;
   }
+  await loadGroup();
 </script>
 </body>
 </html>

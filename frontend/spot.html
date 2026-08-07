@@ -166,11 +166,12 @@
       const title = r.is_skunked
         ? `${icon("skunk", { size: 15 })} ボウズ`
         : `${escapeHtml(recordFishName(r))}${r.catch_count > 1 ? ` ×${r.catch_count}` : ""}`;
+      const owner = r.is_mine === false ? `<span class="owner-badge">${escapeHtml(r.owner_name)}</span>` : "";
       return `
         <a class="list-item" href="record.html?id=${r.id}">
           <div class="thumb">${icon(r.is_skunked ? "skunk" : "fish", { size: 20 })}</div>
           <div class="list-body">
-            <div class="list-title">${title}</div>
+            <div class="list-title">${owner}${title}</div>
             <div class="list-sub">${escapeHtml(formatJstDate(r.fished_at))}</div>
           </div>
           ${r.tide_type ? `<span class="tag tag-blue">${escapeHtml(r.tide_type)}</span>` : ""}

@@ -407,6 +407,29 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .step-label.active { color: var(--mustard); }
 
 /* 入力途中の下書きを復元したときの通知 */
+/* ---------- グループ共有（他人の釣果） ---------- */
+/* 自分の記録との違いは色ではなく「名前が付いているか」で分かるようにする。
+   青は既に潮汐・情報に使っているので、左の線と名前チップで差をつける。 */
+.owner-badge {
+  display: inline-block; margin-right: 6px; padding: 1px 8px;
+  border-radius: 999px; font-size: 11px; vertical-align: middle;
+  background: var(--blue-bg); border: 1px solid var(--blue-deep); color: var(--blue);
+}
+
+.list-item.shared { border-left: 3px solid var(--blue-mid); }
+
+/* 招待リンクは選択してコピーできるよう input のままにする（読み取り専用） */
+.invite-url {
+  padding: 8px 10px; border-radius: 8px;
+  background: var(--bg-dark); border: 1px solid var(--border);
+  color: var(--text-secondary); font-family: 'JetBrains Mono', monospace;
+}
+
+.shared-note {
+  display: flex; align-items: center; gap: 4px;
+  background: var(--blue-bg); border: 1px solid var(--blue-deep); color: var(--text-secondary);
+}
+
 .draft-notice {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   margin-bottom: 16px; padding: 10px 12px; border-radius: 8px; font-size: 13px;

@@ -420,3 +420,220 @@ BEGIN
   RAISE NOTICE 'ALL DB TESTS PASSED';
 END;
 $$;
+
+-- ============================================================
+-- 010: グループ共有と招待
+-- ビュー record_feed は RLS を迂回して動くため、WHERE 句が認可そのもの。
+-- 「見えるべきものが見える」だけでなく「見えてはいけないものが見えない」を
+-- 明示的に検証する。
+-- ============================================================
+INSERT INTO auth.users (id) VALUES
+  ('22222222-2222-2222-2222-222222222222'),   -- 招待した友人
+  ('33333333-3333-3333-3333-333333333333');   -- 無関係の他人
+
+DO $$
+DECLARE
+  owner_id  CONSTANT UUID := '11111111-1111-1111-1111-111111111111';
+  friend_id CONSTANT UUID := '22222222-2222-2222-2222-222222222222';
+  other_id  CONSTANT UUID := '33333333-3333-3333-3333-333333333333';
+  gid            UUID;
+  invite         UUID;
+  claimed        UUID;
+  owner_spot     UUID;
+  friend_spot    UUID;
+  friend_public  UUID;
+  friend_private UUID;
+  other_public   UUID;
+  visible        INTEGER;
+  failed         BOOLEAN := FALSE;
+BEGIN
+  UPDATE public.profiles SET username = 'オーナー' WHERE id = owner_id;
+  UPDATE public.profiles SET username = 'たろう'   WHERE id = friend_id;
+  -- other_id は username 未設定のまま（display_name の既定値を確認する）
+
+  INSERT INTO public.groups (name, owner_id) VALUES ('テスト班', owner_id)
+    RETURNING id INTO gid;
+  -- handle_new_group がオーナーを自動登録する
+  IF (SELECT COUNT(*) FROM public.group_members WHERE group_id = gid) <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL: グループ作成時にオーナーが登録されない';
+  END IF;
+
+  ------------------------------------------------------------
+  -- 招待の下見 → 確保 → 使用
+  ------------------------------------------------------------
+  INSERT INTO public.group_invites (group_id, created_by, label)
+  VALUES (gid, owner_id, 'たろう') RETURNING token INTO invite;
+
+  IF NOT (SELECT valid FROM public.peek_invite(invite)) THEN
+    RAISE EXCEPTION 'TEST FAIL: 有効な招待が無効と判定される';
+  END IF;
+  IF (SELECT inviter FROM public.peek_invite(invite)) <> 'オーナー' THEN
+    RAISE EXCEPTION 'TEST FAIL: 招待者の表示名が違う';
+  END IF;
+  IF (SELECT valid FROM public.peek_invite(gen_random_uuid())) THEN
+    RAISE EXCEPTION 'TEST FAIL: 存在しないトークンが有効になる';
+  END IF;
+
+  claimed := public.claim_invite(invite);
+  IF claimed IS DISTINCT FROM gid THEN
+    RAISE EXCEPTION 'TEST FAIL: 招待を確保できない';
+  END IF;
+  -- 2 回目は確保できない（同じリンクを 2 人が開いた場合）
+  IF public.claim_invite(invite) IS NOT NULL THEN
+    RAISE EXCEPTION 'TEST FAIL: 同じ招待を 2 回確保できてしまう';
+  END IF;
+  -- 戻せば再度使える
+  PERFORM public.release_invite(invite);
+  IF public.claim_invite(invite) IS DISTINCT FROM gid THEN
+    RAISE EXCEPTION 'TEST FAIL: release_invite 後に再確保できない';
+  END IF;
+
+  PERFORM public.redeem_invite(invite, friend_id);
+  IF NOT EXISTS (SELECT 1 FROM public.group_members
+                 WHERE group_id = gid AND user_id = friend_id AND role = 'member') THEN
+    RAISE EXCEPTION 'TEST FAIL: 招待を使ってもメンバーにならない';
+  END IF;
+  IF (SELECT used_by FROM public.group_invites WHERE token = invite) <> friend_id THEN
+    RAISE EXCEPTION 'TEST FAIL: 招待の使用者が記録されない';
+  END IF;
+  -- 使用済みの招待は下見でも弾かれる
+  IF (SELECT valid FROM public.peek_invite(invite)) THEN
+    RAISE EXCEPTION 'TEST FAIL: 使用済みの招待が有効なまま';
+  END IF;
+
+  -- 期限切れ
+  INSERT INTO public.group_invites (group_id, created_by, expires_at)
+  VALUES (gid, owner_id, NOW() - INTERVAL '1 day') RETURNING token INTO invite;
+  IF (SELECT valid FROM public.peek_invite(invite)) THEN
+    RAISE EXCEPTION 'TEST FAIL: 期限切れの招待が有効なまま';
+  END IF;
+  IF public.claim_invite(invite) IS NOT NULL THEN
+    RAISE EXCEPTION 'TEST FAIL: 期限切れの招待を確保できてしまう';
+  END IF;
+
+  ------------------------------------------------------------
+  -- 釣果の共有範囲
+  ------------------------------------------------------------
+  INSERT INTO public.spots (user_id, name, latitude, longitude)
+  VALUES (owner_id, 'オーナーの港', 34.70, 137.60) RETURNING id INTO owner_spot;
+  INSERT INTO public.spots (user_id, name, latitude, longitude)
+  VALUES (friend_id, 'たろうの磯', 34.71, 137.61) RETURNING id INTO friend_spot;
+
+  INSERT INTO public.fishing_records (user_id, spot_id, fished_at, visibility, memo)
+  VALUES (friend_id, friend_spot, DATE '2026-08-01', 'group', 'たろうの公開')
+  RETURNING id INTO friend_public;
+  INSERT INTO public.fishing_records (user_id, spot_id, fished_at, visibility, memo)
+  VALUES (friend_id, friend_spot, DATE '2026-08-02', 'private', 'たろうの非公開')
+  RETURNING id INTO friend_private;
+  INSERT INTO public.fishing_records (user_id, spot_id, fished_at, visibility, memo)
+  VALUES (other_id, NULL, DATE '2026-08-03', 'group', '無関係の人の公開')
+  RETURNING id INTO other_public;
+  INSERT INTO public.fishing_records (user_id, spot_id, fished_at, visibility)
+  VALUES (owner_id, owner_spot, DATE '2026-08-04', 'private');
+
+  -- オーナーとして見る
+  PERFORM set_config('request.jwt.claim.sub', owner_id::TEXT, TRUE);
+
+  -- 自分の釣果は公開範囲によらず全件見える（前の DO ブロックで作った分も含む）
+  IF (SELECT COUNT(*) FROM public.record_feed WHERE user_id = owner_id)
+     <> (SELECT COUNT(*) FROM public.fishing_records WHERE user_id = owner_id) THEN
+    RAISE EXCEPTION 'TEST FAIL: 自分の釣果が全件見えていない';
+  END IF;
+  -- 他人の分はたろうの公開 1 件だけ
+  SELECT COUNT(*) INTO visible FROM public.record_feed WHERE user_id <> owner_id;
+  IF visible <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL: 他人の釣果が % 件見えている（たろうの公開 1 件のはず）', visible;
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.record_feed WHERE id = friend_private) THEN
+    RAISE EXCEPTION 'TEST FAIL: 他人の「自分のみ」の釣果が見えてしまう';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.record_feed WHERE id = other_public) THEN
+    RAISE EXCEPTION 'TEST FAIL: 同じグループでない人の釣果が見えてしまう';
+  END IF;
+
+  -- 他人の行は is_mine = false で、名前とスポット名が付く
+  IF (SELECT is_mine FROM public.record_feed WHERE id = friend_public) THEN
+    RAISE EXCEPTION 'TEST FAIL: 他人の釣果が is_mine になっている';
+  END IF;
+  IF (SELECT owner_name FROM public.record_feed WHERE id = friend_public) <> 'たろう' THEN
+    RAISE EXCEPTION 'TEST FAIL: 他人の釣果に投稿者名が付かない';
+  END IF;
+  IF (SELECT spot_name FROM public.record_feed WHERE id = friend_public) <> 'たろうの磯' THEN
+    RAISE EXCEPTION 'TEST FAIL: 他人の釣果にスポット名が付かない';
+  END IF;
+
+  -- ビューに座標の列が無いこと（共有するのは名前まで）
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'record_feed'
+      AND column_name IN ('latitude', 'longitude')
+  ) THEN
+    RAISE EXCEPTION 'TEST FAIL: record_feed が座標を含んでいる';
+  END IF;
+
+  -- メンバー一覧
+  IF (SELECT COUNT(*) FROM public.group_member_names WHERE group_id = gid) <> 2 THEN
+    RAISE EXCEPTION 'TEST FAIL: メンバー一覧が 2 件にならない';
+  END IF;
+
+  -- 無関係の人として見る
+  PERFORM set_config('request.jwt.claim.sub', other_id::TEXT, TRUE);
+  SELECT COUNT(*) INTO visible FROM public.record_feed WHERE user_id <> other_id;
+  IF visible <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL: グループ外の人に他人の釣果が % 件見えている', visible;
+  END IF;
+  IF (SELECT owner_name FROM public.record_feed WHERE id = other_public) <> 'メンバー' THEN
+    RAISE EXCEPTION 'TEST FAIL: username 未設定時の表示名が既定にならない';
+  END IF;
+  IF (SELECT COUNT(*) FROM public.group_member_names) <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL: グループ外の人にメンバー一覧が見えている';
+  END IF;
+
+  -- 未ログイン（auth.uid() が NULL）では何も見えない
+  PERFORM set_config('request.jwt.claim.sub', '', TRUE);
+  IF (SELECT COUNT(*) FROM public.record_feed) <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL: 未ログインで釣果が見えている';
+  END IF;
+
+  ------------------------------------------------------------
+  -- 人数上限
+  ------------------------------------------------------------
+  FOR i IN 1..public.group_member_limit() LOOP
+    INSERT INTO auth.users (id) VALUES (gen_random_uuid());
+  END LOOP;
+  BEGIN
+    INSERT INTO public.group_members (group_id, user_id, role)
+    SELECT gid, u.id, 'member' FROM auth.users u
+     WHERE u.id NOT IN (SELECT user_id FROM public.group_members WHERE group_id = gid);
+    failed := TRUE;
+  EXCEPTION WHEN check_violation THEN
+    NULL;
+  END;
+  IF failed THEN
+    RAISE EXCEPTION 'TEST FAIL: 人数上限を超えてメンバーを追加できてしまう';
+  END IF;
+
+  RAISE NOTICE 'GROUP SHARING TESTS PASSED';
+END;
+$$;
+
+-- 招待を使って入った人が退会できること（外部キーが退会を妨げない）
+DO $$
+DECLARE
+  leaver UUID := gen_random_uuid();
+  gid    UUID;
+  tok    UUID;
+BEGIN
+  INSERT INTO auth.users (id) VALUES (leaver);
+  SELECT id INTO gid FROM public.groups WHERE name = 'テスト班';
+  INSERT INTO public.group_invites (group_id, created_by)
+  VALUES (gid, '11111111-1111-1111-1111-111111111111') RETURNING token INTO tok;
+  UPDATE public.group_invites SET used_by = leaver, used_at = NOW() WHERE token = tok;
+
+  DELETE FROM auth.users WHERE id = leaver;   -- profiles へ CASCADE する
+  IF (SELECT used_by FROM public.group_invites WHERE token = tok) IS NOT NULL THEN
+    RAISE EXCEPTION 'TEST FAIL: 退会しても招待の使用者が残っている';
+  END IF;
+  RAISE NOTICE 'INVITE FK TESTS PASSED';
+END;
+$$;

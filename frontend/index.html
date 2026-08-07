@@ -323,13 +323,14 @@
         ? `${icon("skunk", { size: 15 })} ボウズ`
         : `${escapeHtml(recordFishName(r))}${r.length_cm ? ` ${r.length_cm}cm` : ""}`
           + (r.catch_count > 1 ? ` ×${r.catch_count}` : "");
-      const sub = [formatShortDate(r.fished_at), r.spots?.name, r.lure_recipes?.name]
+      const sub = [formatShortDate(r.fished_at), r.spot_name, r.recipe_name]
         .filter(Boolean).map(escapeHtml).join(" / ");
+      const owner = r.is_mine ? "" : `<span class="owner-badge">${escapeHtml(r.owner_name)}</span>`;
       return `
-        <a class="list-item" href="record.html?id=${r.id}">
+        <a class="list-item${r.is_mine ? "" : " shared"}" href="record.html?id=${r.id}">
           <div class="thumb">${icon(r.is_skunked ? "skunk" : "fish", { size: 20 })}</div>
           <div class="list-body">
-            <div class="list-title">${title}</div>
+            <div class="list-title">${owner}${title}</div>
             <div class="list-sub">${sub}</div>
           </div>
           <div class="list-aside">${relativeDays(r.fished_at)}</div>

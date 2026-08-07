@@ -3,3 +3,8 @@
 
 [functions.tide]
 verify_jwt = false
+
+# invite は「まだアカウントがない人」が叩くため認証を要求できない。
+# 認可はトークン（UUID v4）の所持で行う（supabase/functions/invite/index.ts）
+[functions.invite]
+verify_jwt = false
