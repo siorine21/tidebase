@@ -562,13 +562,14 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL: 他人の釣果にスポット名が付かない';
   END IF;
 
-  -- ビューに座標の列が無いこと（共有するのは名前まで）
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_schema = 'public' AND table_name = 'record_feed'
-      AND column_name IN ('latitude', 'longitude')
-  ) THEN
-    RAISE EXCEPTION 'TEST FAIL: record_feed が座標を含んでいる';
+  -- 座標も共有する（011）。ただし共有の条件は変わらない
+  IF (SELECT spot_latitude FROM public.record_feed WHERE id = friend_public) IS NULL THEN
+    RAISE EXCEPTION 'TEST FAIL: 共有された釣果にスポットの座標が付かない';
+  END IF;
+  -- 非公開の釣果は行ごと出ないので、そのスポットの座標も出ない
+  IF EXISTS (SELECT 1 FROM public.record_feed WHERE spot_id IS NOT NULL
+               AND user_id <> owner_id AND visibility <> 'group') THEN
+    RAISE EXCEPTION 'TEST FAIL: 非公開の釣果からスポットが漏れている';
   END IF;
 
   -- メンバー一覧

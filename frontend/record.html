@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CATCH DETAIL | TIDEBASE</title>
 <link rel="stylesheet" href="vendor/fonts/fonts.css">
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="assets/theme.css">
 </head>
 <body class="app-body">
@@ -19,11 +20,13 @@
   <div id="detail"><div class="empty">読み込み中…</div></div>
 </main>
 
+<script src="vendor/leaflet/leaflet.js"></script>
 <script src="vendor/supabase.js"></script>
 <script src="assets/config.js"></script>
 <script type="module">
   import {
     client, requireSession, renderNav, escapeHtml, toJapaneseError, formatJstDate, icon,
+    createMap, spotMarker, googleMapsUrl, googleDirectionsUrl, isCoordinateInJapan,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -86,6 +89,10 @@
       r.is_mine ? ["公開範囲", r.visibility === "private" ? "自分のみ" : "グループ"] : null,
     ].filter((row) => row && row[1] != null && row[1] !== "");
 
+    // 共有された釣果でも釣り場が分かるように、地図と経路案内を出す（011）
+    const spot = { latitude: r.spot_latitude, longitude: r.spot_longitude, name: r.spot_name };
+    const hasSpotMap = isCoordinateInJapan(spot.latitude, spot.longitude);
+
     box.innerHTML = `
       ${r.is_mine ? "" : `<div class="message shared-note">
         <span class="owner-badge">${escapeHtml(r.owner_name)}</span> さんの釣果です（閲覧のみ）
@@ -97,6 +104,16 @@
             <span class="val">${escapeHtml(v)}</span></div>`).join("")}
         </div>
       </div>
+      ${hasSpotMap ? `<div class="card">
+        <h2>${icon("map-pin", { size: 14 })} ${escapeHtml(r.spot_name ?? "スポット")}</h2>
+        <div class="map-box" id="record-map" style="height:200px"></div>
+        <div class="actions">
+          <a class="btn btn-quiet link-btn" href="${googleMapsUrl(spot)}"
+             target="_blank" rel="noopener">${icon("map", { size: 15 })} Google マップ</a>
+          <a class="btn link-btn" href="${googleDirectionsUrl(spot)}"
+             target="_blank" rel="noopener">${icon("navigation", { size: 15 })} 経路案内</a>
+        </div>
+      </div>` : ""}
       ${r.memo ? `<div class="card"><h2>メモ</h2>
         <div style="white-space:pre-wrap;font-size:14px">${escapeHtml(r.memo)}</div></div>` : ""}
       ${r.is_mine ? `<div class="actions">
@@ -104,6 +121,14 @@
            href="record-new.html?id=${encodeURIComponent(r.id)}">${icon("edit", { size: 15 })} 編集</a>
         <button type="button" class="btn btn-quiet" id="delete">削除する</button>
       </div>` : ""}`;
+
+    if (hasSpotMap) {
+      const { map } = createMap("record-map",
+        { center: [spot.latitude, spot.longitude], zoom: 14 });
+      L.marker([spot.latitude, spot.longitude], { icon: spotMarker(spot) }).addTo(map);
+      // カードの中で描画されるため、レイアウト確定後にサイズを測り直す
+      setTimeout(() => map.invalidateSize(), 50);
+    }
 
     // 編集・削除は自分の記録だけ。ボタンを隠すのは案内であって、
     // 実際に他人の行を書き換えられないのは RLS（fishing_records は自分の行のみ）。
