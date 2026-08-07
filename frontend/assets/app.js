@@ -802,6 +802,142 @@ export function recordFishName(record) {
   return record.fish_label ?? record.fish_name_local ?? record.fish_species?.name ?? "釣果";
 }
 
+/* ---------------- 釣果写真（D-045） ----------------
+   原本は保存しない。表示用のコピーだけを持つ（原本はカメラロールにある）。
+   ブラウザ側で縮小してから上げるので、無料枠 1GB でも実用上まず埋まらない。 */
+
+export const PHOTO_BUCKET = "catch-photos";
+const PHOTO_MAX_EDGE = 1600;      // 表示用。スマホの画面ならこれで十分
+const PHOTO_THUMB_EDGE = 400;     // 一覧用
+const PHOTO_QUALITY = 0.82;
+const PHOTO_MAX_COUNT = 4;        // 1 つの釣果につき
+export { PHOTO_MAX_COUNT };
+
+/**
+ * 画像を縮小して WebP にする。
+ * - EXIF は canvas を通した時点で落ちる（位置情報が写真から漏れない）
+ * - 向きは imageOrientation で補正する。指定しないと横倒しになる端末がある
+ */
+export async function shrinkImage(file, { maxEdge = PHOTO_MAX_EDGE, quality = PHOTO_QUALITY } = {}) {
+  const source = await loadImage(file);
+  const scale = Math.min(1, maxEdge / Math.max(source.width, source.height));
+  const width = Math.max(1, Math.round(source.width * scale));
+  const height = Math.max(1, Math.round(source.height * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  context.imageSmoothingQuality = "high";
+  context.drawImage(source, 0, 0, width, height);
+  source.close?.();
+
+  // WebP が使えない環境では JPEG に落とす（バケット側も両方許可している）
+  let blob = await canvasToBlob(canvas, "image/webp", quality);
+  if (!blob) blob = await canvasToBlob(canvas, "image/jpeg", quality);
+  if (!blob) throw new Error("画像を変換できませんでした。");
+  return { blob, width, height, type: blob.type };
+}
+
+async function loadImage(file) {
+  // createImageBitmap のほうが速く、向きの指定も効く。
+  // 対応していない・HEIC などで失敗する場合は <img> に落とす
+  try {
+    return await createImageBitmap(file, { imageOrientation: "from-image" });
+  } catch {
+    return await new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const image = new Image();
+      image.onload = () => { URL.revokeObjectURL(url); resolve(image); };
+      image.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("この画像は読み込めませんでした。"));
+      };
+      image.src = url;
+    });
+  }
+}
+
+function canvasToBlob(canvas, type, quality) {
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob && blob.type === type ? blob : null), type, quality);
+  });
+}
+
+/** 釣果に写真を 1 枚追加する（表示用とサムネイルの 2 つを上げる）。 */
+export async function uploadRecordPhoto(recordId, file, sortOrder = 0) {
+  const userId = await requireUserId();
+  const [full, thumb] = await Promise.all([
+    shrinkImage(file),
+    shrinkImage(file, { maxEdge: PHOTO_THUMB_EDGE, quality: 0.75 }),
+  ]);
+
+  const extension = full.type === "image/webp" ? "webp" : "jpg";
+  const photoId = crypto.randomUUID();
+  const path = `${userId}/${photoId}.${extension}`;
+  const thumbPath = `${userId}/${photoId}_t.${extension}`;
+
+  const storage = client.storage.from(PHOTO_BUCKET);
+  const options = { contentType: full.type, cacheControl: "31536000", upsert: false };
+  const uploaded = await storage.upload(path, full.blob, options);
+  if (uploaded.error) throw uploaded.error;
+  const uploadedThumb = await storage.upload(thumbPath, thumb.blob,
+    { ...options, contentType: thumb.type });
+  if (uploadedThumb.error) {
+    await storage.remove([path]).catch(() => {});
+    throw uploadedThumb.error;
+  }
+
+  const { data, error } = await client.from("record_photos")
+    .insert({
+      record_id: recordId, user_id: userId, path, thumb_path: thumbPath,
+      width: full.width, height: full.height, bytes: full.blob.size,
+      sort_order: sortOrder,
+    })
+    .select().single();
+  if (error) {
+    // 台帳に載らなかった実体は誰からも辿れないので、必ず消す
+    await storage.remove([path, thumbPath]).catch(() => {});
+    throw error;
+  }
+  return data;
+}
+
+export async function listRecordPhotos(recordId) {
+  const { data, error } = await client
+    .from("record_photos")
+    .select("*")
+    .eq("record_id", recordId)
+    .order("sort_order")
+    .order("created_at");
+  if (error) throw error;
+  return data;
+}
+
+/** 台帳と実体の両方を消す。実体を先に消し、成功したら台帳を消す。 */
+export async function deleteRecordPhotos(photos) {
+  if (!photos.length) return;
+  const paths = photos.flatMap((p) => [p.path, p.thumb_path]);
+  const { error } = await client.storage.from(PHOTO_BUCKET).remove(paths);
+  if (error) throw error;
+  const removed = await client.from("record_photos")
+    .delete().in("id", photos.map((p) => p.id));
+  if (removed.error) throw removed.error;
+}
+
+/**
+ * 非公開バケットなので、表示には署名付き URL が要る。
+ * 発行時に RLS が効くので、見えない写真の URL は作れない。
+ */
+export async function signedPhotoUrls(paths, expiresIn = 3600) {
+  const unique = [...new Set(paths.filter(Boolean))];
+  if (!unique.length) return new Map();
+  const { data, error } = await client.storage
+    .from(PHOTO_BUCKET).createSignedUrls(unique, expiresIn);
+  if (error) return new Map();
+  return new Map(data.filter((d) => d.signedUrl).map((d) => [d.path, d.signedUrl]));
+}
+
 /* ---------------- グループ（招待制の共有） ---------------- */
 
 /**

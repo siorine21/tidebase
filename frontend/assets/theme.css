@@ -423,6 +423,33 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .list-item.shared { border-left: 3px solid var(--blue-mid); }
 
 /* 招待リンクは選択してコピーできるよう input のままにする（読み取り専用） */
+/* ---------- 釣果写真 ---------- */
+.photo-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px;
+}
+.photo-item { position: relative; aspect-ratio: 1; }
+.photo-item img {
+  width: 100%; height: 100%; object-fit: cover;
+  border-radius: 8px; border: 1px solid var(--border); background: var(--bg-deep);
+}
+.photo-remove {
+  position: absolute; top: 4px; right: 4px; width: 24px; height: 24px;
+  display: flex; align-items: center; justify-content: center;
+  border: none; border-radius: 50%; cursor: pointer; font-size: 15px; line-height: 1;
+  background: rgba(10, 21, 32, 0.8); color: var(--text-primary);
+}
+.photo-remove:hover { background: var(--red); }
+
+.photo-view { display: grid; gap: 8px; }
+.photo-view img {
+  width: 100%; height: auto; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--bg-deep);
+}
+
+/* 一覧のサムネイル。アイコン用の枠をそのまま写真で埋める */
+.thumb-photo { width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+.list-item .thumb:has(.thumb-photo) { padding: 0; overflow: hidden; }
+
 /* 時刻入力と「今」ボタンを横並びにする */
 .time-row { display: flex; gap: 6px; align-items: stretch; }
 .time-row input { flex: 1; min-width: 0; }

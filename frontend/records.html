@@ -56,7 +56,7 @@
 <script type="module">
   import {
     requireSession, renderNav, escapeHtml, listRecords, listSpots,
-    formatJstDate, relativeDays, icon, recordFishName,
+    formatJstDate, relativeDays, icon, recordFishName, signedPhotoUrls,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -153,7 +153,9 @@
 
       return `${header}
         <a class="list-item${r.is_mine ? "" : " shared"}" href="record.html?id=${r.id}">
-          <div class="thumb">${icon(r.is_skunked ? "skunk" : "fish", { size: 20 })}</div>
+          <div class="thumb">${r.photo_thumb_path
+            ? `<img class="thumb-photo" data-path="${escapeHtml(r.photo_thumb_path)}" alt="">`
+            : icon(r.is_skunked ? "skunk" : "fish", { size: 20 })}</div>
           <div class="list-body">
             <div class="list-title">${owner}${title}</div>
             <div class="list-sub">${escapeHtml(formatJstDate(r.fished_at))}${
@@ -162,6 +164,19 @@
           <div class="list-aside">${relativeDays(r.fished_at)}</div>
         </a>`;
     }).join("");
+    fillThumbs();
+  }
+
+  /** 非公開バケットなので、一覧に出すサムネイルも署名付き URL が要る。 */
+  async function fillThumbs() {
+    const images = [...document.querySelectorAll(".thumb-photo")];
+    if (!images.length) return;
+    const urls = await signedPhotoUrls(images.map((el) => el.dataset.path)).catch(() => new Map());
+    for (const el of images) {
+      const url = urls.get(el.dataset.path);
+      if (url) el.src = url;
+      else el.closest(".thumb").innerHTML = icon("fish", { size: 20 });
+    }
   }
 </script>
 </body>

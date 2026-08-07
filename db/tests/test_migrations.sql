@@ -831,3 +831,120 @@ BEGIN
   RAISE NOTICE 'FISHED TIME TESTS PASSED';
 END;
 $$;
+
+-- ============================================================
+-- 014: 釣果写真
+-- 非公開バケット + 台帳。共有範囲は釣果と同じ（見える釣果の写真だけ見える）。
+-- ============================================================
+DO $$
+DECLARE
+  owner_id  CONSTANT UUID := '11111111-1111-1111-1111-111111111111';
+  friend_id CONSTANT UUID := '22222222-2222-2222-2222-222222222222';
+  other_id  CONSTANT UUID := '33333333-3333-3333-3333-333333333333';
+  pub_rec   UUID;
+  priv_rec  UUID;
+  spot      UUID;
+  failed    BOOLEAN := FALSE;
+BEGIN
+  IF (SELECT public FROM storage.buckets WHERE id = 'catch-photos') THEN
+    RAISE EXCEPTION 'TEST FAIL: 写真のバケットが公開になっている';
+  END IF;
+
+  SELECT id INTO spot FROM public.spots WHERE user_id = friend_id LIMIT 1;
+  SELECT id INTO pub_rec FROM public.fishing_records
+   WHERE user_id = friend_id AND visibility = 'group' LIMIT 1;
+  SELECT id INTO priv_rec FROM public.fishing_records
+   WHERE user_id = friend_id AND visibility = 'private' LIMIT 1;
+
+  INSERT INTO public.record_photos (record_id, user_id, path, thumb_path, width, height, bytes)
+  VALUES (pub_rec,  friend_id, friend_id || '/a.webp', friend_id || '/a_t.webp', 1600, 1200, 210000),
+         (priv_rec, friend_id, friend_id || '/b.webp', friend_id || '/b_t.webp', 1600, 1200, 190000);
+
+  -- 同じグループのオーナーから見る
+  PERFORM set_config('request.jwt.claim.sub', owner_id::TEXT, TRUE);
+  IF NOT public.photo_visible_to_me(friend_id || '/a.webp') THEN
+    RAISE EXCEPTION 'TEST FAIL: 共有された釣果の写真が見えない';
+  END IF;
+  IF NOT public.photo_visible_to_me(friend_id || '/a_t.webp') THEN
+    RAISE EXCEPTION 'TEST FAIL: サムネイルが見えない';
+  END IF;
+  IF public.photo_visible_to_me(friend_id || '/b.webp') THEN
+    RAISE EXCEPTION 'TEST FAIL: 非公開の釣果の写真が見えてしまう';
+  END IF;
+
+  -- グループ外の人から見る
+  PERFORM set_config('request.jwt.claim.sub', other_id::TEXT, TRUE);
+  IF public.photo_visible_to_me(friend_id || '/a.webp') THEN
+    RAISE EXCEPTION 'TEST FAIL: グループ外の人に写真が見えてしまう';
+  END IF;
+
+  -- 未ログイン
+  PERFORM set_config('request.jwt.claim.sub', '', TRUE);
+  IF public.photo_visible_to_me(friend_id || '/a.webp') THEN
+    RAISE EXCEPTION 'TEST FAIL: 未ログインで写真が見えてしまう';
+  END IF;
+
+  -- 台帳に無いパスは誰にも見えない（署名付き URL の総当たり対策）
+  PERFORM set_config('request.jwt.claim.sub', owner_id::TEXT, TRUE);
+  IF public.photo_visible_to_me(friend_id || '/unknown.webp') THEN
+    RAISE EXCEPTION 'TEST FAIL: 台帳に無いパスが見えてしまう';
+  END IF;
+
+  -- 釣果を消すと台帳も消える
+  DELETE FROM public.fishing_records WHERE id = priv_rec;
+  IF EXISTS (SELECT 1 FROM public.record_photos WHERE record_id = priv_rec) THEN
+    RAISE EXCEPTION 'TEST FAIL: 釣果を消しても写真の台帳が残る';
+  END IF;
+
+  -- 一覧用に 1 枚目のサムネイルが出る
+  PERFORM set_config('request.jwt.claim.sub', owner_id::TEXT, TRUE);
+  IF (SELECT photo_thumb_path FROM public.record_feed WHERE id = pub_rec)
+     IS DISTINCT FROM friend_id || '/a_t.webp' THEN
+    RAISE EXCEPTION 'TEST FAIL: record_feed にサムネイルが出ない';
+  END IF;
+  IF (SELECT photo_count FROM public.record_feed WHERE id = pub_rec) <> 1 THEN
+    RAISE EXCEPTION 'TEST FAIL: 写真の枚数が合わない';
+  END IF;
+
+  RAISE NOTICE 'CATCH PHOTO TESTS PASSED';
+END;
+$$;
+
+-- RLS も authenticated ロールで確かめる
+SET ROLE authenticated;
+SET request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';   -- 他人（グループ内）
+
+DO $$
+DECLARE
+  friend_id CONSTANT UUID := '22222222-2222-2222-2222-222222222222';
+  pub_rec   UUID;
+  failed    BOOLEAN := FALSE;
+BEGIN
+  SELECT record_id INTO pub_rec FROM public.record_photos LIMIT 1;
+
+  -- 読めるが、他人の写真は消せない
+  IF NOT EXISTS (SELECT 1 FROM public.record_photos) THEN
+    RAISE EXCEPTION 'TEST FAIL: 共有された写真が読めない';
+  END IF;
+  DELETE FROM public.record_photos WHERE user_id = friend_id;
+  IF NOT EXISTS (SELECT 1 FROM public.record_photos WHERE user_id = friend_id) THEN
+    RAISE EXCEPTION 'TEST FAIL: 他人の写真を消せてしまう';
+  END IF;
+
+  -- 他人の釣果に写真をぶら下げられない
+  BEGIN
+    INSERT INTO public.record_photos (record_id, user_id, path, thumb_path)
+    VALUES (pub_rec, '11111111-1111-1111-1111-111111111111', 'x/c.webp', 'x/c_t.webp');
+    failed := TRUE;
+  EXCEPTION WHEN insufficient_privilege OR check_violation THEN
+    NULL;
+  END;
+  IF failed THEN
+    RAISE EXCEPTION 'TEST FAIL: 他人の釣果に写真を追加できてしまう';
+  END IF;
+
+  RAISE NOTICE 'CATCH PHOTO RLS TESTS PASSED';
+END;
+$$;
+
+RESET ROLE;

@@ -36,6 +36,35 @@ AS $$
   SELECT NULLIF(current_setting('request.jwt.claim.sub', true), '')::uuid;
 $$;
 
+-- Supabase の storage スキーマのスタブ（014 の権限設定を検証するため）
+CREATE SCHEMA IF NOT EXISTS storage;
+
+CREATE TABLE storage.buckets (
+  id                 TEXT PRIMARY KEY,
+  name               TEXT NOT NULL,
+  public             BOOLEAN DEFAULT FALSE,
+  file_size_limit    BIGINT,
+  allowed_mime_types TEXT[],
+  created_at         TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE storage.objects (
+  id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  bucket_id TEXT REFERENCES storage.buckets(id),
+  name      TEXT NOT NULL,
+  owner     UUID,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+
+-- 本番と同じ挙動: パスを「/」で分割して配列にする
+CREATE OR REPLACE FUNCTION storage.foldername(name TEXT)
+RETURNS TEXT[]
+LANGUAGE sql IMMUTABLE
+AS $$
+  SELECT string_to_array(name, '/');
+$$;
+
 -- ------------------------------------------------------------
 -- public スキーマ（v1.1 実態）
 -- ------------------------------------------------------------

@@ -28,6 +28,7 @@
     client, requireSession, renderNav, escapeHtml, toJapaneseError, formatJstDate, icon,
     createMap, spotMarker, googleMapsUrl, googleDirectionsUrl, isCoordinateInJapan,
     listTidePoints, fetchTideForPoint, tideAt, tideTimelineSvg,
+    listRecordPhotos, deleteRecordPhotos, signedPhotoUrls,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -40,6 +41,13 @@
   if (!id) {
     document.getElementById("detail").innerHTML = `<div class="empty">記録が指定されていません。</div>`;
     throw new Error("no id");
+  }
+  if (params.get("photoerror")) {
+    const box = document.getElementById("message");
+    box.textContent = "釣果は保存できましたが、写真の保存に失敗しました。編集からもう一度お試しください。";
+    box.className = "message error";
+    box.hidden = false;
+    history.replaceState(null, "", `record.html?id=${encodeURIComponent(id)}`);
   }
   if (params.get("saved")) {
     const box = document.getElementById("message");
@@ -63,6 +71,23 @@
     box.innerHTML = `<div class="empty">記録が見つかりません。</div>`;
   } else {
     render(record);
+  }
+
+  /** 写真。非公開バケットなので、表示のたびに署名付き URL を作る。 */
+  async function renderPhotos(r) {
+    const card = document.getElementById("photo-card");
+    const list = await listRecordPhotos(r.id).catch(() => []);
+    if (!list.length) { card.remove(); return; }
+
+    const urls = await signedPhotoUrls(list.flatMap((p) => [p.path, p.thumb_path]))
+      .catch(() => new Map());
+    card.innerHTML = `<div class="photo-view">
+      ${list.map((p) => `
+        <a href="${urls.get(p.path) ?? "#"}" target="_blank" rel="noopener">
+          <img src="${urls.get(p.path) ?? ""}" alt="釣果の写真"
+               width="${p.width ?? ""}" height="${p.height ?? ""}" loading="lazy">
+        </a>`).join("")}
+    </div>`;
   }
 
   /**
@@ -155,6 +180,9 @@
             <span class="val">${escapeHtml(v)}</span></div>`).join("")}
         </div>
       </div>
+      ${r.photo_count ? `<div class="card" id="photo-card">
+        <div class="empty">写真を読み込み中…</div>
+      </div>` : ""}
       ${r.fished_time ? `<div class="card" id="tide-card">
         <h2>${icon("tide", { size: 14 })} 釣れた時刻の潮位</h2>
         <div class="empty" id="tide-body">読み込み中…</div>
@@ -177,6 +205,7 @@
         <button type="button" class="btn btn-quiet" id="delete">削除する</button>
       </div>` : ""}`;
 
+    if (r.photo_count) renderPhotos(r);
     if (r.fished_time) renderTide(r);
 
     if (hasSpotMap) {
@@ -193,6 +222,17 @@
 
     document.getElementById("delete").addEventListener("click", async () => {
       if (!confirm("この釣果記録を削除しますか？\nこの操作は取り消せません。")) return;
+      // 釣果を消すと台帳は CASCADE で消えるが、Storage の実体は残る。
+      // 先に実体を消してから記録を消す（順番が逆だと、消すべきパスが分からなくなる）
+      try {
+        await deleteRecordPhotos(await listRecordPhotos(r.id));
+      } catch (photoError) {
+        const msg = document.getElementById("message");
+        msg.textContent = "写真を削除できませんでした。通信環境を確認して、もう一度お試しください。";
+        msg.className = "message error";
+        msg.hidden = false;
+        return;
+      }
       const { error: deleteError } = await client.from("fishing_records").delete().eq("id", r.id);
       if (deleteError) {
         const msg = document.getElementById("message");

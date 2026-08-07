@@ -133,9 +133,15 @@
 
   <!-- STEP 4: 写真 -->
   <section class="card step-panel" data-step="4" hidden>
-    <div class="empty">
-      写真の添付は Phase 2 後半で追加します。<br>このまま次へ進んでください。
+    <div class="field">
+      <label for="photo-input">写真（任意・最大 4 枚）</label>
+      <input type="file" id="photo-input" accept="image/*" multiple>
+      <div class="hint">
+        端末の中で縮小してから保存します（長辺 1600px）。位置情報は残りません。
+      </div>
     </div>
+    <div id="photo-list" class="photo-grid"></div>
+    <div id="photo-note" class="list-sub"></div>
   </section>
 
   <!-- STEP 5: メモ・公開範囲 -->
@@ -172,10 +178,15 @@
     client, requireSession, renderNav, escapeHtml, toJapaneseError, requireUserId,
     todayInJst, nowInJst, listSpots, listSpecies, listRecipes, suggestFishName, icon,
     groupSpeciesByCategory, createMap, spotMarker,
+    listRecordPhotos, uploadRecordPhoto, deleteRecordPhotos, signedPhotoUrls, PHOTO_MAX_COUNT,
   } from "./assets/app.js";
 
   const STEPS = ["魚種", "タックル", "スポット", "写真", "メモ"];
   const state = { step: 1, isSkunked: false, spotId: null, layer: null, visibility: "group" };
+
+  // 読み込み中にステップを触られたら、そちらを優先する。
+  // 通信が遅いと、開いたステップが復元処理で STEP1 に戻されてしまうため
+  let userMovedStep = false;
 
   // 既存の釣果を編集する場合は ?id= が付く
   const recordId = new URLSearchParams(location.search).get("id");
@@ -245,6 +256,7 @@
     const button = e.target.closest(".step");
     if (!button || button.disabled) return;
     hideMessage();
+    userMovedStep = true;
     show(Number(button.dataset.step));
   });
 
@@ -253,6 +265,7 @@
   const prevStep = (from) => (state.isSkunked && from === 3 ? 5 : from - 1);
 
   document.getElementById("next").addEventListener("click", () => {
+    userMovedStep = true;
     if (state.step === 3 && !state.spotId) {
       return message("スポットを選択してください。", "error");
     }
@@ -260,6 +273,7 @@
     show(Math.min(5, state.isSkunked && state.step === 1 ? 3 : nextStep(state.step)));
   });
   document.getElementById("prev").addEventListener("click", () => {
+    userMovedStep = true;
     hideMessage();
     show(Math.max(1, state.isSkunked && state.step === 3 ? 1 : state.step - 1));
   });
@@ -482,6 +496,87 @@
     message("スポットを登録しました。", "success");
   });
 
+  /* ---------- 写真 ----------
+     追加・削除は「保存したときにまとめて反映」する。
+     新規登録では釣果 ID がまだ無いので、どのみち保存後にしか上げられない。
+     編集でも同じ扱いにして、経路を 1 本にしている。 */
+  const photos = {
+    existing: [],   // 台帳にある写真（編集時）
+    added: [],      // これから上げるファイル
+    removed: [],    // 保存時に消す既存の写真
+  };
+
+  function photoCount() {
+    return photos.existing.length + photos.added.length;
+  }
+
+  async function renderPhotos() {
+    const box = document.getElementById("photo-list");
+    const urls = await signedPhotoUrls(photos.existing.map((p) => p.thumb_path)).catch(() => new Map());
+
+    box.innerHTML = [
+      ...photos.existing.map((p) => `
+        <div class="photo-item" data-kind="existing" data-id="${p.id}">
+          <img src="${urls.get(p.thumb_path) ?? ""}" alt="">
+          <button type="button" class="photo-remove" aria-label="削除">×</button>
+        </div>`),
+      ...photos.added.map((p, i) => `
+        <div class="photo-item" data-kind="added" data-index="${i}">
+          <img src="${p.url}" alt="">
+          <button type="button" class="photo-remove" aria-label="削除">×</button>
+        </div>`),
+    ].join("");
+
+    const note = document.getElementById("photo-note");
+    const left = PHOTO_MAX_COUNT - photoCount();
+    note.textContent = photoCount()
+      ? `${photoCount()} 枚（あと ${left} 枚追加できます）${
+          photos.added.length ? " ／ 記録すると保存されます" : ""}`
+      : "";
+    document.getElementById("photo-input").disabled = left <= 0;
+  }
+
+  document.getElementById("photo-input").addEventListener("change", (e) => {
+    const files = [...e.target.files];
+    e.target.value = "";                      // 同じ写真を選び直せるように
+    const left = PHOTO_MAX_COUNT - photoCount();
+    if (files.length > left) {
+      message(`写真は ${PHOTO_MAX_COUNT} 枚までです。`, "error");
+    }
+    for (const file of files.slice(0, Math.max(0, left))) {
+      if (!file.type.startsWith("image/")) continue;
+      photos.added.push({ file, url: URL.createObjectURL(file) });
+    }
+    renderPhotos();
+  });
+
+  document.getElementById("photo-list").addEventListener("click", (e) => {
+    const button = e.target.closest(".photo-remove");
+    if (!button) return;
+    const item = button.closest(".photo-item");
+    if (item.dataset.kind === "added") {
+      const [removed] = photos.added.splice(Number(item.dataset.index), 1);
+      URL.revokeObjectURL(removed.url);
+    } else {
+      const index = photos.existing.findIndex((p) => p.id === item.dataset.id);
+      if (index >= 0) photos.removed.push(...photos.existing.splice(index, 1));
+    }
+    renderPhotos();
+  });
+
+  /** 保存後に写真の追加・削除を反映する。失敗しても釣果自体は残す。 */
+  async function applyPhotos(targetRecordId) {
+    if (photos.removed.length) {
+      await deleteRecordPhotos(photos.removed);
+      photos.removed = [];
+    }
+    for (const [index, item] of photos.added.entries()) {
+      await uploadRecordPhoto(targetRecordId, item.file, photos.existing.length + index);
+      URL.revokeObjectURL(item.url);
+    }
+    photos.added = [];
+  }
+
   /* ---------- 確認と保存 ---------- */
   // 「2026-08-08 05:30」の形。時刻を入れていなければ日付だけ
   function fishedAtLabel() {
@@ -559,15 +654,29 @@
       rod: text("rod"), reel: text("reel"), line: text("line"), leader: text("leader"),
     });
 
-    const { error } = recordId
-      ? await client.from("fishing_records").update(payload).eq("id", recordId)
-      : await client.from("fishing_records").insert(payload);
+    const { data: saved, error } = recordId
+      ? await client.from("fishing_records").update(payload).eq("id", recordId).select().single()
+      : await client.from("fishing_records").insert(payload).select().single();
     if (error) {
       message(toJapaneseError(error), "error");
       button.disabled = false;
       button.textContent = recordId ? "変更を保存する" : "この内容で記録する";
       return;
     }
+
+    // 写真は釣果が保存できてから。ここで失敗しても釣果は残っているので、
+    // 記録そのものを巻き戻さず、写真だけ後から付け直してもらう
+    if (photos.added.length || photos.removed.length) {
+      button.textContent = "写真を保存中…";
+      try {
+        await applyPhotos(saved.id);
+      } catch (photoError) {
+        clearDraft();
+        location.replace(`record.html?id=${saved.id}&photoerror=1`);
+        return;
+      }
+    }
+
     clearDraft();
     location.replace(recordId ? `record.html?id=${recordId}&saved=1` : "records.html?saved=1");
   });
@@ -662,7 +771,11 @@
       if (state.displayName) {
         suggestBox.innerHTML = `<div class="suggest">呼称: ${escapeHtml(state.displayName)}</div>`;
       }
-      show(openStep(1));
+      // 開くステップは取得済みのレコードだけで決まる。写真の読み込みを待つと、
+      // ボウズの編集で STEP1 が一瞬見えてから STEP3 へ飛ぶ形になる
+      if (!userMovedStep) show(openStep(1));
+      photos.existing = await listRecordPhotos(recordId).catch(() => []);
+      renderPhotos();
       return;
     }
     let saved = null;
@@ -670,7 +783,7 @@
     if (!saved || !hasInput(saved)) return;
     applyValues(saved);
     document.getElementById("draft-notice").hidden = false;
-    show(openStep(Math.min(5, Math.max(1, Number(saved.step) || 1))));
+    if (!userMovedStep) show(openStep(Math.min(5, Math.max(1, Number(saved.step) || 1))));
   }
 
   // ボウズは STEP1・2 が無効なので、そこへは開かない
