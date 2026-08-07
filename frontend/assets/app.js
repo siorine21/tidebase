@@ -824,20 +824,20 @@ export async function tideCorrelation() {
 
 /* ---------------- 画面共通 ---------------- */
 
-/** ボトムナビを描画する。current は home / map / records / recipes / groups。 */
+/** ボトムナビを描画する。current は home / tide / map / records / recipes。
+    設定はここに置かない（毎日開く場所ではないため、ホームのヘッダーから開く）。 */
 export function renderNav(current) {
   const items = [
     ["home", "index.html", "home", "ホーム"],
+    ["tide", "tide.html", "tide", "潮汐"],
     ["map", "spots.html", "map", "マップ"],
     ["records", "records.html", "records", "釣果"],
     ["recipes", "recipes.html", "recipes", "レシピ"],
-    ["groups", "#", "groups", "グループ"],
   ];
   document.body.insertAdjacentHTML("beforeend", `
     <nav class="bottom-nav">
       ${items.map(([key, href, iconName, label]) => `
-        <a class="nav-item${key === current ? " active" : ""}"
-           href="${href}"${href === "#" ? ' aria-disabled="true"' : ""}>
+        <a class="nav-item${key === current ? " active" : ""}" href="${href}">
           ${icon(iconName, { size: 21, className: "nav-icon" })}<span>${label}</span>
         </a>`).join("")}
     </nav>`);

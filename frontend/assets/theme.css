@@ -259,7 +259,6 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 }
 
 .nav-item.active { color: var(--mustard); }
-.nav-item[aria-disabled="true"] { opacity: 0.4; pointer-events: none; }
 .nav-icon { font-size: 19px; line-height: 1; }
 
 /* ---------- ホーム ヒーロー ---------- */

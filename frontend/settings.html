@@ -73,7 +73,7 @@
 
   const session = await requireSession();
   if (!session) throw new Error("unauthenticated");
-  renderNav("home");
+  renderNav("settings");
   document.getElementById("back").addEventListener("click", () => history.back());
 
   /* ---------- プロフィール ---------- */

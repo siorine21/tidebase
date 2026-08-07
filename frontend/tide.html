@@ -85,7 +85,7 @@
 
   const session = await requireSession();
   if (!session) throw new Error("unauthenticated");
-  renderNav("home");
+  renderNav("tide");
   document.getElementById("back").addEventListener("click", () => history.back());
 
   const today = todayInJst();

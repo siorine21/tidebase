@@ -61,7 +61,9 @@
   }
 
   function render(r) {
-    document.getElementById("title").textContent = r.is_skunked ? `${icon("skunk", { size: 15 })} ボウズ` : "CATCH DETAIL";
+    // アイコンは SVG 文字列なので innerHTML（textContent だとタグがそのまま出る）
+    document.getElementById("title").innerHTML =
+      r.is_skunked ? `${icon("skunk", { size: 15 })} ボウズ` : "CATCH DETAIL";
     const WATER = { saltwater: "海水", brackish: "汽水", freshwater: "淡水" };
     const rows = [
       ["釣行日", formatJstDate(r.fished_at, { weekday: true })],
