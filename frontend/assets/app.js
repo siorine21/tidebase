@@ -191,6 +191,52 @@ export function tideLevelAt(levels, hours) {
   return a + (b - a) * (hours - i);
 }
 
+/**
+ * 単調 3 次補間（Fritsch–Carlson）で滑らかな SVG パスを作る。
+ * 毎時の点を直線でつなぐとカクカクするため。単調性を保つ方式なので、
+ * 補間で元データの範囲を超えて上下に飛び出すことがない（軸を突き抜けない）。
+ * @param {{x:number,y:number}[]} points x 昇順の点列
+ */
+export function smoothPath(points) {
+  if (points.length < 2) return points.length ? `M${points[0].x},${points[0].y}` : "";
+
+  const n = points.length;
+  const dx = [], slope = [];
+  for (let i = 0; i < n - 1; i++) {
+    dx[i] = points[i + 1].x - points[i].x;
+    slope[i] = dx[i] === 0 ? 0 : (points[i + 1].y - points[i].y) / dx[i];
+  }
+
+  // 各点の傾き（両隣の平均）を求め、単調性が崩れる場合は抑える
+  const m = new Array(n);
+  m[0] = slope[0];
+  m[n - 1] = slope[n - 2];
+  for (let i = 1; i < n - 1; i++) {
+    m[i] = slope[i - 1] * slope[i] <= 0 ? 0 : (slope[i - 1] + slope[i]) / 2;
+  }
+  for (let i = 0; i < n - 1; i++) {
+    if (slope[i] === 0) { m[i] = 0; m[i + 1] = 0; continue; }
+    const a = m[i] / slope[i], b = m[i + 1] / slope[i];
+    const h = a * a + b * b;
+    if (h > 9) {
+      const t = 3 / Math.sqrt(h);
+      m[i] = t * a * slope[i];
+      m[i + 1] = t * b * slope[i];
+    }
+  }
+
+  let d = `M${points[0].x.toFixed(2)},${points[0].y.toFixed(2)}`;
+  for (let i = 0; i < n - 1; i++) {
+    const c1x = points[i].x + dx[i] / 3;
+    const c1y = points[i].y + (m[i] * dx[i]) / 3;
+    const c2x = points[i + 1].x - dx[i] / 3;
+    const c2y = points[i + 1].y - (m[i + 1] * dx[i]) / 3;
+    d += ` C${c1x.toFixed(2)},${c1y.toFixed(2)} ${c2x.toFixed(2)},${c2y.toFixed(2)}`
+      + ` ${points[i + 1].x.toFixed(2)},${points[i + 1].y.toFixed(2)}`;
+  }
+  return d;
+}
+
 const WEEKDAYS_SHORT = ["日", "月", "火", "水", "木", "金", "土"];
 
 /**
@@ -209,7 +255,31 @@ export function tideTimelineSvg({
 }) {
   const width = dayUnits * days.length;
   const totalHours = days.length * 24;
-  const all = tides.flatMap((t) => t?.hourly_levels_cm ?? []).filter((v) => v != null);
+
+  // 毎時値に加えて満潮・干潮の実測値も曲線に含める。
+  // JMA の満干は毎時値の最大／最小を超えることがあり（例: 毎時 115cm / 満潮 116cm）、
+  // 毎時値だけで描くと満干の点が曲線から浮く。
+  const samples = days.map((date, d) => {
+    const tide = tides[d];
+    if (!tide) return null;
+    const list = [];
+    (tide.hourly_levels_cm ?? []).forEach((v, h) => {
+      if (v != null) list.push({ h: d * 24 + h, v });
+    });
+    for (const e of [...(tide.high_tides ?? []), ...(tide.low_tides ?? [])]) {
+      const hours = hoursFromHhmm(e.time);
+      if (hours == null || e.level_cm == null) continue;
+      list.push({ h: d * 24 + hours, v: e.level_cm, peak: true });
+    }
+    list.sort((a, b) => a.h - b.h);
+    // 満干が毎時値とほぼ同時刻なら実測値を優先する
+    return list.filter((pt, i) => {
+      const next = list[i + 1];
+      return !(next && Math.abs(next.h - pt.h) < 1 / 60 && next.peak && !pt.peak);
+    });
+  });
+
+  const all = samples.flatMap((list) => list?.map((pt) => pt.v) ?? []);
   if (!all.length) return null;
 
   const min = Math.min(...all), max = Math.max(...all);
@@ -220,20 +290,17 @@ export function tideTimelineSvg({
   // 曲線は日をまたいでつなぐ。未取得の日はそこで区切る
   const segments = [];
   let current = [];
-  days.forEach((date, d) => {
-    const tide = tides[d];
-    if (!tide) { if (current.length) segments.push(current); current = []; return; }
-    tide.hourly_levels_cm.forEach((v, h) => {
-      if (v == null) return;
-      current.push(`${x(d * 24 + h).toFixed(2)},${y(v).toFixed(2)}`);
-    });
+  samples.forEach((list) => {
+    if (!list) { if (current.length) segments.push(current); current = []; return; }
+    for (const pt of list) current.push({ x: x(pt.h), y: y(pt.v) });
   });
   if (current.length) segments.push(current);
 
-  const lines = segments.map((pts) => `<path class="curve-line" d="M${pts.join(" L")}"/>`).join("");
+  const lines = segments.map((pts) => `<path class="curve-line" d="${smoothPath(pts)}"/>`).join("");
   const areas = segments.map((pts) => {
-    const first = pts[0].split(",")[0], last = pts[pts.length - 1].split(",")[0];
-    return `<path class="curve-area" d="M${first},${height - padBottom} L${pts.join(" L")} L${last},${height - padBottom} Z"/>`;
+    const base = height - padBottom;
+    return `<path class="curve-area" d="${smoothPath(pts)} L${pts[pts.length - 1].x.toFixed(2)},${base}`
+      + ` L${pts[0].x.toFixed(2)},${base} Z"/>`;
   }).join("");
 
   // 夜（日の出前・日没後）を塗る。夜釣りの時間帯が帯で分かる

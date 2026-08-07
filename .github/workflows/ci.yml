@@ -41,3 +41,13 @@ jobs:
           node-version: "22"
       - run: npm install -g typescript
       - run: make test-edge
+
+  frontend-tests:
+    name: Frontend (潮位グラフの平滑化)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: make test-frontend
