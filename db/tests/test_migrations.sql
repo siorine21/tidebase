@@ -431,6 +431,11 @@ INSERT INTO auth.users (id) VALUES
   ('22222222-2222-2222-2222-222222222222'),   -- 招待した友人
   ('33333333-3333-3333-3333-333333333333');   -- 無関係の他人
 
+-- 012 以降、グループ作成と招待は管理者だけ。テストの主体を管理者にしておく。
+INSERT INTO public.app_admins (user_id, note)
+VALUES ('11111111-1111-1111-1111-111111111111', 'テスト用の管理者')
+ON CONFLICT (user_id) DO NOTHING;
+
 DO $$
 DECLARE
   owner_id  CONSTANT UUID := '11111111-1111-1111-1111-111111111111';
@@ -638,3 +643,139 @@ BEGIN
   RAISE NOTICE 'INVITE FK TESTS PASSED';
 END;
 $$;
+
+-- ============================================================
+-- 012: 招待できるのは管理者だけ
+-- 「画面にボタンが無い」ではなく、DB として塞がっていることを確認する。
+-- ============================================================
+DO $$
+DECLARE
+  admin_id  CONSTANT UUID := '11111111-1111-1111-1111-111111111111';
+  friend_id CONSTANT UUID := '22222222-2222-2222-2222-222222222222';
+  gid       UUID;
+  failed    BOOLEAN := FALSE;
+BEGIN
+  SELECT id INTO gid FROM public.groups WHERE name = 'テスト班';
+
+  -- 未ログイン（auth.uid() が NULL）は管理者ではない
+  IF public.is_app_admin() THEN
+    RAISE EXCEPTION 'TEST FAIL: 未ログインで管理者判定が true';
+  END IF;
+
+  PERFORM set_config('request.jwt.claim.sub', admin_id::TEXT, TRUE);
+  IF NOT public.is_app_admin() THEN
+    RAISE EXCEPTION 'TEST FAIL: 管理者が管理者と判定されない';
+  END IF;
+  PERFORM set_config('request.jwt.claim.sub', friend_id::TEXT, TRUE);
+  IF public.is_app_admin() THEN
+    RAISE EXCEPTION 'TEST FAIL: 招待された人が管理者になっている';
+  END IF;
+
+  -- 管理者は招待を作れる
+  PERFORM set_config('request.jwt.claim.sub', admin_id::TEXT, TRUE);
+  INSERT INTO public.group_invites (group_id, created_by, label)
+  VALUES (gid, admin_id, '管理者から');
+
+  -- 招待された人（オーナーでもない）は作れない — トリガー側
+  BEGIN
+    INSERT INTO public.group_invites (group_id, created_by)
+    VALUES (gid, friend_id);
+    failed := TRUE;
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
+  IF failed THEN
+    RAISE EXCEPTION 'TEST FAIL: 管理者でない人が招待を作れてしまう';
+  END IF;
+
+  -- 管理者でも、オーナーでないグループには作れない
+  BEGIN
+    INSERT INTO public.group_invites (group_id, created_by)
+    SELECT g.id, admin_id FROM public.groups g WHERE g.owner_id <> admin_id LIMIT 1;
+    IF FOUND THEN failed := TRUE; END IF;
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
+  IF failed THEN
+    RAISE EXCEPTION 'TEST FAIL: オーナーでないグループに招待を作れてしまう';
+  END IF;
+
+  RAISE NOTICE 'ADMIN INVITE TESTS PASSED';
+END;
+$$;
+
+-- RLS ポリシーそのものの検証（上の DO ブロックはテーブル所有者権限で走るため
+-- RLS が効かない。実際のアプリと同じ authenticated ロールで確かめる）。
+GRANT USAGE ON SCHEMA public TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO authenticated;
+REVOKE ALL ON public.app_admins FROM authenticated;
+
+SET ROLE authenticated;
+SET request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';   -- 招待された人
+
+DO $$
+DECLARE
+  friend_id CONSTANT UUID := '22222222-2222-2222-2222-222222222222';
+  gid       UUID;
+  failed    BOOLEAN := FALSE;
+BEGIN
+  SELECT id INTO gid FROM public.groups WHERE name = 'テスト班';
+
+  -- ① 自分を created_by にして招待を作る（010 で空いていた穴）
+  BEGIN
+    INSERT INTO public.group_invites (group_id, created_by) VALUES (gid, friend_id);
+    failed := TRUE;
+  EXCEPTION WHEN insufficient_privilege OR check_violation THEN
+    NULL;
+  END;
+  IF failed THEN
+    RAISE EXCEPTION 'TEST FAIL: メンバーが RLS を通って招待を作れてしまう';
+  END IF;
+
+  -- ② 自分のグループを新規に作って、そのオーナーとして招待する（もう 1 つの穴）
+  BEGIN
+    INSERT INTO public.groups (name, owner_id) VALUES ('抜け道グループ', friend_id);
+    failed := TRUE;
+  EXCEPTION WHEN insufficient_privilege OR check_violation THEN
+    NULL;
+  END;
+  IF failed THEN
+    RAISE EXCEPTION 'TEST FAIL: メンバーが自分のグループを作れてしまう';
+  END IF;
+
+  -- ③ 管理者台帳そのものを触る
+  BEGIN
+    PERFORM 1 FROM public.app_admins;
+    failed := TRUE;
+  EXCEPTION WHEN insufficient_privilege THEN
+    NULL;
+  END;
+  IF failed THEN
+    RAISE EXCEPTION 'TEST FAIL: 管理者台帳がアプリから読めてしまう';
+  END IF;
+
+  RAISE NOTICE 'INVITE RLS TESTS PASSED';
+END;
+$$;
+
+-- 対照実験: 同じ authenticated ロールでも管理者なら通ること。
+-- これが無いと、上の 3 つが「権限不足以外の理由」で失敗していても
+-- テストが通ってしまう（GRANT 漏れなどを拒否と読み違えない）。
+SET request.jwt.claim.sub = '11111111-1111-1111-1111-111111111111';   -- 管理者
+
+DO $$
+DECLARE
+  admin_id CONSTANT UUID := '11111111-1111-1111-1111-111111111111';
+  gid      UUID;
+BEGIN
+  SELECT id INTO gid FROM public.groups WHERE name = 'テスト班';
+  INSERT INTO public.group_invites (group_id, created_by, label)
+  VALUES (gid, admin_id, 'authenticated ロールから');
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'TEST FAIL: 管理者が authenticated ロールで招待を作れない';
+  END IF;
+  RAISE NOTICE 'INVITE RLS CONTROL PASSED';
+END;
+$$;
+
+RESET ROLE;

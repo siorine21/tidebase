@@ -766,6 +766,16 @@ export function recordFishName(record) {
 
 /* ---------------- グループ（招待制の共有） ---------------- */
 
+/**
+ * 管理者かどうか。グループの作成と招待の発行はこの人だけができる（012）。
+ * 画面の出し分け用で、実際の制限は RLS とトリガーが持つ。
+ */
+export async function isAppAdmin() {
+  const { data, error } = await client.rpc("is_app_admin");
+  if (error) return false;
+  return data === true;
+}
+
 /** 自分が属するグループ。無ければ null。 */
 export async function myGroup() {
   const { data, error } = await client

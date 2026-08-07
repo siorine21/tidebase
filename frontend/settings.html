@@ -75,7 +75,7 @@
     client, requireSession, renderNav, toJapaneseError, requireUserId, currentUserId,
     escapeHtml, icon, renderIcons, formatJstDate,
     myGroup, listGroupMembers, createGroup, listInvites, createInvite,
-    revokeInvite, leaveGroup, inviteUrl,
+    revokeInvite, leaveGroup, inviteUrl, isAppAdmin,
   } from "./assets/app.js";
 
   const MIN_PASSWORD_LENGTH = 8;   // Supabase 側の password_min_length と揃える
@@ -164,6 +164,15 @@
      リンクを LINE などで送り、受け取った人が signup.html?invite=... を開く。 */
   const groupCard = document.getElementById("group-card");
 
+  // 管理者でない人にはグループを作る導線を出さない（作っても RLS で弾かれる）
+  function renderNotAdmin() {
+    groupCard.innerHTML = `
+      <div class="empty">
+        グループに参加していません。<br>
+        参加するには管理者から招待リンクを送ってもらってください。
+      </div>`;
+  }
+
   function renderNoGroup() {
     groupCard.innerHTML = `
       <div class="list-sub" style="margin-bottom:12px">
@@ -191,7 +200,7 @@
     });
   }
 
-  function renderGroup(group, members, invites, isOwner) {
+  function renderGroup(group, members, invites, canInvite) {
     groupCard.innerHTML = `
       <h2><span data-icon="groups"></span> ${escapeHtml(group.name)}</h2>
       <div id="member-list">
@@ -209,7 +218,7 @@
         （スポット名と場所を含みます）。見せたくない釣果は「自分のみ」にしてください。
       </div>
 
-      ${isOwner ? `
+      ${canInvite ? `
         <div class="field" style="margin-top:16px">
           <label for="invite-label">招待する人（メモ・任意）</label>
           <input type="text" id="invite-label" maxlength="20" placeholder="例: たろう">
@@ -235,16 +244,20 @@
   }
 
   async function loadGroup() {
-    const group = await myGroup().catch(() => null);
-    if (!group) return renderNoGroup();
+    const [group, admin, userId] = await Promise.all([
+      myGroup().catch(() => null),
+      isAppAdmin(),
+      currentUserId(),
+    ]);
+    if (!group) return admin ? renderNoGroup() : renderNotAdmin();
 
-    const userId = await currentUserId();
-    const isOwner = group.owner_id === userId;
+    // 招待できるのは「管理者 かつ そのグループのオーナー」だけ（012 の RLS と同条件）
+    const canInvite = admin && group.owner_id === userId;
     const [members, invites] = await Promise.all([
       listGroupMembers(group.id).catch(() => []),
-      isOwner ? listInvites(group.id).catch(() => []) : Promise.resolve([]),
+      canInvite ? listInvites(group.id).catch(() => []) : Promise.resolve([]),
     ]);
-    renderGroup(group, members, invites, isOwner);
+    renderGroup(group, members, invites, canInvite);
   }
 
   // 再描画で要素が差し替わるため、カード側でクリックを受ける
