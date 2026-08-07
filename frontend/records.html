@@ -156,7 +156,8 @@
           <div class="thumb">${icon(r.is_skunked ? "skunk" : "fish", { size: 20 })}</div>
           <div class="list-body">
             <div class="list-title">${owner}${title}</div>
-            <div class="list-sub">${escapeHtml(formatJstDate(r.fished_at))}${sub ? " · " + sub : ""}</div>
+            <div class="list-sub">${escapeHtml(formatJstDate(r.fished_at))}${
+            r.fished_time ? " " + r.fished_time.slice(0, 5) : ""}${sub ? " · " + sub : ""}</div>
           </div>
           <div class="list-aside">${relativeDays(r.fished_at)}</div>
         </a>`;

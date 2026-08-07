@@ -27,6 +27,7 @@
   import {
     client, requireSession, renderNav, escapeHtml, toJapaneseError, formatJstDate, icon,
     createMap, spotMarker, googleMapsUrl, googleDirectionsUrl, isCoordinateInJapan,
+    listTidePoints, fetchTideForPoint, tideAt, tideTimelineSvg,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -64,6 +65,55 @@
     render(record);
   }
 
+  /**
+   * 釣れた時刻の潮位を出す。
+   * 潮汐は推算値なので、時刻さえ残っていれば後からいくらでも引き直せる。
+   * そのため保存はせず、表示のたびに気象庁の推算から計算する。
+   */
+  async function renderTide(r) {
+    const body = document.getElementById("tide-body");
+    const value = r.spot_tide_area_code ? `AR:${r.spot_tide_area_code}`
+      : r.spot_tide_station_code ? `ST:${r.spot_tide_station_code}` : null;
+    if (!value) {
+      body.textContent = "このスポットには潮汐地点が設定されていません。";
+      return;
+    }
+
+    let point, tide;
+    try {
+      // 記録は全国どこのスポットにも付きうるので、県で絞らずに探す
+      const points = await listTidePoints({ pref: null });
+      point = points.find((p) => p.value === value);
+      if (!point) throw new Error("潮汐地点が見つかりません");
+      tide = await fetchTideForPoint(point, r.fished_at);
+    } catch {
+      body.textContent = "潮位を取得できませんでした。時間をおいて開き直してください。";
+      return;
+    }
+
+    const at = tideAt(tide, r.fished_time.slice(0, 5));
+    const chart = tideTimelineSvg({
+      days: [r.fished_at], tides: [tide], today: null,
+      marker: { date: r.fished_at, hhmm: r.fished_time.slice(0, 5), label: r.fished_time.slice(0, 5) },
+      dayUnits: 360, height: 168,
+    });
+
+    document.getElementById("tide-card").innerHTML = `
+      <h2>${icon("tide", { size: 14 })} 釣れた時刻の潮位</h2>
+      <div class="rows" style="margin-bottom:12px">
+        <div class="row"><span class="label">潮位</span>
+          <span class="val">${at ? `${at.level} cm` : "—"}</span></div>
+        <div class="row"><span class="label">潮の動き</span>
+          <span class="val">${at ? escapeHtml(at.trend) : "—"}</span></div>
+        <div class="row"><span class="label">潮汐地点</span>
+          <span class="val">${escapeHtml(point.name)}</span></div>
+      </div>
+      ${chart ? `<div class="tide-scroller">${chart.svg}</div>` : ""}
+      <div class="list-sub" style="margin-top:8px">
+        気象庁の推算値${point.area ? "（基準観測点からの推算）" : ""}
+      </div>`;
+  }
+
   function render(r) {
     // アイコンは SVG 文字列なので innerHTML（textContent だとタグがそのまま出る）
     document.getElementById("title").innerHTML =
@@ -72,7 +122,8 @@
     const rows = [
       // 他人の釣果は投稿者を最初に出す（誰の記録かを見間違えないように）
       r.is_mine ? null : ["投稿者", r.owner_name],
-      ["釣行日", formatJstDate(r.fished_at, { weekday: true })],
+      ["釣行日", formatJstDate(r.fished_at, { weekday: true })
+        + (r.fished_time ? ` ${r.fished_time.slice(0, 5)}` : "")],
       ["スポット", r.spot_name ? `${r.spot_name}（${WATER[r.spot_water_type] ?? "—"}）` : null],
       ["潮回り", r.tide_type],
       ["月齢", r.tide_snapshot?.moon_age],
@@ -104,6 +155,10 @@
             <span class="val">${escapeHtml(v)}</span></div>`).join("")}
         </div>
       </div>
+      ${r.fished_time ? `<div class="card" id="tide-card">
+        <h2>${icon("tide", { size: 14 })} 釣れた時刻の潮位</h2>
+        <div class="empty" id="tide-body">読み込み中…</div>
+      </div>` : ""}
       ${hasSpotMap ? `<div class="card">
         <h2>${icon("map-pin", { size: 14 })} ${escapeHtml(r.spot_name ?? "スポット")}</h2>
         <div class="map-box" id="record-map" style="height:200px"></div>
@@ -121,6 +176,8 @@
            href="record-new.html?id=${encodeURIComponent(r.id)}">${icon("edit", { size: 15 })} 編集</a>
         <button type="button" class="btn btn-quiet" id="delete">削除する</button>
       </div>` : ""}`;
+
+    if (r.fished_time) renderTide(r);
 
     if (hasSpotMap) {
       const { map } = createMap("record-map",

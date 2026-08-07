@@ -779,3 +779,55 @@ END;
 $$;
 
 RESET ROLE;
+
+-- ============================================================
+-- 013: 釣れた時刻
+-- ============================================================
+DO $$
+DECLARE
+  owner_id CONSTANT UUID := '11111111-1111-1111-1111-111111111111';
+  rec      UUID;
+  spot     UUID;
+BEGIN
+  SELECT id INTO spot FROM public.spots WHERE user_id = owner_id LIMIT 1;
+
+  -- 時刻は任意（既存の記録は NULL のまま）
+  INSERT INTO public.fishing_records (user_id, spot_id, fished_at, visibility)
+  VALUES (owner_id, spot, DATE '2026-08-05', 'private') RETURNING id INTO rec;
+  IF (SELECT fished_time FROM public.fishing_records WHERE id = rec) IS NOT NULL THEN
+    RAISE EXCEPTION 'TEST FAIL: 時刻の既定が NULL でない';
+  END IF;
+
+  -- 時刻を入れられる。日をまたぐ夜釣り（03:20）も普通に入る
+  UPDATE public.fishing_records SET fished_time = TIME '03:20' WHERE id = rec;
+
+  PERFORM set_config('request.jwt.claim.sub', owner_id::TEXT, TRUE);
+  IF (SELECT fished_time FROM public.record_feed WHERE id = rec) <> TIME '03:20' THEN
+    RAISE EXCEPTION 'TEST FAIL: record_feed に時刻が出ない';
+  END IF;
+
+  -- 共有された釣果でも潮位を引けるよう、スポットの潮汐地点が出ること
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = 'record_feed'
+       AND column_name IN ('spot_tide_station_code', 'spot_tide_area_code')
+    HAVING COUNT(*) = 2
+  ) THEN
+    RAISE EXCEPTION 'TEST FAIL: record_feed に潮汐地点の列が無い';
+  END IF;
+
+  -- ビューがスポットの値をそのまま通していること
+  -- （どの観測点が付くかは 004 / 007 の責務なので、ここでは一致だけを見る）
+  IF EXISTS (
+    SELECT 1 FROM public.record_feed f JOIN public.spots sp ON sp.id = f.spot_id
+     WHERE f.id = rec
+       AND (f.spot_tide_station_code IS DISTINCT FROM sp.tide_station_code
+         OR f.spot_tide_area_code    IS DISTINCT FROM sp.tide_area_code)
+  ) THEN
+    RAISE EXCEPTION 'TEST FAIL: スポットの潮汐地点がビューと一致しない';
+  END IF;
+
+  DELETE FROM public.fishing_records WHERE id = rec;
+  RAISE NOTICE 'FISHED TIME TESTS PASSED';
+END;
+$$;

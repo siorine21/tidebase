@@ -88,9 +88,19 @@
       <span>ボウズとして記録します。</span>
       <button type="button" class="chip" id="unskunk">釣果を入力する</button>
     </div>
-    <div class="field">
-      <label for="fished-at">釣行日</label>
-      <input type="date" id="fished-at">
+    <div class="row-2">
+      <div class="field">
+        <label for="fished-at">釣行日</label>
+        <input type="date" id="fished-at">
+      </div>
+      <div class="field">
+        <label for="fished-time">釣れた時刻（任意）</label>
+        <div class="time-row">
+          <input type="time" id="fished-time">
+          <button type="button" class="chip" id="time-now">今</button>
+        </div>
+        <div class="hint">入力すると、その時刻の潮位を記録します</div>
+      </div>
     </div>
     <div class="field">
       <label>スポット</label>
@@ -160,7 +170,7 @@
 <script type="module">
   import {
     client, requireSession, renderNav, escapeHtml, toJapaneseError, requireUserId,
-    todayInJst, listSpots, listSpecies, listRecipes, suggestFishName, icon,
+    todayInJst, nowInJst, listSpots, listSpecies, listRecipes, suggestFishName, icon,
     groupSpeciesByCategory, createMap, spotMarker,
   } from "./assets/app.js";
 
@@ -254,6 +264,14 @@
     show(Math.max(1, state.isSkunked && state.step === 3 ? 1 : state.step - 1));
   });
   document.getElementById("back").addEventListener("click", () => history.back());
+
+  // 釣った直後に記録することが多いので、現在時刻をワンタップで入れられるようにする。
+  // 既定では空にしておく（家に帰ってから入力したときに、間違った時刻が
+  // 黙って入るほうが困る。潮位を引くための値なので、正しさを優先する）
+  document.getElementById("time-now").addEventListener("click", () => {
+    document.getElementById("fished-time").value = nowInJst().hhmm;
+    saveDraft();
+  });
 
   function setSkunked(on) {
     state.isSkunked = on;
@@ -465,16 +483,23 @@
   });
 
   /* ---------- 確認と保存 ---------- */
+  // 「2026-08-08 05:30」の形。時刻を入れていなければ日付だけ
+  function fishedAtLabel() {
+    const date = document.getElementById("fished-at").value;
+    const time = document.getElementById("fished-time").value;
+    return time ? `${date} ${time}` : date;
+  }
+
   function renderSummary() {
     const spot = document.querySelector(`.spot-option[data-id="${state.spotId}"] .list-title`)?.textContent;
     const speciesName = document.getElementById("species").selectedOptions[0]?.textContent;
     const rows = state.isSkunked
-      ? [["記録", "ボウズ"], ["釣行日", document.getElementById("fished-at").value], ["スポット", spot]]
+      ? [["記録", "ボウズ"], ["釣行日", fishedAtLabel()], ["スポット", spot]]
       : [
           ["魚種", state.displayName ?? (speciesName === "選択しない" ? "—" : speciesName)],
           ["サイズ", document.getElementById("length").value ? `${document.getElementById("length").value} cm` : "—"],
           ["匹数", document.getElementById("count").value],
-          ["釣行日", document.getElementById("fished-at").value],
+          ["釣行日", fishedAtLabel()],
           ["スポット", spot],
           ["レンジ", state.layer ?? "—"],
         ];
@@ -512,6 +537,7 @@
       user_id: userId,
       spot_id: state.spotId,
       fished_at: document.getElementById("fished-at").value,
+      fished_time: document.getElementById("fished-time").value || null,
       is_skunked: state.isSkunked,
       memo: text("memo"),
       visibility: state.visibility,
@@ -558,7 +584,7 @@
       count: value("count"), quantityNote: value("quantity-note"),
       recipe: value("recipe"), rod: value("rod"), reel: value("reel"),
       line: value("line"), leader: value("leader"),
-      fishedAt: value("fished-at"), memo: value("memo"),
+      fishedAt: value("fished-at"), fishedTime: value("fished-time"), memo: value("memo"),
     };
   }
 
@@ -566,7 +592,7 @@
   function hasInput(d) {
     return Boolean(d.isSkunked || d.spotId || d.layer || d.displayName || d.memo
       || d.species || d.length || d.weight || d.quantityNote
-      || d.recipe || d.rod || d.reel || d.line || d.leader);
+      || d.recipe || d.rod || d.reel || d.line || d.leader || d.fishedTime);
   }
 
   function saveDraft() {
@@ -589,7 +615,8 @@
     set("count", data.count); set("quantity-note", data.quantityNote);
     set("recipe", data.recipe); set("rod", data.rod); set("reel", data.reel);
     set("line", data.line); set("leader", data.leader);
-    set("fished-at", data.fishedAt); set("memo", data.memo);
+    set("fished-at", data.fishedAt); set("fished-time", data.fishedTime);
+    set("memo", data.memo);
 
     setSkunked(Boolean(data.isSkunked));
     state.spotId = data.spotId ?? null;
@@ -621,7 +648,7 @@
       count: r.is_skunked ? 1 : r.catch_count ?? 1, quantityNote: r.quantity_note ?? "",
       recipe: r.recipe_id ?? "", rod: r.rod ?? "", reel: r.reel ?? "",
       line: r.line ?? "", leader: r.leader ?? "",
-      fishedAt: r.fished_at, memo: r.memo ?? "",
+      fishedAt: r.fished_at, fishedTime: (r.fished_time ?? "").slice(0, 5), memo: r.memo ?? "",
     };
   }
 

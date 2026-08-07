@@ -193,6 +193,25 @@ export function tideLevelAt(levels, hours) {
 }
 
 /**
+ * 指定時刻の潮位と、そのときの潮の向き。
+ * 「何時に釣れたか」から「そのとき潮位はいくつで、上げていたか下げていたか」を出す。
+ * 前後 30 分の差で向きを見る（毎時値の線形補間なので、これ以上細かくしても精度は上がらない）。
+ */
+export function tideAt(tide, hhmm) {
+  const hours = hoursFromHhmm(hhmm);
+  if (hours == null || !tide) return null;
+  const levels = tide.hourly_levels_cm;
+  const level = tideLevelAt(levels, Math.min(hours, 23));
+  if (level == null) return null;
+
+  const before = tideLevelAt(levels, Math.max(0, hours - 0.5));
+  const after = tideLevelAt(levels, Math.min(23, hours + 0.5));
+  const delta = (after ?? level) - (before ?? level);
+  const trend = Math.abs(delta) < 1 ? "潮止まり前後" : delta > 0 ? "上げ潮" : "下げ潮";
+  return { level: Math.round(level), trend };
+}
+
+/**
  * 単調 3 次補間（Fritsch–Carlson）で滑らかな SVG パスを作る。
  * 毎時の点を直線でつなぐとカクカクするため。単調性を保つ方式なので、
  * 補間で元データの範囲を超えて上下に飛び出すことがない（軸を突き抜けない）。
@@ -251,7 +270,7 @@ const WEEKDAYS_SHORT = ["日", "月", "火", "水", "木", "金", "土"];
  * @returns {{svg: string, min: number, max: number}|null} データが無ければ null
  */
 export function tideTimelineSvg({
-  days, tides, suns = new Map(), today = null,
+  days, tides, suns = new Map(), today = null, marker = null,
   dayUnits = 320, height = 176, padTop = 30, padBottom = 30,
 }) {
   const width = dayUnits * days.length;
@@ -372,6 +391,24 @@ export function tideTimelineSvg({
       + (level != null ? `<circle class="now-dot" cx="${nx}" cy="${y(level)}" r="4"/>` : "");
   }
 
+  // 任意の時刻の印（釣れた時刻など）。{ date, hhmm, label } を渡す
+  let markerMark = "";
+  const markerIndex = marker ? days.indexOf(marker.date) : -1;
+  if (markerIndex >= 0) {
+    const hours = hoursFromHhmm(marker.hhmm);
+    if (hours != null) {
+      const mx = x(markerIndex * 24 + Math.min(hours, 23.999));
+      const level = tideLevelAt(tides[markerIndex]?.hourly_levels_cm, Math.min(hours, 23));
+      markerMark =
+        `<line class="catch-line" x1="${mx}" y1="${padTop - 8}" x2="${mx}" y2="${height - padBottom}"/>`
+        + (level != null ? `<circle class="catch-dot" cx="${mx}" cy="${y(level)}" r="5"/>` : "")
+        + (marker.label
+          ? `<text class="catch-label" x="${mx}" y="${padTop - 12}" text-anchor="middle">${
+              escapeHtml(marker.label)}</text>`
+          : "");
+    }
+  }
+
   const svg = `
     <svg class="tide-graph tide-graph-lg" viewBox="0 0 ${width} ${height}"
          preserveAspectRatio="none" role="img"
@@ -384,6 +421,7 @@ export function tideTimelineSvg({
       ${boundaries}
       ${nowMark}
       ${marks}
+      ${markerMark}
     </svg>`;
   return { svg, min, max };
 }

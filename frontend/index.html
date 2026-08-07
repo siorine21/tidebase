@@ -323,7 +323,9 @@
         ? `${icon("skunk", { size: 15 })} ボウズ`
         : `${escapeHtml(recordFishName(r))}${r.length_cm ? ` ${r.length_cm}cm` : ""}`
           + (r.catch_count > 1 ? ` ×${r.catch_count}` : "");
-      const sub = [formatShortDate(r.fished_at), r.spot_name, r.recipe_name]
+      const when = formatShortDate(r.fished_at)
+        + (r.fished_time ? ` ${r.fished_time.slice(0, 5)}` : "");
+      const sub = [when, r.spot_name, r.recipe_name]
         .filter(Boolean).map(escapeHtml).join(" / ");
       const owner = r.is_mine ? "" : `<span class="owner-badge">${escapeHtml(r.owner_name)}</span>`;
       return `

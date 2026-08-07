@@ -303,6 +303,10 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 /* 現在時刻は実線＋点で「いま」を示す。日の出・日没は細い破線の参照線 */
 .tide-graph .now     { stroke: var(--mustard); stroke-width: 2; }
 .tide-graph .now-dot { fill: var(--mustard-lt); stroke: var(--bg-card); stroke-width: 1.5; }
+/* 釣れた時刻の印。現在時刻（カラシ）と区別できるよう緑にする */
+.tide-graph .catch-line  { stroke: var(--green); stroke-width: 2; }
+.tide-graph .catch-dot   { fill: var(--green); stroke: var(--bg-card); stroke-width: 1.5; }
+.tide-graph .catch-label { fill: #A5D6A7; font-weight: 700; }
 .tide-graph .sun-line { stroke: var(--text-muted); stroke-width: 1; stroke-dasharray: 2 3; }
 .tide-graph .night    { fill: rgba(10,21,32,0.7); }
 .tide-graph text { font-family: 'JetBrains Mono', monospace; font-size: 9px; fill: var(--text-muted); }
@@ -419,6 +423,11 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .list-item.shared { border-left: 3px solid var(--blue-mid); }
 
 /* 招待リンクは選択してコピーできるよう input のままにする（読み取り専用） */
+/* 時刻入力と「今」ボタンを横並びにする */
+.time-row { display: flex; gap: 6px; align-items: stretch; }
+.time-row input { flex: 1; min-width: 0; }
+.time-row .chip { flex-shrink: 0; }
+
 .invite-url {
   padding: 8px 10px; border-radius: 8px;
   background: var(--bg-dark); border: 1px solid var(--border);

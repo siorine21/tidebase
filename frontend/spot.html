@@ -172,7 +172,8 @@
           <div class="thumb">${icon(r.is_skunked ? "skunk" : "fish", { size: 20 })}</div>
           <div class="list-body">
             <div class="list-title">${owner}${title}</div>
-            <div class="list-sub">${escapeHtml(formatJstDate(r.fished_at))}</div>
+            <div class="list-sub">${escapeHtml(formatJstDate(r.fished_at))}${
+              r.fished_time ? " " + r.fished_time.slice(0, 5) : ""}</div>
           </div>
           ${r.tide_type ? `<span class="tag tag-blue">${escapeHtml(r.tide_type)}</span>` : ""}
         </a>`;
