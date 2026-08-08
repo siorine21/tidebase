@@ -346,6 +346,12 @@ export function tideTimelineSvg({
     return `<line class="sun-line" x1="${sx}" y1="${padTop - 8}" x2="${sx}" y2="${height - padBottom}"/>`;
   }).join("");
 
+  // 潮位の横目盛り。何センチかを読み取れるようにする（D-054）
+  const levelTicks = niceLevelTicks(min, max).map((cm) => ({ cm, y: y(cm) }));
+  const levelLines = levelTicks.map((t) =>
+    `<line class="level-line" x1="0" y1="${t.y.toFixed(2)}" x2="${width}" y2="${t.y.toFixed(2)}"/>`
+  ).join("");
+
   // 目盛り: 2 時間ごとに細い線、6 時間ごとに太めの線と時刻ラベル
   const grid = days.flatMap((date, d) => {
     const marks = [];
@@ -426,6 +432,7 @@ export function tideTimelineSvg({
          aria-label="${days[0]} から ${days[days.length - 1]} までの潮位グラフ">
       ${nights}
       ${grid}
+      ${levelLines}
       ${sunLines}
       <line class="axis" x1="0" y1="${height - padBottom}" x2="${width}" y2="${height - padBottom}"/>
       ${areas}
@@ -435,7 +442,34 @@ export function tideTimelineSvg({
       ${marks}
       ${markerMark}
     </svg>`;
-  return { svg, min, max, sunMarks };
+  return { svg, min, max, sunMarks, levelTicks };
+}
+
+/**
+ * 潮位の目盛り値。線が 4 本前後になる刻みを選ぶ。
+ * 「きりのいい数字」に寄せるので、20cm 刻み・25cm 刻み…のどれかになる。
+ */
+function niceLevelTicks(min, max) {
+  const span = Math.max(1, max - min);
+  // 刻みが粗すぎると線が 1 本しか引けない（潮位差が小さい日でも 2〜3 本は欲しい）
+  const steps = [2, 5, 10, 20, 25, 50, 100, 200, 500];
+  const step = steps.find((s) => span / s <= 4) ?? steps[steps.length - 1];
+  const ticks = [];
+  for (let v = Math.ceil(min / step) * step; v <= max; v += step) ticks.push(v);
+  return ticks;
+}
+
+/**
+ * 潮位の目盛りラベル。グラフの**外**に重ねて置く（横スクロールしても残るように）。
+ * 縦方向は引き伸ばしていないので、SVG の座標がそのまま px として使える。
+ * 置き場所の高さは呼び出し側で SVG と同じ値にすること。
+ * @param {{cm:number, y:number}[]} ticks tideTimelineSvg の戻り値
+ */
+export function levelAxisHtml(ticks) {
+  if (!ticks?.length) return "";
+  // 上から並べる（配列は cm 昇順＝画面では下から）
+  return [...ticks].reverse().map((t, i) =>
+    `<span style="top:${t.y.toFixed(2)}px">${t.cm}${i === 0 ? "cm" : ""}</span>`).join("");
 }
 
 /**

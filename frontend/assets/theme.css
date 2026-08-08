@@ -830,6 +830,18 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .tide-track .empty { width: 7.1428%; }
 .tide-track-3 .empty { width: 33.333%; }
 
+/* 潮位の目盛り。横線は SVG の中、ラベルはスクローラの外に重ねる（D-054）。
+   スクローラの中に置くと横スクロールで流れていってしまうため */
+.tide-plot { position: relative; }
+.level-axis { position: absolute; top: 0; left: 0; right: 0; pointer-events: none; }
+.level-axis span {
+  position: absolute; left: 4px; transform: translateY(-50%);
+  padding: 0 3px; border-radius: 3px;
+  font-family: 'JetBrains Mono', monospace; font-size: 9px; line-height: 1.4;
+  color: var(--text-muted); background: rgba(16, 30, 43, 0.78);
+}
+.tide-graph .level-line { stroke: var(--border); stroke-width: 1; stroke-dasharray: 1 4; }
+
 /* 日の出・日没。SVG は横に引き伸ばしているのでアイコンが潰れる。
    グラフの下に重ねる帯として HTML で置き、位置だけ % で合わせる（D-053） */
 .sun-strip { position: relative; height: 17px; }

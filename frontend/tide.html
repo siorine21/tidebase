@@ -54,9 +54,13 @@
     <span class="note" id="tide-note"></span>
   </div>
   <div class="card tide-chart-card">
-    <div class="tide-scroller" id="tide-scroller" tabindex="0"
-         aria-label="潮位グラフ。左右にスクロールすると前後の時間を表示します">
-      <div class="tide-track" id="tide-track"></div>
+    <!-- 潮位の目盛りは横スクロールしても残ってほしいので、スクローラの外に重ねる -->
+    <div class="tide-plot">
+      <div class="tide-scroller" id="tide-scroller" tabindex="0"
+           aria-label="潮位グラフ。左右にスクロールすると前後の時間を表示します">
+        <div class="tide-track" id="tide-track"></div>
+      </div>
+      <div class="level-axis" id="level-axis" aria-hidden="true"></div>
     </div>
     <div class="tide-legend" id="tide-legend"></div>
     <div class="page-sub" id="tide-correction" hidden></div>
@@ -83,7 +87,7 @@
     listSpots, listTidePoints, fetchTideForPoint, tidePointOfSpot,
     savedTidePoint, saveTidePoint, formatLag,
     listFavoriteTidePoints, saveFavoriteTidePoints,
-    tideType, TIDE_TYPE_COLORS, isCoordinateInJapan, tideTimelineSvg, sunStripHtml, tideLevelAt,
+    tideType, TIDE_TYPE_COLORS, isCoordinateInJapan, tideTimelineSvg, sunStripHtml, levelAxisHtml, tideLevelAt,
   } from "./assets/app.js";
 
   const DEFAULT_POINT = "ST:MI";   // 静岡特化の既定（D-030）
@@ -230,8 +234,16 @@
       days, tides: days.map((date) => tideOf(date)), suns: sunCache, today,
       dayUnits: DAY_UNITS, height: CHART_H, padTop: PAD_TOP, padBottom: PAD_BOTTOM,
     });
-    if (!result) { track.innerHTML = `<div class="empty">読み込み中…</div>`; return; }
+    const axis = document.getElementById("level-axis");
+    if (!result) {
+      track.innerHTML = `<div class="empty">読み込み中…</div>`;
+      axis.innerHTML = "";
+      return;
+    }
     track.innerHTML = result.svg + sunStripHtml(result.sunMarks);
+    // 目盛りは SVG と同じ高さの箱に置く（縦は引き伸ばしていないので座標がそのまま px）
+    axis.style.height = `${CHART_H}px`;
+    axis.innerHTML = levelAxisHtml(result.levelTicks);
     renderLegend(result.min, result.max);
   }
 

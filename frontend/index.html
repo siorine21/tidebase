@@ -38,9 +38,13 @@
     <a class="note" id="tide-detail-link" href="tide.html">詳細 →</a>
   </div>
   <div class="card tide-chart-card">
-    <div class="tide-scroller" id="tide-scroller" tabindex="0"
-         aria-label="潮位グラフ。左右にスクロールすると前後の時間を表示します">
-      <div class="tide-track tide-track-3" id="tide-track"></div>
+    <!-- 潮位の目盛りは横スクロールしても残ってほしいので、スクローラの外に重ねる -->
+    <div class="tide-plot">
+      <div class="tide-scroller" id="tide-scroller" tabindex="0"
+           aria-label="潮位グラフ。左右にスクロールすると前後の時間を表示します">
+        <div class="tide-track tide-track-3" id="tide-track"></div>
+      </div>
+      <div class="level-axis" id="level-axis" aria-hidden="true"></div>
     </div>
     <div class="tide-legend" id="tide-legend"></div>
   </div>
@@ -78,7 +82,7 @@
     listSpots, listRecords, tideCorrelation, icon,
     recordFishName, nowInJst, hoursFromHhmm, addJstDays,
     listTidePoints, fetchTideForPoint, tidePointOfSpot, savedTidePoint, saveTidePoint, formatLag,
-    isCoordinateInJapan, tideTimelineSvg, sunStripHtml, tideLevelAt,
+    isCoordinateInJapan, tideTimelineSvg, sunStripHtml, levelAxisHtml, tideLevelAt,
   } from "./assets/app.js";
 
   // 静岡県特化のため既定は舞阪（浜名湖口・遠州灘西部の基準）
@@ -88,6 +92,7 @@
   let chartDays = [];
   let tideCache = new Map();          // 日付 → 潮汐
   const sunCache = new Map();         // 日付 → 日の出・日没
+  const CHART_H = 152;                // グラフの高さ（潮位目盛りの箱もこれに合わせる）
 
   // いま何でスコアを判定したか。スコア円を押されたときに説明へ渡す
   let scoreContext = null;
@@ -252,18 +257,23 @@
   /* ---------- 潮汐グラフ（日をまたいで連続・D-036） ---------- */
   function renderChart() {
     const track = document.getElementById("tide-track");
+    const axis = document.getElementById("level-axis");
     const tides = chartDays.map((date) => tideCache.get(date) ?? null);
     const result = tideTimelineSvg({
       days: chartDays, tides, suns: sunCache, today: todayInJst(),
-      dayUnits: 320, height: 152, padTop: 28, padBottom: 28,
+      dayUnits: 320, height: CHART_H, padTop: 28, padBottom: 28,
     });
     if (!result) {
       track.innerHTML = `<div class="empty">潮汐データを取得できませんでした</div>`;
       document.getElementById("tide-legend").innerHTML = "";
+      axis.innerHTML = "";
       return;
     }
     // 日の出・日没はグラフの下の帯で示すので、凡例からは外す（D-053）
     track.innerHTML = result.svg + sunStripHtml(result.sunMarks);
+    // 目盛りは SVG と同じ高さの箱に置く（縦は引き伸ばしていないので座標がそのまま px）
+    axis.style.height = `${CHART_H}px`;
+    axis.innerHTML = levelAxisHtml(result.levelTicks);
 
     const now = nowInJst();
     const level = tideLevelAt(tideCache.get(now.date)?.hourly_levels_cm, Math.min(now.hours, 23));
