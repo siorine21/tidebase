@@ -361,20 +361,23 @@ export function tideTimelineSvg({
       marks.push(`<line class="${cls}" x1="${x(d * 24 + h)}" y1="${padTop - 8}"
         x2="${x(d * 24 + h)}" y2="${height - padBottom}"/>`);
     }
-    for (const h of [0, 6, 12, 18]) {
+    // 0 時のところは時刻ではなく日付を出す（D-057）。
+    // 日付を上に置くと、満潮のときに「満 15:32」とぶつかって読めなくなる。
+    // 日境界＝0 時なので、時刻を省いても位置は分からなくならない。
+    const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
+    marks.push(`<text class="day-label" x="${x(d * 24) + 4}" y="${height - 10}">${
+      date.slice(5).replace("-", "/")} ${WEEKDAYS_SHORT[weekday]}${
+      date === today ? " TODAY" : ""}</text>`);
+    for (const h of [6, 12, 18]) {
       marks.push(`<text x="${x(d * 24 + h) + 3}" y="${height - 10}">${h}:00</text>`);
     }
     return marks;
   }).join("");
 
-  // 日境界と日付ラベル
-  const boundaries = days.map((date, d) => {
-    const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
-    return `
-      <line class="day-line" x1="${x(d * 24)}" y1="0" x2="${x(d * 24)}" y2="${height - padBottom}"/>
-      <text class="day-label" x="${x(d * 24) + 4}" y="12">${
-        date.slice(5).replace("-", "/")} ${WEEKDAYS_SHORT[weekday]}${date === today ? " TODAY" : ""}</text>`;
-  }).join("");
+  // 日境界。線の上端は目盛り線と揃える（上に日付を置かなくなったので 0 まで伸ばさない）
+  const boundaries = days.map((date, d) =>
+    `<line class="day-line" x1="${x(d * 24)}" y1="${padTop - 8}"
+       x2="${x(d * 24)}" y2="${height - padBottom}"/>`).join("");
 
   // 満潮・干潮
   const marks = days.flatMap((date, d) => {
