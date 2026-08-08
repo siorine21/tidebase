@@ -408,8 +408,11 @@
   /* ---------- 週間カレンダー ---------- */
   async function renderWeek() {
     const days = weekOf(state.week);
+    // どの週を見ているかは、ここ（見出し）で示す。
+    // 「今週」ボタンは見出しではなく操作なので、今週にいるときは押せなくする
     document.getElementById("week-range").textContent =
-      `${days[0].slice(5).replace("-", "/")} — ${days[6].slice(5).replace("-", "/")}`;
+      `${weekLabel(days[0])} · ${days[0].slice(5).replace("-", "/")} — ${days[6].slice(5).replace("-", "/")}`;
+    document.getElementById("week-today").disabled = days[0] === weekOf(today)[0];
 
     // 潮回りは月齢から出せるので通信不要。天気は予報の届く範囲だけ載る
     const box = document.getElementById("week");
@@ -424,6 +427,17 @@
   }
 
   const dailyCodes = new Map();   // 日付 → WMO 天気コード
+
+  /** 「今週」から何週ぶん離れているかを言葉にする。 */
+  function weekLabel(weekStart) {
+    const diff = Math.round(
+      (Date.parse(`${weekStart}T00:00:00+09:00`) - Date.parse(`${weekOf(today)[0]}T00:00:00+09:00`))
+      / (7 * 86400000));
+    if (diff === 0) return "今週";
+    if (diff === 1) return "来週";
+    if (diff === -1) return "先週";
+    return diff > 0 ? `${diff} 週間後` : `${-diff} 週間前`;
+  }
 
   function dayCell(date, weatherCode) {
     const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();

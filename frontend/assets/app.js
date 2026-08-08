@@ -809,16 +809,26 @@ export function recordFishName(record) {
 export const PHOTO_BUCKET = "catch-photos";
 const PHOTO_MAX_EDGE = 1600;      // 表示用。スマホの画面ならこれで十分
 const PHOTO_THUMB_EDGE = 400;     // 一覧用
-const PHOTO_QUALITY = 0.82;
 const PHOTO_MAX_COUNT = 4;        // 1 つの釣果につき
 export { PHOTO_MAX_COUNT };
+
+// 画質ではなく **容量** を目標にする。
+// 端末によって使える形式が違い（iOS Safari は canvas から WebP を書き出せず
+// JPEG に落ちる）、同じ品質値でも 1.5 倍ほど差が出る。実測: 同じ 1600px で
+// WebP 484KB に対し JPEG 756KB。品質を固定すると容量が読めないので、
+// 予算内に収まる品質を上から順に試す。
+const PHOTO_BUDGET_BYTES = 420 * 1024;
+const PHOTO_THUMB_BUDGET_BYTES = 40 * 1024;
+const PHOTO_QUALITY_STEPS = [0.82, 0.7, 0.6, 0.5];
 
 /**
  * 画像を縮小して WebP にする。
  * - EXIF は canvas を通した時点で落ちる（位置情報が写真から漏れない）
  * - 向きは imageOrientation で補正する。指定しないと横倒しになる端末がある
  */
-export async function shrinkImage(file, { maxEdge = PHOTO_MAX_EDGE, quality = PHOTO_QUALITY } = {}) {
+export async function shrinkImage(file, {
+  maxEdge = PHOTO_MAX_EDGE, budget = PHOTO_BUDGET_BYTES,
+} = {}) {
   const source = await loadImage(file);
   const scale = Math.min(1, maxEdge / Math.max(source.width, source.height));
   const width = Math.max(1, Math.round(source.width * scale));
@@ -832,9 +842,15 @@ export async function shrinkImage(file, { maxEdge = PHOTO_MAX_EDGE, quality = PH
   context.drawImage(source, 0, 0, width, height);
   source.close?.();
 
-  // WebP が使えない環境では JPEG に落とす（バケット側も両方許可している）
-  let blob = await canvasToBlob(canvas, "image/webp", quality);
-  if (!blob) blob = await canvasToBlob(canvas, "image/jpeg", quality);
+  // 予算に収まった時点で止める。収まらなければ最後（一番小さい）を使う
+  let blob = null;
+  for (const quality of PHOTO_QUALITY_STEPS) {
+    // WebP が使えない環境では JPEG に落とす（バケット側も両方許可している）
+    blob = await canvasToBlob(canvas, "image/webp", quality)
+      ?? await canvasToBlob(canvas, "image/jpeg", quality);
+    if (!blob) break;
+    if (blob.size <= budget) break;
+  }
   if (!blob) throw new Error("画像を変換できませんでした。");
   return { blob, width, height, type: blob.type };
 }
@@ -869,7 +885,7 @@ export async function uploadRecordPhoto(recordId, file, sortOrder = 0) {
   const userId = await requireUserId();
   const [full, thumb] = await Promise.all([
     shrinkImage(file),
-    shrinkImage(file, { maxEdge: PHOTO_THUMB_EDGE, quality: 0.75 }),
+    shrinkImage(file, { maxEdge: PHOTO_THUMB_EDGE, budget: PHOTO_THUMB_BUDGET_BYTES }),
   ]);
 
   const extension = full.type === "image/webp" ? "webp" : "jpg";
