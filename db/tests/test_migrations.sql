@@ -948,3 +948,44 @@ END;
 $$;
 
 RESET ROLE;
+
+-- ============================================================
+-- 015: スポット種別の拡充
+-- ============================================================
+DO $$
+DECLARE
+  u CONSTANT UUID := '11111111-1111-1111-1111-111111111111';
+  failed BOOLEAN := FALSE;
+BEGIN
+  -- 新しい種別が入る（汽水域の 4 種を含む）
+  INSERT INTO public.spots (user_id, name, latitude, longitude, spot_type)
+  SELECT u, '種別 ' || t, 34.70, 137.60, t
+    FROM unnest(ARRAY['surf','cobble','rock','port','tetra',
+                      'rivermouth','tidalflat','brackish_lake','channel',
+                      'river','lake','managed']) AS t;
+
+  IF (SELECT COUNT(DISTINCT spot_type) FROM public.spots WHERE user_id = u
+       AND spot_type IS NOT NULL) <> 12 THEN
+    RAISE EXCEPTION 'TEST FAIL: 12 種すべては入らない';
+  END IF;
+
+  -- 未設定（NULL）は今まで通り許す
+  INSERT INTO public.spots (user_id, name, latitude, longitude, spot_type)
+  VALUES (u, '種別なし', 34.70, 137.60, NULL);
+
+  -- 知らない値は弾く（画面のバグでゴミが入らないように）
+  BEGIN
+    INSERT INTO public.spots (user_id, name, latitude, longitude, spot_type)
+    VALUES (u, 'でたらめ', 34.70, 137.60, 'teleporter');
+    failed := TRUE;
+  EXCEPTION WHEN check_violation THEN
+    NULL;
+  END;
+  IF failed THEN
+    RAISE EXCEPTION 'TEST FAIL: 未知のスポット種別が入ってしまう';
+  END IF;
+
+  DELETE FROM public.spots WHERE user_id = u AND name LIKE '種別%';
+  RAISE NOTICE 'SPOT TYPE TESTS PASSED';
+END;
+$$;

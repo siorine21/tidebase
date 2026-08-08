@@ -423,6 +423,15 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .list-item.shared { border-left: 3px solid var(--blue-mid); }
 
 /* 招待リンクは選択してコピーできるよう input のままにする（読み取り専用） */
+/* 編集パネルの保存ボタンは、地図の下に埋もれず常に手が届く位置に置く */
+#edit-panel .actions, #reassign-panel .actions {
+  position: sticky; z-index: 10;
+  bottom: calc(76px + env(safe-area-inset-bottom));
+  margin: 0 -16px -16px; padding: 12px 16px;
+  background: var(--bg-card); border-top: 1px solid var(--border);
+  border-radius: 0 0 var(--radius) var(--radius);
+}
+
 /* ---------- 釣果写真 ---------- */
 .photo-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px;
@@ -555,7 +564,24 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
   border: 1px solid var(--border); border-radius: var(--radius);
 }
 #map { height: calc(100vh - 210px); min-height: 300px; border-radius: 0; border-left: 0; border-right: 0; }
-.map-box { height: 190px; margin-bottom: 14px; }
+/* 画面に埋め込む地図。大きすぎると下の操作に気づけないので、
+   1 画面に「地図 + その下のボタン」が同時に入る高さにする */
+.map-box { height: 150px; margin-bottom: 14px; position: relative; }
+
+/* 「タップして地図を操作」の覆い。これがある間は指の縦移動がページのスクロールになる */
+.map-unlock {
+  position: absolute; inset: 0; z-index: 500;
+  display: flex; align-items: center; justify-content: center;
+  border: none; border-radius: var(--radius); cursor: pointer;
+  background: rgba(10, 21, 32, 0.45); color: var(--text-primary);
+  font-family: inherit; font-size: 13px;
+}
+.map-unlock span {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 14px; border-radius: 999px;
+  background: var(--bg-dark); border: 1px solid var(--border-strong);
+}
+.map-unlock:hover span { border-color: var(--mustard); }
 
 /* 地図はそのままの明るさで表示する（視認性優先）。
    夜間モードを選んだときだけ淡色地図を落ち着いた色に落とす（航空写真には非適用）。 */

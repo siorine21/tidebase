@@ -131,7 +131,7 @@
         </div>
         <div class="field">
           <label>座標（地図をタップして変更）</label>
-          <div class="map-box" id="edit-map" style="height:200px;margin-bottom:6px"></div>
+          <div class="map-box" id="edit-map" style="margin-bottom:6px"></div>
           <div class="page-sub" id="e-coords"></div>
         </div>
         <div class="actions" style="margin-top:0">
@@ -183,11 +183,12 @@
   function renderMiniMap() {
     // 位置が未設定（旧フォームの空欄で 0,0 になった等）なら静岡県の初期表示にする
     if (!hasPosition()) {
-      const { map } = createMap("mini-map", {});
+      const { map } = createMap("mini-map", { lock: true });
       map.scrollWheelZoom.disable();
       return;
     }
-    const { map } = createMap("mini-map", { center: [spot.latitude, spot.longitude], zoom: 15 });
+    const { map } = createMap("mini-map",
+      { center: [spot.latitude, spot.longitude], zoom: 15, lock: true });
     L.marker([spot.latitude, spot.longitude], { icon: spotMarker(spot, { label: false }) }).addTo(map);
     map.scrollWheelZoom.disable();
   }
@@ -228,8 +229,9 @@
 
     if (!editMap) {
       // 位置が未設定なら静岡県の初期表示にして、タップで決めてもらう
-      const created = createMap("edit-map",
-        positioned ? { center: [edit.lat, edit.lng], zoom: 15 } : {});
+      const created = createMap("edit-map", positioned
+        ? { center: [edit.lat, edit.lng], zoom: 15, lock: true }
+        : { lock: true });
       editMap = created.map;
       let marker = positioned
         ? L.marker([edit.lat, edit.lng], { icon: spotMarker(spot, { label: false }) }).addTo(editMap)

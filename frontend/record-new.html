@@ -112,7 +112,7 @@
         <div class="field"><label for="spot-name">スポット名</label><input type="text" id="spot-name" maxlength="100"></div>
         <div class="field">
           <label>位置（地図をタップしてピンを立てる）</label>
-          <div class="map-box" id="spot-map" style="height:220px;margin-bottom:6px"></div>
+          <div class="map-box" id="spot-map" style="margin-bottom:6px"></div>
           <div class="page-sub" id="spot-coords">地図をタップすると、その場所にピンが立ちます。</div>
         </div>
         <div class="field">
@@ -420,8 +420,9 @@
     if (spotMap) { setTimeout(() => spotMap.invalidateSize(), 50); return; }
     const base = spots[0];
     // スポットがなければ静岡県（浜名湖〜遠州灘）を初期表示する
-    const created = createMap("spot-map",
-      base ? { center: [base.latitude, base.longitude], zoom: 13 } : {});
+    const created = createMap("spot-map", base
+      ? { center: [base.latitude, base.longitude], zoom: 13, lock: true }
+      : { lock: true });
     spotMap = created.map;
     // 登録済みスポットも表示して、同じ場所を重複登録しにくくする
     for (const s of spots) {

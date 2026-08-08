@@ -1241,12 +1241,27 @@ export async function setRecipeTags(recipeId, tagIds) {
 
 /* ---------------- スポット（設計補完書 4 章） ---------------- */
 
+/**
+ * スポット種別（015）。並びは 海 → 汽水 → 淡水。
+ * 分ける基準は「釣り方が変わるかどうか」。地形が違っても狙い方が同じなら分けない
+ * （堤防は港湾と実質同じなので「港湾・堤防」にまとめている）。
+ */
 export const SPOT_TYPES = [
-  { value: "surf",    label: "サーフ",   color: "#4A9ECC", iconName: "surf" },
-  { value: "rock",    label: "磯",       color: "#4CAF50", iconName: "rock" },
-  { value: "port",    label: "港湾",     color: "#C9A84C", iconName: "port" },
-  { value: "managed", label: "管理釣り場", color: "#4CAF50", iconName: "managed" },
-  { value: "river",   label: "河川",     color: "#6E9ECF", iconName: "river" },
+  // 海
+  { value: "surf",          label: "サーフ",     color: "#4A9ECC", iconName: "surf" },
+  { value: "cobble",        label: "ゴロタ場",   color: "#7E9AAE", iconName: "cobble" },
+  { value: "rock",          label: "磯",         color: "#4CAF50", iconName: "rock" },
+  { value: "port",          label: "港湾・堤防", color: "#C9A84C", iconName: "port" },
+  { value: "tetra",         label: "テトラ帯",   color: "#9AA5B1", iconName: "tetra" },
+  // 汽水
+  { value: "rivermouth",    label: "河口",       color: "#2A9D8F", iconName: "rivermouth" },
+  { value: "tidalflat",     label: "干潟",       color: "#B08968", iconName: "tidalflat" },
+  { value: "brackish_lake", label: "汽水湖",     color: "#4A9ECC", iconName: "lake" },
+  { value: "channel",       label: "水路・運河", color: "#6E9ECF", iconName: "channel" },
+  // 淡水
+  { value: "river",         label: "河川",       color: "#6E9ECF", iconName: "river" },
+  { value: "lake",          label: "湖沼・池",   color: "#5C8AA8", iconName: "lake" },
+  { value: "managed",       label: "管理釣り場", color: "#4CAF50", iconName: "managed" },
 ];
 
 export const WATER_TYPES = [
@@ -1296,8 +1311,24 @@ export const DEFAULT_MAP_CENTER = [34.7100, 137.6000];
 export const DEFAULT_MAP_ZOOM = 11;
 
 /** 地図を生成する。tiles: "pale"（淡色・既定）/ "photo"（航空写真）。 */
-export function createMap(element, { center = DEFAULT_MAP_CENTER, zoom = DEFAULT_MAP_ZOOM } = {}) {
-  const map = L.map(element, { center, zoom, zoomControl: true, attributionControl: true });
+/**
+ * 地図を作る。
+ * @param {object} options
+ * @param {boolean} options.lock ページの中に埋め込む地図は true。
+ *   指を置いた場所が地図だと、そのままページを縦にスクロールできなくなるため、
+ *   最初は地図の操作を止めて「タップして地図を操作」の覆いを出す。
+ *   タップした時点で操作を有効にする（Google マップの埋め込みと同じ考え方）。
+ *   マップ画面のように地図そのものが主役の画面では false。
+ */
+export function createMap(element, {
+  center = DEFAULT_MAP_CENTER, zoom = DEFAULT_MAP_ZOOM, lock = false,
+} = {}) {
+  const map = L.map(element, {
+    center, zoom, zoomControl: true, attributionControl: true,
+    // ホイールでのズームは、ページを流し読みしている最中に暴発するので常に切る
+    scrollWheelZoom: false,
+    dragging: !lock, touchZoom: !lock, doubleClickZoom: !lock,
+  });
   if (isNightMap()) map.getContainer().classList.add("night-map");
   const layers = {
     pale: L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png", {
@@ -1308,7 +1339,23 @@ export function createMap(element, { center = DEFAULT_MAP_CENTER, zoom = DEFAULT
     }),
   };
   layers.pale.addTo(map);
+  if (lock) addMapUnlock(map);
   return { map, layers, current: "pale" };
+}
+
+/** 「タップして地図を操作」の覆い。押されたら操作を有効にして消える。 */
+function addMapUnlock(map) {
+  const cover = document.createElement("button");
+  cover.type = "button";
+  cover.className = "map-unlock";
+  cover.innerHTML = `<span>${icon("locate", { size: 15 })} タップして地図を操作</span>`;
+  cover.addEventListener("click", () => {
+    map.dragging.enable();
+    map.touchZoom.enable();
+    map.doubleClickZoom.enable();
+    cover.remove();
+  }, { once: true });
+  map.getContainer().appendChild(cover);
 }
 
 /** スポット種別の色を反映した HTML マーカー（外部画像に依存しない）。 */

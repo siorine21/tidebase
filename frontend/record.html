@@ -189,7 +189,7 @@
       </div>` : ""}
       ${hasSpotMap ? `<div class="card">
         <h2>${icon("map-pin", { size: 14 })} ${escapeHtml(r.spot_name ?? "スポット")}</h2>
-        <div class="map-box" id="record-map" style="height:200px"></div>
+        <div class="map-box" id="record-map" style="margin-bottom:0"></div>
         <div class="actions">
           <a class="btn btn-quiet link-btn" href="${googleMapsUrl(spot)}"
              target="_blank" rel="noopener">${icon("map", { size: 15 })} Google マップ</a>
@@ -210,7 +210,7 @@
 
     if (hasSpotMap) {
       const { map } = createMap("record-map",
-        { center: [spot.latitude, spot.longitude], zoom: 14 });
+        { center: [spot.latitude, spot.longitude], zoom: 14, lock: true });
       L.marker([spot.latitude, spot.longitude], { icon: spotMarker(spot) }).addTo(map);
       // カードの中で描画されるため、レイアウト確定後にサイズを測り直す
       setTimeout(() => map.invalidateSize(), 50);
