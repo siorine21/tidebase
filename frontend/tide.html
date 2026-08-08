@@ -9,12 +9,11 @@
 </head>
 <body class="app-body">
 <!-- SCR-003 潮汐・天気詳細 -->
-<header class="page-head">
-  <button type="button" class="back" id="back" aria-label="戻る">←</button>
-  <div>
-    <div class="page-title">TIDE &amp; WEATHER</div>
-    <div class="page-sub" id="point-name">—</div>
-  </div>
+<!-- 潮汐はボトムナビから直接開く画面なので、ヘッダーは他のナビ先と同じ形にする
+     （戻るボタンのある page-head は、詳細画面のためのもの） -->
+<header class="app-header">
+  <h1>TIDE &amp; WEATHER</h1>
+  <span class="page-sub" id="point-name">—</span>
 </header>
 
 <!-- 地点切替タブ（お気に入り地点） -->
@@ -86,7 +85,6 @@
   const session = await requireSession();
   if (!session) throw new Error("unauthenticated");
   renderNav("tide");
-  document.getElementById("back").addEventListener("click", () => history.back());
 
   const today = todayInJst();
   const points = await listTidePoints().catch(() => []);
@@ -124,7 +122,9 @@
       + (isFavorite(state.point)
         ? `<button type="button" class="point-tab add" id="tab-remove">${icon("close", { size: 12 })} 外す</button>`
         : "");
-    document.getElementById("point-name").textContent = state.point.label;
+    // ヘッダーは横幅が限られるので、地点名だけにする
+    // （基準観測点と時差は TIDE CHART の見出しと SUMMARY の下に出ている）
+    document.getElementById("point-name").textContent = state.point.name;
   }
 
   function isFavorite(point) {
