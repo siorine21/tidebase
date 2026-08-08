@@ -1734,7 +1734,8 @@ export function renderNav(current) {
     ["tide", "tide.html", "tide", "潮汐"],
     ["map", "spots.html", "map", "マップ"],
     ["records", "records.html", "records", "釣果"],
-    ["recipes", "recipes.html", "recipes", "レシピ"],
+    // ルアーレシピと自分のタックルを 1 画面にまとめた（D-067）
+    ["recipes", "recipes.html", "recipes", "タックル"],
   ];
   document.body.insertAdjacentHTML("beforeend", `
     <nav class="bottom-nav">
@@ -1788,6 +1789,20 @@ export async function addTackle(kind, name) {
     .select("id, kind, name").single();
   if (error) throw error;
   return data;
+}
+
+/**
+ * 名前を変える。**釣果に残っている名前も一緒に付け替える**（D-067）。
+ * タックル名は持ち物につけた名前であって釣行時の事実ではないので、
+ * 直したら過去の釣果も同じものを指していてほしい。
+ * @returns {Promise<number>} 付け替えた釣果の件数
+ */
+export async function renameTackle(kind, oldName, newName) {
+  const { data, error } = await client.rpc("rename_tackle", {
+    p_kind: kind, p_old: oldName, p_new: newName,
+  });
+  if (error) throw error;
+  return data ?? 0;
 }
 
 export async function removeTackle(kind, name) {

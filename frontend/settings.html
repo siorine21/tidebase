@@ -39,12 +39,6 @@
     <div class="empty">読み込み中…</div>
   </div>
 
-  <!-- タックル（釣果入力の候補・D-066） -->
-  <div class="section-label"><span>TACKLE</span></div>
-  <div class="card" id="tackle-card">
-    <div class="empty">読み込み中…</div>
-  </div>
-
   <!-- アカウント -->
   <div class="section-label"><span>ACCOUNT</span></div>
   <div class="card">
@@ -82,7 +76,6 @@
     escapeHtml, icon, renderIcons, formatJstDate,
     myGroup, listGroupMembers, createGroup, listInvites, createInvite,
     revokeInvite, leaveGroup, inviteUrl, isAppAdmin, GROUP_MEMBER_LIMIT,
-    listTackle, addTackle, removeTackle, TACKLE_KINDS,
   } from "./assets/app.js";
 
   const MIN_PASSWORD_LENGTH = 8;   // Supabase 側の password_min_length と揃える
@@ -169,69 +162,6 @@
   /* ---------- グループ ----------
      招待した人だけが登録できる仕組み（010 / Edge Function invite）。
      リンクを LINE などで送り、受け取った人が signup.html?invite=... を開く。 */
-  /* ---------- タックル（D-066） ---------- */
-  const tackleCard = document.getElementById("tackle-card");
-  let tackle = {};
-
-  function renderTackle() {
-    tackleCard.innerHTML = `
-      <div class="list-sub" style="margin-bottom:12px">
-        登録しておくと、釣果入力のロッド・リール・ライン・リーダーを選ぶだけで済みます。
-      </div>
-      ${TACKLE_KINDS.map(({ kind, label }) => `
-        <div class="field">
-          <label for="add-${kind}">${label}</label>
-          <div class="chips" style="margin-bottom:6px">
-            ${(tackle[kind] ?? []).length
-              ? (tackle[kind]).map((name) => `
-                  <span class="chip">${escapeHtml(name)}
-                    <button type="button" class="chip-x" data-kind="${kind}"
-                            data-name="${escapeHtml(name)}" aria-label="${escapeHtml(name)} を削除"
-                      >${icon("close", { size: 11 })}</button>
-                  </span>`).join("")
-              : `<span class="list-sub">まだ登録がありません</span>`}
-          </div>
-          <div class="time-row">
-            <input type="text" id="add-${kind}" maxlength="60" placeholder="例: ${
-              { rod: "ソアレXR S76UL-S", reel: "アルテグラ C2000S",
-                line: "エステル 0.3号", leader: "フロロ 1.5号" }[kind]}">
-            <button type="button" class="chip" data-add="${kind}">追加</button>
-          </div>
-        </div>`).join("")}`;
-    renderIcons(tackleCard);
-  }
-
-  tackleCard.addEventListener("click", async (e) => {
-    const del = e.target.closest(".chip-x");
-    if (del) {
-      try {
-        await removeTackle(del.dataset.kind, del.dataset.name);
-        tackle = await listTackle();
-        renderTackle();
-      } catch (error) { message(toJapaneseError(error), "error"); }
-      return;
-    }
-    const add = e.target.closest("[data-add]");
-    if (!add) return;
-    const kind = add.dataset.add;
-    const input = document.getElementById(`add-${kind}`);
-    const name = input.value.trim();
-    if (!name) return;
-    try {
-      await addTackle(kind, name);
-      input.value = "";
-      tackle = await listTackle();
-      renderTackle();
-    } catch (error) {
-      // 同じ名前は UNIQUE で弾かれる。エラーにせず「もうある」と伝える
-      message(/duplicate|23505/.test(String(error?.code ?? error?.message ?? ""))
-        ? "その名前はすでに登録されています。" : toJapaneseError(error), "error");
-    }
-  });
-
-  listTackle().then((data) => { tackle = data; renderTackle(); })
-    .catch(() => { tackleCard.innerHTML = `<div class="empty">タックルを読み込めませんでした。</div>`; });
-
   const groupCard = document.getElementById("group-card");
 
   // 管理者でない人にはグループを作る導線を出さない（作っても RLS で弾かれる）

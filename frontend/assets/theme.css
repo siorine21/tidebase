@@ -243,12 +243,29 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .row .val { font-family: 'JetBrains Mono', monospace; color: var(--blue); }
 .row .val .sub-val { color: var(--text-muted); font-size: 11px; }
 
-/* タックルの登録済みチップ。× で消せる（D-066） */
-.chip-x {
-  background: none; border: none; padding: 0 0 0 4px; margin-left: 2px;
-  color: var(--text-muted); cursor: pointer; line-height: 1; vertical-align: middle;
+/* 自分のタックル（D-067）。名前ごとに「変える」「消す」が並ぶので、
+   チップではなく行にする */
+.tackle-group { margin-bottom: 16px; }
+.tackle-group:last-of-type { margin-bottom: 0; }
+.tackle-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 0; border-bottom: 1px solid var(--border);
 }
-.chip-x:hover { color: var(--red); }
+.tackle-row:last-child { border-bottom: none; }
+.tackle-name { flex: 1; min-width: 0; font-size: 14px; word-break: break-all; }
+.tackle-input {
+  flex: 1; min-width: 0; padding: 7px 10px;
+  background: var(--bg-deep); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text-primary); font-family: inherit; font-size: 14px;
+}
+.tackle-input:focus { outline: none; border-color: var(--border-strong); }
+.tackle-row .chip { flex-shrink: 0; }
+.icon-btn {
+  flex-shrink: 0; background: none; border: none; padding: 4px;
+  color: var(--text-muted); cursor: pointer; display: flex;
+}
+.icon-btn:hover { color: var(--mustard); }
+.tackle-row [data-remove]:hover { color: var(--red); }
 
 /* 使用済みの招待リンク。もう操作できないので控えめに出す（D-059） */
 .invite-used { opacity: 0.6; }
@@ -394,6 +411,10 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .corr-fill { height: 100%; background: linear-gradient(90deg, var(--mustard-dk), var(--mustard)); }
 
 /* ---------- FAB ---------- */
+/* 追加ボタンは画面の右下に浮いているので、その下に本文が来ると隠れる。
+   ボタンのある画面だけ、末尾に逃げ場を作る */
+.app-body:has(.fab) main { padding-bottom: 64px; }
+
 .fab {
   position: fixed; right: 16px; bottom: 88px; z-index: 21;
   width: 54px; height: 54px; border-radius: 50%; border: none;
