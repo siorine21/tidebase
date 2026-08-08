@@ -26,12 +26,18 @@
 
   <!-- 週間カレンダー（日を選んでから、その日のサマリ・グラフを見る） -->
   <div class="section-label"><span>WEEKLY CALENDAR</span><span class="note" id="week-range"></span></div>
+  <!-- 真ん中は「いま見ている週」の名前。ボタンにすると、来週を見ているのに
+       「今週」と書いてあるように読めてしまうため、ここは表示に徹する。
+       今週へ戻す操作は、今週から離れているときだけ下に出す。 -->
   <div class="week-nav">
     <button type="button" id="week-prev" aria-label="前の週">＜</button>
-    <button type="button" class="btn btn-quiet" id="week-today">今週</button>
+    <span class="week-now" id="week-now">今週</span>
     <button type="button" id="week-next" aria-label="次の週">＞</button>
   </div>
   <div class="week-grid" id="week"></div>
+  <div class="week-back">
+    <button type="button" class="chip" id="week-today" hidden>今週へ戻る</button>
+  </div>
 
   <!-- 選んだ日のサマリ -->
   <div class="section-label"><span>SUMMARY</span><span class="note" id="summary-date"></span></div>
@@ -408,11 +414,13 @@
   /* ---------- 週間カレンダー ---------- */
   async function renderWeek() {
     const days = weekOf(state.week);
-    // どの週を見ているかは、ここ（見出し）で示す。
-    // 「今週」ボタンは見出しではなく操作なので、今週にいるときは押せなくする
+    // 見出しは日付の範囲、ナビの真ん中は週の呼び名。同じ情報を二重に出さない
     document.getElementById("week-range").textContent =
-      `${weekLabel(days[0])} · ${days[0].slice(5).replace("-", "/")} — ${days[6].slice(5).replace("-", "/")}`;
-    document.getElementById("week-today").disabled = days[0] === weekOf(today)[0];
+      `${days[0].slice(5).replace("-", "/")} — ${days[6].slice(5).replace("-", "/")}`;
+    const isThisWeek = days[0] === weekOf(today)[0];
+    document.getElementById("week-now").textContent = weekLabel(days[0]);
+    document.getElementById("week-now").classList.toggle("current", isThisWeek);
+    document.getElementById("week-today").hidden = isThisWeek;
 
     // 潮回りは月齢から出せるので通信不要。天気は予報の届く範囲だけ載る
     const box = document.getElementById("week");

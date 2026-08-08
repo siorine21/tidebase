@@ -790,6 +790,14 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
   border: 1px solid var(--border); border-radius: 8px;
 }
 .week-nav .btn { flex: 1; padding: 7px 0; font-size: 12px; }
+/* いま見ている週の呼び名。押せないことが分かるよう、枠も背景も付けない */
+.week-now {
+  flex: 1; text-align: center; font-size: 13px; color: var(--text-primary);
+}
+.week-now.current { color: var(--mustard-lt); }
+
+.week-back { display: flex; justify-content: center; margin-top: 8px; }
+.week-back .chip[hidden] { display: none; }
 .week-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
 .week-grid .day {
   display: flex; flex-direction: column; align-items: center; gap: 2px;
