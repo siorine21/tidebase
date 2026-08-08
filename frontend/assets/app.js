@@ -796,18 +796,89 @@ function hourNearest(hours, hhmm) {
     Math.abs(row.hour - target) < Math.abs(best.hour - target) ? row : best);
 }
 
+/* ---- 潮の動きによる加減点（D-052） ------------------------------------- */
+
+/** 「潮が止まっている」とみなす流速。その日いちばん速い流れに対する割合。 */
+const SLACK_RATIO = 0.3;
+
+export const TIDE_FLOW_RULES = [
+  { key: "start", adjust: 1, label: "動き出し（潮が動きはじめて速くなっていく）" },
+  { key: "run", adjust: 0, label: "よく流れている（ピークを過ぎて緩んでいく）" },
+  { key: "slack", adjust: -1, label: "潮止まり前後（ほとんど動いていない）" },
+];
+
+export const TIDE_FLOW_LABELS = Object.fromEntries(
+  TIDE_FLOW_RULES.map((r) => [r.key, r.label.replace(/（.*$/, "")]));
+
+/**
+ * 指定時刻に潮がどう動いているか。
+ *
+ * 速さは **その日いちばん速い流れを 1 とした割合**で測る。cm/h の絶対値で
+ * 線を引くと、小潮の日は一日じゅう「潮止まり」になってしまい、
+ * 潮回り（すでにスコアに入っている）を二重に減点することになるため。
+ *
+ * @returns {{key:string, ratio:number, cmPerHour:number, direction:string}|null}
+ */
+export function tideFlowAt(tide, hhmm) {
+  const levels = tide?.hourly_levels_cm;
+  const at = hoursFromHhmm(hhmm);
+  if (!levels?.length || at == null) return null;
+
+  // 前後 30 分の差 = その時刻の流速（cm/h、符号つき）。毎時値の線形補間なので
+  // これ以上細かく測っても精度は上がらない（tideAt と同じ考え方）
+  const speedAt = (h) => {
+    const clamp = (v) => Math.max(0, Math.min(23, v));
+    const before = tideLevelAt(levels, clamp(h - 0.5));
+    const after = tideLevelAt(levels, clamp(h + 0.5));
+    return before == null || after == null ? null : after - before;
+  };
+
+  const speed = speedAt(Math.min(at, 23));
+  if (speed == null) return null;
+
+  let fastest = 0;
+  for (let h = 0; h <= 23; h++) {
+    const s = speedAt(h);
+    if (s != null) fastest = Math.max(fastest, Math.abs(s));
+  }
+  const ratio = fastest > 0 ? Math.abs(speed) / fastest : 0;
+
+  const next = speedAt(Math.min(at + 1, 23));
+  const speedingUp = next != null && Math.abs(next) > Math.abs(speed);
+
+  return {
+    key: ratio < SLACK_RATIO ? "slack" : speedingUp ? "start" : "run",
+    ratio, cmPerHour: speed,
+    direction: Math.abs(speed) < 1 ? "潮止まり" : speed > 0 ? "上げ潮" : "下げ潮",
+  };
+}
+
 /**
  * その日の釣行スコア。朝マヅメ・夕マヅメをそれぞれ判定し、良いほうを日のスコアにする。
- * 潮回りは日単位なので、朝と夕で差が出るのは天気と風だけ。
+ * 潮回りは日単位なので、朝と夕で差が出るのは天気・風と潮の動きだけ。
  * 日の出・日没が取れない日（予報範囲外など）は 12 時で代表させる。
+ *
+ * @param {{tideType:string, hours:object[], sun:object|null, tide:object|null}} input
  * @returns {{score:number, best:object, windows:object[], tideType:string, fallback:boolean}|null}
  */
-export function fishingScoreOfDay(tideType, hours, sun) {
-  const evaluate = (label, at, row) => row && ({
-    label, at, hour: row.hour,
-    weatherCode: row.weather_code, windMs: row.wind_speed_ms,
-    ...fishingScoreDetail(tideType, row.weather_code, row.wind_speed_ms),
-  });
+export function fishingScoreOfDay({ tideType, hours, sun, tide = null }) {
+  const evaluate = (label, at, row) => {
+    if (!row) return null;
+    const detail = fishingScoreDetail(tideType, row.weather_code, row.wind_speed_ms);
+    const flow = tideFlowAt(tide, at);
+    // 雷雨・雨・強風は潮より優先する。荒れている日を潮の動きで持ち上げない
+    const weatherGate = detail.ruleIndex <= 1;
+    const rule = flow && !weatherGate
+      ? TIDE_FLOW_RULES.find((r) => r.key === flow.key) : null;
+    const adjust = rule?.adjust ?? 0;
+    return {
+      label, at, hour: row.hour,
+      weatherCode: row.weather_code, windMs: row.wind_speed_ms,
+      ...detail,
+      base: detail.score, flow, adjust, weatherGate,
+      score: Math.min(5, Math.max(1, detail.score + adjust)),
+    };
+  };
 
   const windows = mazumeWindows(sun)
     .map((w) => evaluate(w.label, w.at, hourNearest(hours, w.at)))
@@ -837,13 +908,24 @@ export function showFishingScoreHelp(day) {
   if (!day) return null;
   const { score, best, windows, tideType, fallback } = day;
 
+  const flowText = (w) => {
+    if (w.weatherGate) return "潮は見ない（荒天が優先）";
+    if (!w.flow) return "潮位データなし";
+    return `${w.flow.direction} ${TIDE_FLOW_LABELS[w.flow.key]}`
+      + (w.adjust ? ` ${w.adjust > 0 ? "＋" : "−"}${Math.abs(w.adjust)}` : " ±0");
+  };
+
   const windowRow = (w) => `
     <li class="${w === best ? "hit" : ""}">
       <span class="rule-star">${stars(w.score)}</span>
-      <span class="mz-name">${escapeHtml(w.label)}<span class="mz-time">${escapeHtml(w.at)}</span></span>
-      <span class="mz-wx">${escapeHtml(describeWeather(w.weatherCode).label)}
-        / ${w.wind.toFixed(1)}m/s</span>
+      <span class="mz-body">
+        <span class="mz-name">${escapeHtml(w.label)}<span class="mz-time">${escapeHtml(w.at)}</span></span>
+        <span class="mz-wx">${escapeHtml(describeWeather(w.weatherCode).label)}
+          / ${w.wind.toFixed(1)}m/s ・ ${escapeHtml(flowText(w))}</span>
+      </span>
     </li>`;
+
+  const signed = (n) => (n > 0 ? `＋${n}` : n < 0 ? `−${Math.abs(n)}` : "±0");
 
   return showInfoDialog("釣行スコア", `
     <div class="score-head">
@@ -860,7 +942,17 @@ export function showFishingScoreHelp(day) {
       : "マヅメごとの判定（良いほうがその日のスコア）"}</div>
     <ol class="score-rules mazume">${windows.map(windowRow).join("")}</ol>
 
-    <div class="list-sub" style="margin:12px 0 6px">判定のしかた（上から順に当てはめる）</div>
+    <div class="list-sub" style="margin:12px 0 6px">${escapeHtml(best.label)}の内訳</div>
+    <div class="rows">
+      <div class="row"><span class="label">天候・潮回りから</span>
+        <span class="val">${best.base}</span></div>
+      <div class="row"><span class="label">潮の動き</span>
+        <span class="val">${signed(best.adjust)}</span></div>
+      <div class="row"><span class="label">釣行スコア</span>
+        <span class="val">${score}</span></div>
+    </div>
+
+    <div class="list-sub" style="margin:12px 0 6px">天候・潮回りの判定（上から順に当てはめる）</div>
     <ol class="score-rules">
       ${FISHING_SCORE_RULES.map((rule, i) => `
         <li class="${i === best.ruleIndex ? "hit" : ""}">
@@ -869,9 +961,21 @@ export function showFishingScoreHelp(day) {
         </li>`).join("")}
     </ol>
 
+    <div class="list-sub" style="margin:12px 0 6px">潮の動きによる加減点</div>
+    <ol class="score-rules">
+      ${TIDE_FLOW_RULES.map((rule) => `
+        <li class="${!best.weatherGate && best.flow?.key === rule.key ? "hit" : ""}">
+          <span class="rule-adjust">${signed(rule.adjust)}</span>
+          <span>${escapeHtml(rule.label)}</span>
+        </li>`).join("")}
+    </ol>
+
     <div class="list-sub" style="margin-top:12px;line-height:1.6">
       天気と風は${fallback ? "" : "日の出・日没に"}いちばん近い時刻の予報を代表値にしています。
       潮回りは月齢からの計算で、1 日を通して同じです。
+      潮の速さは<strong>その日いちばん速い流れとの比</strong>で見ているので、
+      小潮の日でも「動いている／止まっている」を区別できます。
+      雷雨・雨・強風の日は潮の動きで持ち上げません。
       目安であり、釣れることを保証するものではありません。
     </div>`);
 }

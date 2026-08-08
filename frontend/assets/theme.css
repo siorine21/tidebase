@@ -482,12 +482,20 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
   flex-shrink: 0; font-size: 11px; letter-spacing: 1px; color: var(--mustard);
 }
 
-/* マヅメごとの判定。名前・時刻・天気を 1 行に収める */
-.score-rules.mazume li { gap: 8px; }
+/* マヅメごとの判定。1 行目に名前と時刻、2 行目に判定材料 */
+.score-rules.mazume li { gap: 10px; align-items: flex-start; }
+.score-rules.mazume .rule-star { padding-top: 2px; }
+.mz-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .mz-name { display: flex; align-items: baseline; gap: 6px; }
 .mz-time { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-muted); }
-.mz-wx { margin-left: auto; font-size: 11px; color: var(--text-muted); text-align: right; }
+.mz-wx { font-size: 11px; color: var(--text-muted); line-height: 1.5; }
 .score-rules.mazume li.hit .mz-wx { color: var(--text-secondary); }
+
+/* 加減点の欄。星と同じ幅を取って、行の頭を揃える */
+.score-rules .rule-adjust {
+  flex-shrink: 0; width: 55px; font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; color: var(--mustard);
+}
 
 /* 押すと説明が出ることを示す。数値の右にそっと付ける */
 .info-hint {

@@ -229,8 +229,10 @@
     }
     meta.innerHTML = parts.join(" / ");
 
-    // スコアはマヅメで判定する（D-051）。上の天気表示は「いま」なので別物
-    scoreContext = tide ? fishingScoreOfDay(tide.tide_type, weather, sun) : null;
+    // スコアはマヅメで判定する（D-051・D-052）。上の天気表示は「いま」なので別物
+    scoreContext = tide
+      ? fishingScoreOfDay({ tideType: tide.tide_type, hours: weather, sun, tide })
+      : null;
     if (tide && scoreContext) {
       const { score, best } = scoreContext;
       document.getElementById("score").textContent = score;

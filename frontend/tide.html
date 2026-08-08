@@ -377,8 +377,11 @@
     document.getElementById("tide-note").textContent =
       `${state.point.name}${state.point.area ? " 推算" : ""}`;
     const type = tide?.tide_type ?? tideType(date);
-    // 朝マヅメ・夕マヅメで判定し、良いほうをその日のスコアにする（D-051）
-    scoreContext = weather ? fishingScoreOfDay(type, weather, sunCache.get(date) ?? null) : null;
+    // 朝マヅメ・夕マヅメで判定し、良いほうをその日のスコアにする（D-051・D-052）
+    scoreContext = weather
+      ? fishingScoreOfDay({
+          tideType: type, hours: weather, sun: sunCache.get(date) ?? null, tide })
+      : null;
     const score = scoreContext?.score ?? null;
 
     const cell = (label, value, color, sub) => `
