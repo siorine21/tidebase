@@ -563,7 +563,17 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
   width: 100%; background: var(--bg-dark);
   border: 1px solid var(--border); border-radius: var(--radius);
 }
-#map { height: calc(100vh - 210px); min-height: 300px; border-radius: 0; border-left: 0; border-right: 0; }
+/* 地図の高さ。
+   - dvh を使う。スマホの 100vh は URL バーを隠した状態の高さなので、
+     vh のままだと地図が実際の表示領域からはみ出し、下の凡例やリストに気づけない。
+   - 引く量は「ヘッダー + 凡例 + リストの先頭 + ボトムナビ」がぶんが残る値にする。
+     地図だけで画面が埋まっていると、下に何かある事自体が伝わらない。 */
+#map {
+  height: calc(100vh - 330px);        /* dvh 非対応ブラウザ向け */
+  height: calc(100dvh - 330px);
+  min-height: 240px;
+  border-radius: 0; border-left: 0; border-right: 0;
+}
 /* 画面に埋め込む地図。大きすぎると下の操作に気づけないので、
    1 画面に「地図 + その下のボタン」が同時に入る高さにする */
 .map-box { height: 150px; margin-bottom: 14px; position: relative; }

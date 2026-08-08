@@ -91,18 +91,23 @@
   let markerLayer = L.layerGroup().addTo(map);
   let draftMarker = null;
 
-  renderLegend();
   renderChips();
   renderAll();
 
   /* ---------- 表示 ---------- */
   function renderLegend() {
+    // 実際に地図に出ている種別だけを出す。12 種を常に並べると凡例が 3 行になり、
+    // 下のリストが画面外へ押し出されるうえ、凡例としても読み取りにくい
+    const used = new Set(spots.map((s) => s.spot_type));
     document.getElementById("legend").innerHTML = SPOT_TYPES
+      .filter((t) => used.has(t.value))
       .map((t) => `<span><i style="background:${t.color}"></i>${t.label}</span>`).join("")
-      + `<span><i style="background:#9AA5B1"></i>未設定</span>`;
+      + (used.has(null) || used.has(undefined)
+        ? `<span><i style="background:#9AA5B1"></i>未設定</span>` : "");
   }
 
   function renderAll() {
+    renderLegend();   // スポットを足すと種別が増えるので、毎回引き直す
     const onMap = positioned();
     const missing = spots.length - onMap.length;
     document.getElementById("count").textContent =
