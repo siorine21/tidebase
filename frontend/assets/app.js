@@ -323,16 +323,27 @@ export function tideTimelineSvg({
       + ` L${pts[0].x.toFixed(2)},${base} Z"/>`;
   }).join("");
 
-  // 夜（日の出前・日没後）を塗る。夜釣りの時間帯が帯で分かる
+  // 夜（日の出前・日没後）を塗る。夜釣りの時間帯が帯で分かる。
+  // あわせて日の出・日没の位置を控えておく（アイコンは SVG の外に置く。D-053）
+  const sunMarks = [];
   const nights = days.map((date, d) => {
     const sun = suns.get?.(date) ?? suns[date];
     if (!sun) return "";
     const rise = hoursFromHhmm(sun.rise), set = hoursFromHhmm(sun.set);
     if (rise == null || set == null) return "";
+    sunMarks.push(
+      { kind: "rise", hhmm: sun.rise, left: ((d * 24 + rise) / totalHours) * 100 },
+      { kind: "set", hhmm: sun.set, left: ((d * 24 + set) / totalHours) * 100 });
     const band = (from, to) => `<rect class="night" x="${x(d * 24 + from)}" y="${padTop - 8}"
       width="${Math.max(0, x(d * 24 + to) - x(d * 24 + from))}"
       height="${height - padBottom - padTop + 8}"/>`;
     return band(0, rise) + band(set, 24);
+  }).join("");
+
+  // 日の出・日没の縦線。夜の帯の境目そのものだが、線があると時刻を読み取りやすい
+  const sunLines = sunMarks.map((m) => {
+    const sx = (m.left / 100) * width;
+    return `<line class="sun-line" x1="${sx}" y1="${padTop - 8}" x2="${sx}" y2="${height - padBottom}"/>`;
   }).join("");
 
   // 目盛り: 2 時間ごとに細い線、6 時間ごとに太めの線と時刻ラベル
@@ -415,6 +426,7 @@ export function tideTimelineSvg({
          aria-label="${days[0]} から ${days[days.length - 1]} までの潮位グラフ">
       ${nights}
       ${grid}
+      ${sunLines}
       <line class="axis" x1="0" y1="${height - padBottom}" x2="${width}" y2="${height - padBottom}"/>
       ${areas}
       ${lines}
@@ -423,7 +435,24 @@ export function tideTimelineSvg({
       ${marks}
       ${markerMark}
     </svg>`;
-  return { svg, min, max };
+  return { svg, min, max, sunMarks };
+}
+
+/**
+ * 日の出・日没の印。グラフの下に重ねる帯として返す。
+ *
+ * SVG の中に描かない理由: グラフは `preserveAspectRatio="none"` で横に引き伸ばして
+ * いるので、中に置いたアイコンは丸が楕円に潰れる。帯を外に出せば、
+ * 位置だけ % で合わせて形はそのまま保てる（親の幅が何 % でも位置は狂わない）。
+ * @param {{kind:string, hhmm:string, left:number}[]} marks tideTimelineSvg の戻り値
+ */
+export function sunStripHtml(marks) {
+  if (!marks?.length) return "";
+  return `<div class="sun-strip">${marks.map((m) => `
+    <span class="sun-mark ${m.kind}" style="left:${m.left.toFixed(3)}%">
+      ${icon(m.kind === "rise" ? "sunrise" : "sunset", { size: 12 })}
+      <span>${escapeHtml(m.hhmm)}</span>
+    </span>`).join("")}</div>`;
 }
 
 /* ---------------- 潮汐地点（細分化・D-030） ---------------- */

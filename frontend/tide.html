@@ -62,7 +62,7 @@
     <div class="page-sub" id="tide-correction" hidden></div>
   </div>
   <div class="scroll-hint">
-    <span data-icon="back"></span>横にスクロールで前後の時間へ（日をまたいで連続）<span data-icon="chevron-right"></span>
+    <span data-icon="back"></span>横にスクロールで前後の時間へ（1 画面 = 12 時間・日をまたいで連続）<span data-icon="chevron-right"></span>
   </div>
 
   <!-- 時間別天気 -->
@@ -83,7 +83,7 @@
     listSpots, listTidePoints, fetchTideForPoint, tidePointOfSpot,
     savedTidePoint, saveTidePoint, formatLag,
     listFavoriteTidePoints, saveFavoriteTidePoints,
-    tideType, TIDE_TYPE_COLORS, isCoordinateInJapan, tideTimelineSvg, tideLevelAt,
+    tideType, TIDE_TYPE_COLORS, isCoordinateInJapan, tideTimelineSvg, sunStripHtml, tideLevelAt,
   } from "./assets/app.js";
 
   const DEFAULT_POINT = "ST:MI";   // 静岡特化の既定（D-030）
@@ -204,13 +204,20 @@
   /* ---------- 潮汐グラフ（日をまたいで連続） ----------
      夜釣りは日付をまたぐ（22 時に入って翌 3 時まで、など）。1 日ずつ切ると
      ちょうど見たいところで途切れるため、週の 7 日ぶんを 1 本の曲線として描き、
-     横スクロールで時間軸を移動する。画面には常に 1 日ぶんの幅が見えている。 */
+     横スクロールで時間軸を移動する。
+     画面 1 枚には 12 時間ぶんが見えている（D-053）。 */
 
-  const DAY_UNITS = 320;              // 1 日ぶんの viewBox 幅（= 画面 1 枚ぶん）
+  const SCREENS_PER_DAY = 2;          // 画面 1 枚 = 12 時間
+  // viewBox 幅も同じ倍率で広げる。広げないと、preserveAspectRatio="none" の
+  // 横引き伸ばしが 2 倍になり、時刻ラベルが横に潰れて読めなくなる
+  const DAY_UNITS = 320 * SCREENS_PER_DAY;
   const CHART_DAYS = 7;
   const CHART_H = 176, PAD_TOP = 30, PAD_BOTTOM = 30;
   const scroller = document.getElementById("tide-scroller");
   const track = document.getElementById("tide-track");
+
+  /** 1 日ぶんの実寸（px）。 */
+  const dayWidth = () => scroller.clientWidth * SCREENS_PER_DAY;
 
   /** 日付 → 週の何日目か。 */
   function dayIndex(date) {
@@ -224,20 +231,18 @@
       dayUnits: DAY_UNITS, height: CHART_H, padTop: PAD_TOP, padBottom: PAD_BOTTOM,
     });
     if (!result) { track.innerHTML = `<div class="empty">読み込み中…</div>`; return; }
-    track.innerHTML = result.svg;
+    track.innerHTML = result.svg + sunStripHtml(result.sunMarks);
     renderLegend(result.min, result.max);
   }
 
   function renderLegend(min, max) {
-    const sun = sunCache.get(state.date);
     const now = nowInJst();
     const showNow = weekOf(state.week).includes(now.date);
     const level = showNow
       ? tideLevelAt(tideOf(now.date)?.hourly_levels_cm, Math.min(now.hours, 23)) : null;
+    // 日の出・日没はグラフの下の帯で示すので、凡例からは外す（D-053）
     document.getElementById("tide-legend").innerHTML =
-      (sun ? `<span class="lg lg-sun">${icon("sunrise", { size: 13 })} 日の出 ${sun.rise}</span>
-              <span class="lg lg-sun">${icon("sunset", { size: 13 })} 日没 ${sun.set}</span>` : "")
-      + (showNow ? `<span class="lg lg-now">${icon("clock", { size: 13 })} 現在 ${now.hhmm}${
+      (showNow ? `<span class="lg lg-now">${icon("clock", { size: 13 })} 現在 ${now.hhmm}${
           level != null ? ` · 潮位 ${Math.round(level)}cm` : ""}</span>` : "")
       + `<span class="lg">潮位 ${min}〜${max}cm</span>`;
 
@@ -256,7 +261,7 @@
   function scrollToDate(date, behavior = "smooth") {
     const index = dayIndex(date);
     if (index < 0) return;
-    scroller.scrollTo({ left: index * scroller.clientWidth, behavior });
+    scroller.scrollTo({ left: index * dayWidth(), behavior });
   }
 
   /** 現在時刻が画面の中央に来るようにする。 */
@@ -264,25 +269,23 @@
     const now = nowInJst();
     const index = dayIndex(now.date);
     if (index < 0) return scrollToDate(state.date, behavior);
-    const width = scroller.clientWidth;
-    const left = (index + now.hours / 24) * width - width / 2;
+    const left = (index + now.hours / 24) * dayWidth() - scroller.clientWidth / 2;
     scroller.scrollTo({ left: Math.max(0, left), behavior });
   }
 
   /** いま画面中央に見えている日。 */
   function centeredDate() {
     const days = weekOf(state.week);
-    const width = scroller.clientWidth || 1;
-    const index = Math.floor((scroller.scrollLeft + width / 2) / width);
+    const index = Math.floor((scroller.scrollLeft + scroller.clientWidth / 2) / (dayWidth() || 1));
     return days[Math.min(Math.max(index, 0), days.length - 1)];
   }
 
   /** 見えている範囲とその前後の日を読み込む（週の全部をまとめて取りにいかない）。 */
   async function loadVisibleDays() {
     const days = weekOf(state.week);
-    const width = scroller.clientWidth || 1;
+    const width = dayWidth() || 1;
     const from = Math.floor(scroller.scrollLeft / width) - 1;
-    const to = Math.floor((scroller.scrollLeft + width) / width) + 1;
+    const to = Math.floor((scroller.scrollLeft + scroller.clientWidth) / width) + 1;
     const wanted = [];
     for (let i = from; i <= to; i++) if (i >= 0 && i < days.length) wanted.push(days[i]);
     await Promise.all(wanted.map(loadDay));

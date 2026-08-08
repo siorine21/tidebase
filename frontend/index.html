@@ -78,7 +78,7 @@
     listSpots, listRecords, tideCorrelation, icon,
     recordFishName, nowInJst, hoursFromHhmm, addJstDays,
     listTidePoints, fetchTideForPoint, tidePointOfSpot, savedTidePoint, saveTidePoint, formatLag,
-    isCoordinateInJapan, tideTimelineSvg, tideLevelAt,
+    isCoordinateInJapan, tideTimelineSvg, sunStripHtml, tideLevelAt,
   } from "./assets/app.js";
 
   // 静岡県特化のため既定は舞阪（浜名湖口・遠州灘西部の基準）
@@ -262,15 +262,13 @@
       document.getElementById("tide-legend").innerHTML = "";
       return;
     }
-    track.innerHTML = result.svg;
+    // 日の出・日没はグラフの下の帯で示すので、凡例からは外す（D-053）
+    track.innerHTML = result.svg + sunStripHtml(result.sunMarks);
 
     const now = nowInJst();
-    const sun = sunCache.get(now.date);
     const level = tideLevelAt(tideCache.get(now.date)?.hourly_levels_cm, Math.min(now.hours, 23));
     document.getElementById("tide-legend").innerHTML =
-      (sun ? `<span class="lg lg-sun">${icon("sunrise", { size: 13 })} 日の出 ${sun.rise}</span>
-              <span class="lg lg-sun">${icon("sunset", { size: 13 })} 日没 ${sun.set}</span>` : "")
-      + `<span class="lg lg-now">${icon("clock", { size: 13 })} 現在 ${now.hhmm}${
+      `<span class="lg lg-now">${icon("clock", { size: 13 })} 現在 ${now.hhmm}${
           level != null ? ` · 潮位 ${Math.round(level)}cm` : ""}</span>`
       + `<span class="lg">潮位 ${result.min}〜${result.max}cm</span>`;
 
