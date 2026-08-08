@@ -63,6 +63,14 @@
       <label for="recipe">使用ルアー / レシピ</label>
       <select id="recipe"><option value="">選択しない</option></select>
     </div>
+    <!-- レシピを登録していないルアーでも種別だけ残せるようにする（D-058）。
+         レシピを選んだときは、そのレシピの種別が自動で入る -->
+    <div class="field">
+      <label for="lure-large">ルアー種別</label>
+      <select id="lure-large"><option value="">選択しない</option></select>
+      <div class="chips" id="lure-small-chips" hidden></div>
+      <div class="list-sub" id="lure-note" hidden></div>
+    </div>
     <div class="field">
       <label>ヒットレンジ</label>
       <div class="chips" id="layer-chips">
@@ -177,12 +185,15 @@
   import {
     client, requireSession, renderNav, escapeHtml, toJapaneseError, requireUserId,
     todayInJst, nowInJst, listSpots, listSpecies, listRecipes, suggestFishName, icon,
-    groupSpeciesByCategory, createMap, spotMarker,
+    groupSpeciesByCategory, createMap, spotMarker, LURE_CATEGORIES,
     listRecordPhotos, uploadRecordPhoto, deleteRecordPhotos, signedPhotoUrls, PHOTO_MAX_COUNT,
   } from "./assets/app.js";
 
   const STEPS = ["魚種", "タックル", "スポット", "写真", "メモ"];
-  const state = { step: 1, isSkunked: false, spotId: null, layer: null, visibility: "group" };
+  const state = {
+    step: 1, isSkunked: false, spotId: null, layer: null, visibility: "group",
+    lureLarge: null, lureSmall: null,
+  };
 
   // 読み込み中にステップを触られたら、そちらを優先する。
   // 通信が遅いと、開いたステップが復元処理で STEP1 に戻されてしまうため
@@ -220,6 +231,66 @@
   document.getElementById("recipe").insertAdjacentHTML("beforeend",
     recipes.map((r) => `<option value="${r.id}">${r.is_favorite ? "[お気に入り] " : ""}${escapeHtml(r.name)}</option>`).join(""));
   renderSpots(spots);
+
+  /* ---------- ルアー種別（D-058） ----------
+     レシピを選んだらその種別が自動で入り、手では変えられなくする。
+     手で変えられると「レシピはミノーなのに種別はジグ」という記録が作れてしまい、
+     あとで集計したときにどちらが正しいのか分からなくなる。 */
+  const recipeById = new Map(recipes.map((r) => [r.id, r]));
+  document.getElementById("lure-large").insertAdjacentHTML("beforeend",
+    LURE_CATEGORIES.map((c) => `<option value="${c.value}">${escapeHtml(c.label)}</option>`).join(""));
+
+  function renderLureSmall() {
+    const box = document.getElementById("lure-small-chips");
+    const subs = LURE_CATEGORIES.find((c) => c.value === state.lureLarge)?.subs ?? [];
+    box.hidden = subs.length === 0;
+    box.innerHTML = subs.map((sub) => `
+      <span class="chip${sub === state.lureSmall ? " selected" : ""}" data-value="${escapeHtml(sub)}"
+            >${escapeHtml(sub)}</span>`).join("");
+  }
+
+  /** レシピの有無に合わせて、種別の入力を「自動」と「手入力」で切り替える。 */
+  function syncLureCategory({ fromRecipeChange = false } = {}) {
+    const recipe = recipeById.get(document.getElementById("recipe").value) ?? null;
+    if (recipe) {
+      state.lureLarge = recipe.category_large ?? null;
+      state.lureSmall = recipe.category_small ?? null;
+    } else if (fromRecipeChange) {
+      // レシピを外したときは、レシピ由来だった値をそのまま残す（消すと入力し直しになる）
+    }
+    const large = document.getElementById("lure-large");
+    large.value = state.lureLarge ?? "";
+    large.disabled = Boolean(recipe);
+    renderLureSmall();
+    document.getElementById("lure-small-chips").classList.toggle("locked", Boolean(recipe));
+
+    const note = document.getElementById("lure-note");
+    note.hidden = !recipe;
+    if (recipe) {
+      note.textContent = recipe.category_large
+        ? `「${recipe.name}」の種別を自動で反映しています。`
+        : `「${recipe.name}」には種別が設定されていません。レシピ側で設定できます。`;
+    }
+  }
+
+  document.getElementById("recipe").addEventListener("change", () => {
+    syncLureCategory({ fromRecipeChange: true });
+    saveDraft();
+  });
+  document.getElementById("lure-large").addEventListener("change", (e) => {
+    state.lureLarge = e.target.value || null;
+    state.lureSmall = null;       // 大分類が変われば小分類は選び直し
+    renderLureSmall();
+    saveDraft();
+  });
+  document.getElementById("lure-small-chips").addEventListener("click", (e) => {
+    if (document.getElementById("lure-large").disabled) return;   // レシピ由来のときは触らせない
+    const chip = e.target.closest(".chip");
+    if (!chip) return;
+    state.lureSmall = chip.classList.contains("selected") ? null : chip.dataset.value;
+    renderLureSmall();
+    saveDraft();
+  });
 
   /* ---------- ステップ制御 ---------- */
   function renderStepper() {
@@ -642,6 +713,7 @@
     Object.assign(payload, state.isSkunked ? {
       fish_species_id: null, fish_name_local: null, length_cm: null, weight_g: null,
       quantity_note: null, recipe_id: null, water_layer: null,
+      lure_category_large: null, lure_category_small: null,
       rod: null, reel: null, line: null, leader: null,
     } : {
       fish_species_id: document.getElementById("species").value || null,
@@ -651,6 +723,9 @@
       catch_count: num("count") ?? 1,
       quantity_note: text("quantity-note"),
       recipe_id: document.getElementById("recipe").value || null,
+      lure_category_large: state.lureLarge,
+      // 大分類が無いのに小分類だけ、という状態は DB 側でも弾いている
+      lure_category_small: state.lureLarge ? state.lureSmall : null,
       water_layer: state.layer,
       rod: text("rod"), reel: text("reel"), line: text("line"), leader: text("leader"),
     });
@@ -692,7 +767,8 @@
       layer: state.layer, visibility: state.visibility, displayName: state.displayName ?? null,
       species: value("species"), length: value("length"), weight: value("weight"),
       count: value("count"), quantityNote: value("quantity-note"),
-      recipe: value("recipe"), rod: value("rod"), reel: value("reel"),
+      recipe: value("recipe"), lureLarge: state.lureLarge, lureSmall: state.lureSmall,
+      rod: value("rod"), reel: value("reel"),
       line: value("line"), leader: value("leader"),
       fishedAt: value("fished-at"), fishedTime: value("fished-time"), memo: value("memo"),
     };
@@ -702,7 +778,7 @@
   function hasInput(d) {
     return Boolean(d.isSkunked || d.spotId || d.layer || d.displayName || d.memo
       || d.species || d.length || d.weight || d.quantityNote
-      || d.recipe || d.rod || d.reel || d.line || d.leader || d.fishedTime);
+      || d.recipe || d.lureLarge || d.rod || d.reel || d.line || d.leader || d.fishedTime);
   }
 
   function saveDraft() {
@@ -733,6 +809,9 @@
     state.layer = data.layer ?? null;
     state.visibility = data.visibility ?? "group";
     state.displayName = data.displayName ?? null;
+    state.lureLarge = data.lureLarge ?? null;
+    state.lureSmall = data.lureSmall ?? null;
+    syncLureCategory();
 
     markChip("layer-chips", state.layer);
     markChip("visibility-chips", state.visibility);
@@ -756,7 +835,9 @@
       species: r.fish_species_id ?? "", length: r.length_cm ?? "", weight: r.weight_g ?? "",
       // ボウズは catch_count = 0 で保存されるが、解除したときの初期値は 1 が自然
       count: r.is_skunked ? 1 : r.catch_count ?? 1, quantityNote: r.quantity_note ?? "",
-      recipe: r.recipe_id ?? "", rod: r.rod ?? "", reel: r.reel ?? "",
+      recipe: r.recipe_id ?? "",
+      lureLarge: r.lure_category_large ?? null, lureSmall: r.lure_category_small ?? null,
+      rod: r.rod ?? "", reel: r.reel ?? "",
       line: r.line ?? "", leader: r.leader ?? "",
       fishedAt: r.fished_at, fishedTime: (r.fished_time ?? "").slice(0, 5), memo: r.memo ?? "",
     };

@@ -29,7 +29,7 @@
     createMap, spotMarker, googleMapsUrl, googleDirectionsUrl, isCoordinateInJapan,
     listTidePoints, fetchTideForPoint, tideAt, tideTimelineSvg, sunStripHtml,
     sunTimes, tideFlowAt, TIDE_FLOW_LABELS, nearestMazume, mazumeLabel,
-    listRecordPhotos, deleteRecordPhotos, signedPhotoUrls,
+    listRecordPhotos, deleteRecordPhotos, signedPhotoUrls, lureCategoryText,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -176,6 +176,7 @@
       ["匹数", r.is_skunked ? "0（ボウズ）" : r.catch_count],
       ["数量メモ", r.quantity_note],
       ["ルアー", r.recipe_name],
+      ["ルアー種別", lureCategoryText(r)],
       ["ヒットレンジ", r.water_layer],
       ["ロッド", r.rod], ["リール", r.reel], ["ライン", r.line], ["リーダー", r.leader],
       // 公開範囲は自分の記録にだけ意味がある設定なので、他人の記録には出さない

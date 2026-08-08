@@ -243,6 +243,9 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .row .val { font-family: 'JetBrains Mono', monospace; color: var(--blue); }
 .row .val .sub-val { color: var(--text-muted); font-size: 11px; }
 
+/* レシピから自動で入った種別。押しても変わらないことを見た目で示す（D-058） */
+.chips.locked { opacity: 0.65; pointer-events: none; }
+
 .muted { color: var(--text-muted); font-size: 12px; }
 
 /* ============================================================

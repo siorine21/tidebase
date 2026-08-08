@@ -1605,6 +1605,15 @@ export const LURE_CATEGORIES = [
   { value: "other", label: "その他", subs: ["その他"] },
 ];
 
+/** 釣果に残したルアー種別の表示（「ハード / ミノー」）。無ければ null。 */
+export function lureCategoryText(record) {
+  const large = record?.lure_category_large;
+  if (!large) return null;
+  const label = categoryLabel(large);
+  const small = record.lure_category_small;
+  return small && small !== label ? `${label} / ${small}` : label;
+}
+
 export function categoryLabel(value) {
   return LURE_CATEGORIES.find((c) => c.value === value)?.label ?? "";
 }
