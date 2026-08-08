@@ -143,31 +143,120 @@ export async function fetchTide(station, date) {
   return response.json();
 }
 
-/* ---------------- 月齢・潮回り（D-002 / 004 の SQL と同じ計算） ---------------- */
+/* ---------------- 月齢・潮回り（D-062） ----------------
+   潮回りは「朔（新月）からの日数」で決まる。以前は朔望月の平均（29.530588853 日）を
+   2000 年の朔から積み上げていたが、実際の朔は平均から最大 ±0.6 日ずれるうえ、
+   **月齢と旧暦日は別物**（朔が夕方なら、その日の正午の月齢はまだ 29 日台）。
+   この 2 つが重なって、2026-08-09 は「長潮」と出ていた（正しくは中潮）。
 
-// 朔（新月）の基準時刻と朔望月の長さ
-const NEW_MOON_EPOCH_MS = Date.parse("2000-01-06T18:14:00Z");
-const SYNODIC_MONTH_DAYS = 29.530588853;
+   いまは Meeus『Astronomical Algorithms』49 章で**実際の朔の時刻**を求め、
+   旧暦日（朔の日を 1 日目とする通日）から潮名を決める。
+   気象庁の潮位表と突き合わせた検証は D-062 に書いた。 */
 
-/**
- * JST 正午時点の月齢（小数第 1 位）。
- * public.moon_age(DATE) の移植。週間カレンダーのように何日ぶんも必要なとき、
- * 潮汐 API を日数ぶん叩かずに済ませるために使う。
- */
-export function moonAge(isoDate) {
-  const noonJst = Date.parse(`${isoDate}T03:00:00Z`);   // JST 12:00 = UTC 03:00
-  const days = (noonJst - NEW_MOON_EPOCH_MS) / 86400000;
-  return Math.round((days % SYNODIC_MONTH_DAYS) * 10) / 10;
+const RAD_PER_DEG = Math.PI / 180;
+
+/** k 番目の朔の時刻（UTC ミリ秒）。誤差は数分。 */
+function newMoonAt(k) {
+  const t = k / 1236.85;
+  const jde = 2451550.09766 + 29.530588861 * k
+    + 0.00015437 * t ** 2 - 0.000000150 * t ** 3 + 0.00000000073 * t ** 4;
+  const e = 1 - 0.002516 * t - 0.0000074 * t ** 2;
+  const sin = (deg) => Math.sin(deg * RAD_PER_DEG);
+  const m = 2.5534 + 29.10535670 * k - 0.0000014 * t ** 2 - 0.00000011 * t ** 3;
+  const mp = 201.5643 + 385.81693528 * k + 0.0107582 * t ** 2
+    + 0.00001238 * t ** 3 - 0.000000058 * t ** 4;
+  const f = 160.7108 + 390.67050284 * k - 0.0016118 * t ** 2
+    - 0.00000227 * t ** 3 + 0.000000011 * t ** 4;
+  const omega = 124.7746 - 1.56375588 * k + 0.0020672 * t ** 2 + 0.00000215 * t ** 3;
+
+  const correction = -0.40720 * sin(mp)
+    + 0.17241 * e * sin(m)
+    + 0.01608 * sin(2 * mp)
+    + 0.01039 * sin(2 * f)
+    + 0.00739 * e * sin(mp - m)
+    - 0.00514 * e * sin(mp + m)
+    + 0.00208 * e * e * sin(2 * m)
+    - 0.00111 * sin(mp - 2 * f)
+    - 0.00057 * sin(mp + 2 * f)
+    + 0.00056 * e * sin(2 * mp + m)
+    - 0.00042 * sin(3 * mp)
+    + 0.00042 * e * sin(m + 2 * f)
+    + 0.00038 * e * sin(m - 2 * f)
+    - 0.00024 * e * sin(2 * mp - m)
+    - 0.00017 * sin(omega)
+    - 0.00007 * sin(mp + 2 * m);
+
+  const extra = [
+    [0.000325, 299.77 + 0.107408 * k - 0.009173 * t ** 2],
+    [0.000165, 251.88 + 0.016321 * k],
+    [0.000164, 251.83 + 26.651886 * k],
+    [0.000126, 349.42 + 36.412478 * k],
+    [0.000110, 84.66 + 18.206239 * k],
+    [0.000062, 141.74 + 53.303771 * k],
+    [0.000060, 207.14 + 2.453732 * k],
+    [0.000056, 154.84 + 7.306860 * k],
+    [0.000047, 34.52 + 27.261239 * k],
+    [0.000042, 207.19 + 0.121824 * k],
+    [0.000040, 291.34 + 1.844379 * k],
+    [0.000037, 161.72 + 24.198154 * k],
+    [0.000035, 239.56 + 25.513099 * k],
+    [0.000023, 331.55 + 3.592518 * k],
+  ].reduce((sum, [amp, deg]) => sum + amp * sin(deg), 0);
+
+  // TT → UTC は 2026 年ごろで約 69 秒。潮名には効かないが揃えておく
+  const jd = jde + correction + extra;
+  return (jd - 2451545.0) * 86400000 + Date.UTC(2000, 0, 1, 12) - 69000;
 }
 
-/** 潮回り。public.tide_type(DATE) の移植。 */
+/** その時刻より前でいちばん近い朔（UTC ミリ秒）。 */
+function newMoonBefore(ms) {
+  let k = Math.round((ms - Date.UTC(2000, 0, 6)) / 86400000 / 29.530588861);
+  while (newMoonAt(k) > ms) k -= 1;
+  while (newMoonAt(k + 1) <= ms) k += 1;
+  return newMoonAt(k);
+}
+
+/** JST の "YYYY-MM-DD" → その日の JST 正午の UTC ミリ秒。 */
+function jstNoonMs(isoDate) {
+  const [y, m, d] = isoDate.split("-").map(Number);
+  return Date.UTC(y, m - 1, d, 3, 0);   // 12:00 JST = 03:00 UTC
+}
+
+/** UTC ミリ秒 → JST の "YYYY-MM-DD"。 */
+function jstDateString(ms) {
+  return new Date(ms + 9 * 3600000).toISOString().slice(0, 10);
+}
+
+/**
+ * JST 正午時点の月齢（小数第 1 位）。実際の朔からの経過日数。
+ * 朔が夕方の日は、正午時点ではまだ 29 日台になる（暦の慣習どおり）。
+ */
+export function moonAge(isoDate) {
+  const noon = jstNoonMs(isoDate);
+  return Math.round(((noon - newMoonBefore(noon)) / 86400000) * 10) / 10;
+}
+
+/**
+ * 旧暦日（朔の日を 1 日目とする通日）。潮名はこれで決まる。
+ * 月齢ではなく**日付**で数えるのがポイント（朔が何時であっても、その日が 1 日目）。
+ */
+export function lunarDay(isoDate) {
+  const noon = jstNoonMs(isoDate);
+  // 朔がその日の正午より後でも「その日が 1 日目」なので、1 日先まで見て判定する
+  const candidate = newMoonBefore(noon + 86400000);
+  const start = jstDateString(candidate) <= isoDate ? candidate : newMoonBefore(noon);
+  return Math.round((Date.parse(`${isoDate}T00:00:00Z`)
+    - Date.parse(`${jstDateString(start)}T00:00:00Z`)) / 86400000) + 1;
+}
+
+/** 潮回り。旧暦日から決める（潮見表と同じ対応表）。 */
 export function tideType(isoDate) {
-  const index = Math.round(moonAge(isoDate)) % 30;
-  if ([0, 1, 2, 14, 15, 16, 17, 29].includes(index)) return "大潮";
-  if ([3, 4, 5, 6, 12, 13, 18, 19, 20, 21, 27, 28].includes(index)) return "中潮";
-  if ([7, 8, 9, 22, 23, 24].includes(index)) return "小潮";
-  if ([10, 25].includes(index)) return "長潮";
-  return "若潮";  // 11, 26
+  const day = lunarDay(isoDate);
+  if ([1, 2, 3, 15, 16, 17, 18, 29, 30].includes(day)) return "大潮";
+  if ([4, 5, 6, 12, 13, 14, 19, 20, 21, 27, 28].includes(day)) return "中潮";
+  if ([7, 8, 9, 22, 23, 24].includes(day)) return "小潮";
+  if ([10, 25].includes(day)) return "長潮";
+  return "若潮";   // 11, 26
 }
 
 /** 潮回りの表示色（ワイヤーフレーム v7.2 の週間カレンダー）。 */
