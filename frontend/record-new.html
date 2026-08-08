@@ -747,6 +747,12 @@
       try {
         await applyPhotos(saved.id);
       } catch (photoError) {
+        // 理由を捨てない（D-061）。以前は「失敗しました」だけで、
+        // 何が起きたのか本人にも開発側にも分からなかった
+        try {
+          sessionStorage.setItem("tidebase.photoError",
+            String(photoError?.message ?? photoError ?? "").slice(0, 300));
+        } catch { /* 使えない環境では諦める */ }
         clearDraft();
         location.replace(`record.html?id=${saved.id}&photoerror=1`);
         return;

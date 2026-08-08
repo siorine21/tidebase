@@ -1259,10 +1259,22 @@ const PHOTO_QUALITY_STEPS = [0.82, 0.7, 0.6, 0.5];
  * - EXIF は canvas を通した時点で落ちる（位置情報が写真から漏れない）
  * - 向きは imageOrientation で補正する。指定しないと横倒しになる端末がある
  */
-export async function shrinkImage(file, {
-  maxEdge = PHOTO_MAX_EDGE, budget = PHOTO_BUDGET_BYTES,
-} = {}) {
+export async function shrinkImage(file, options = {}) {
   const source = await loadImage(file);
+  try {
+    return renderImage(source, options);
+  } finally {
+    source.close?.();
+  }
+}
+
+/**
+ * 読み込み済みの画像から 1 枚作る。
+ * **デコード結果を使い回すために分けてある**（D-061）。表示用とサムネイルで
+ * 2 回デコードすると、大きな写真では山になるメモリが 2 倍になり、
+ * 端末によっては途中で落ちる。
+ */
+async function renderImage(source, { maxEdge = PHOTO_MAX_EDGE, budget = PHOTO_BUDGET_BYTES } = {}) {
   const scale = Math.min(1, maxEdge / Math.max(source.width, source.height));
   const width = Math.max(1, Math.round(source.width * scale));
   const height = Math.max(1, Math.round(source.height * scale));
@@ -1273,7 +1285,6 @@ export async function shrinkImage(file, {
   const context = canvas.getContext("2d");
   context.imageSmoothingQuality = "high";
   context.drawImage(source, 0, 0, width, height);
-  source.close?.();
 
   // 予算に収まった時点で止める。収まらなければ最後（一番小さい）を使う
   let blob = null;
@@ -1284,27 +1295,43 @@ export async function shrinkImage(file, {
     if (!blob) break;
     if (blob.size <= budget) break;
   }
-  if (!blob) throw new Error("画像を変換できませんでした。");
+  // 縮小した canvas から書き出せないのは、ほぼ端末のメモリ不足
+  if (!blob) throw new Error("画像を変換できませんでした。端末の空き容量を空けて、もう一度お試しください。");
   return { blob, width, height, type: blob.type };
 }
 
+/**
+ * 画像を 1 回だけデコードする。手前から順に試す（D-061）。
+ *   1. そのまま     … 通常はこれで通る
+ *   2. 縮小しながら … 巨大な写真はここで救う。原寸のビットマップを作らずに済む
+ *   3. <img> 経由   … createImageBitmap が受け付けない形式の保険
+ */
 async function loadImage(file) {
-  // createImageBitmap のほうが速く、向きの指定も効く。
-  // 対応していない・HEIC などで失敗する場合は <img> に落とす
   try {
     return await createImageBitmap(file, { imageOrientation: "from-image" });
-  } catch {
-    return await new Promise((resolve, reject) => {
-      const url = URL.createObjectURL(file);
-      const image = new Image();
-      image.onload = () => { URL.revokeObjectURL(url); resolve(image); };
-      image.onerror = () => {
-        URL.revokeObjectURL(url);
-        reject(new Error("この画像は読み込めませんでした。"));
-      };
-      image.src = url;
+  } catch { /* 次の手を試す */ }
+
+  try {
+    // 幅だけ指定すれば高さは比率で決まる。画素数が減るぶんメモリの山が低くなる
+    return await createImageBitmap(file, {
+      imageOrientation: "from-image", resizeWidth: PHOTO_MAX_EDGE, resizeQuality: "high",
     });
-  }
+  } catch { /* 次の手を試す */ }
+
+  return await new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+    image.onload = () => { URL.revokeObjectURL(url); resolve(image); };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      // HEIC は Android のブラウザが開けない。何をすればいいかまで書く
+      reject(new Error(
+        `この画像は開けませんでした（${file.type || "形式不明"}）。`
+        + "HEIC で撮影している場合は、カメラの設定を JPEG にするか、"
+        + "写真アプリで JPEG に変換してからお試しください。"));
+    };
+    image.src = url;
+  });
 }
 
 function canvasToBlob(canvas, type, quality) {
@@ -1316,10 +1343,19 @@ function canvasToBlob(canvas, type, quality) {
 /** 釣果に写真を 1 枚追加する（表示用とサムネイルの 2 つを上げる）。 */
 export async function uploadRecordPhoto(recordId, file, sortOrder = 0) {
   const userId = await requireUserId();
-  const [full, thumb] = await Promise.all([
-    shrinkImage(file),
-    shrinkImage(file, { maxEdge: PHOTO_THUMB_EDGE, budget: PHOTO_THUMB_BUDGET_BYTES }),
-  ]);
+
+  // デコードは 1 回だけ。以前は表示用とサムネイルで同じ写真を 2 回、
+  // しかも同時にデコードしていて、大きな写真ではメモリの山が 2 倍になっていた（D-061）
+  const source = await loadImage(file);
+  let full, thumb;
+  try {
+    full = await renderImage(source);
+    thumb = await renderImage(source, {
+      maxEdge: PHOTO_THUMB_EDGE, budget: PHOTO_THUMB_BUDGET_BYTES,
+    });
+  } finally {
+    source.close?.();
+  }
 
   const extension = full.type === "image/webp" ? "webp" : "jpg";
   const photoId = crypto.randomUUID();

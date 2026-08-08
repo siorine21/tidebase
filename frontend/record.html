@@ -44,8 +44,15 @@
     throw new Error("no id");
   }
   if (params.get("photoerror")) {
+    let reason = "";
+    try {
+      reason = sessionStorage.getItem("tidebase.photoError") ?? "";
+      sessionStorage.removeItem("tidebase.photoError");
+    } catch { /* 使えない環境では理由なしで出す */ }
     const box = document.getElementById("message");
-    box.textContent = "釣果は保存できましたが、写真の保存に失敗しました。編集からもう一度お試しください。";
+    // 何が起きたかを本人に見せる。原因が分からないと直しようがない（D-061）
+    box.textContent = "釣果は保存できましたが、写真の保存に失敗しました。"
+      + (reason ? `${reason} ` : "") + "編集からもう一度お試しください。";
     box.className = "message error";
     box.hidden = false;
     history.replaceState(null, "", `record.html?id=${encodeURIComponent(id)}`);
