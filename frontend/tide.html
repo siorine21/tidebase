@@ -78,8 +78,8 @@
   import {
     requireSession, renderNav, escapeHtml, icon,
     todayInJst, formatJstDate, nowInJst, hoursFromHhmm, addJstDays, weekOf,
-    fetchWeather, fetchDailyWeather, describeWeather, windDirection, fishingScore,
-    showFishingScoreHelp,
+    fetchWeather, fetchDailyWeather, describeWeather, windDirection,
+    fishingScoreOfDay, showFishingScoreHelp, stars,
     listSpots, listTidePoints, fetchTideForPoint, tidePointOfSpot,
     savedTidePoint, saveTidePoint, formatLag,
     listFavoriteTidePoints, saveFavoriteTidePoints,
@@ -377,27 +377,29 @@
     document.getElementById("tide-note").textContent =
       `${state.point.name}${state.point.area ? " 推算" : ""}`;
     const type = tide?.tide_type ?? tideType(date);
-    // その日の 12 時の天気で代表させる（過去日・未来日でも同じ基準になる）
-    const noon = weather?.find((w) => w.hour === 12) ?? weather?.[0] ?? null;
-    const score = noon ? fishingScore(type, noon.weather_code, noon.wind_speed_ms) : null;
-    // 説明を出せるよう、いま何で判定したかを覚えておく
-    scoreContext = noon
-      ? { tideType: type, weatherCode: noon.weather_code, windMs: noon.wind_speed_ms, when: "12 時" }
-      : null;
+    // 朝マヅメ・夕マヅメで判定し、良いほうをその日のスコアにする（D-051）
+    scoreContext = weather ? fishingScoreOfDay(type, weather, sunCache.get(date) ?? null) : null;
+    const score = scoreContext?.score ?? null;
 
-    const cell = (label, value, color) => `
+    const cell = (label, value, color, sub) => `
       <div class="info-cell">
         <div class="label">${label}</div>
         <div class="value"${color ? ` style="color:${color}"` : ""}>${value}</div>
+        ${sub ? `<div class="sub">${sub}</div>` : ""}
       </div>`;
 
     document.getElementById("summary").innerHTML =
       cell("潮回り", escapeHtml(type), TIDE_TYPE_COLORS[type])
       + cell("釣行スコア", score
-          ? `${"★".repeat(score)}${"☆".repeat(5 - score)}`
+          ? stars(score)
             + `<button type="button" class="info-hint" id="score-help"
                        aria-label="釣行スコアの説明">${icon("help", { size: 14 })}</button>`
-          : "—", score >= 4 ? "var(--green)" : null)
+          : "—", score >= 4 ? "var(--green)" : null,
+          // 朝と夕のどちらが良いかは、開かなくても見えるほうがいい
+          scoreContext && !scoreContext.fallback
+            ? scoreContext.windows
+                .map((w) => `${w.label.slice(0, 1)} ${w.score}`).join(" / ")
+            : null)
       + cell("満潮", formatEvents(tide?.high_tides))
       + cell("干潮", formatEvents(tide?.low_tides));
   }

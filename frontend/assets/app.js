@@ -772,42 +772,107 @@ const WEATHER_CATEGORY_LABELS = {
   sunny: "晴れ", cloudy: "曇り", rain: "雨・雪", storm: "雷雨",
 };
 
+/* ---- マヅメ（D-051） --------------------------------------------------- */
+
+/**
+ * その日の朝マヅメ・夕マヅメ。日の出・日没そのものを中心時刻とする。
+ * 実際に竿を出すのは前後 1 時間ほどだが、1 時間刻みの予報から代表値を 1 つ選ぶので、
+ * 中心にいちばん近い時刻の予報を使う。
+ * @param {{rise: string, set: string}|null} sun "HH:MM"（JST）
+ */
+export function mazumeWindows(sun) {
+  if (!sun?.rise || !sun?.set) return [];
+  return [
+    { key: "morning", label: "朝マヅメ", at: sun.rise },
+    { key: "evening", label: "夕マヅメ", at: sun.set },
+  ];
+}
+
+/** "HH:MM" にいちばん近い時刻の予報。 */
+function hourNearest(hours, hhmm) {
+  const target = hoursFromHhmm(hhmm);
+  if (!hours?.length || target == null) return null;
+  return hours.reduce((best, row) =>
+    Math.abs(row.hour - target) < Math.abs(best.hour - target) ? row : best);
+}
+
+/**
+ * その日の釣行スコア。朝マヅメ・夕マヅメをそれぞれ判定し、良いほうを日のスコアにする。
+ * 潮回りは日単位なので、朝と夕で差が出るのは天気と風だけ。
+ * 日の出・日没が取れない日（予報範囲外など）は 12 時で代表させる。
+ * @returns {{score:number, best:object, windows:object[], tideType:string, fallback:boolean}|null}
+ */
+export function fishingScoreOfDay(tideType, hours, sun) {
+  const evaluate = (label, at, row) => row && ({
+    label, at, hour: row.hour,
+    weatherCode: row.weather_code, windMs: row.wind_speed_ms,
+    ...fishingScoreDetail(tideType, row.weather_code, row.wind_speed_ms),
+  });
+
+  const windows = mazumeWindows(sun)
+    .map((w) => evaluate(w.label, w.at, hourNearest(hours, w.at)))
+    .filter(Boolean);
+
+  if (windows.length) {
+    const best = windows.reduce((a, b) => (b.score > a.score ? b : a));
+    return { score: best.score, best, windows, tideType, fallback: false };
+  }
+
+  // 日の出・日没が無いときの逃げ道。基準がある方が「出ない」よりましなので残す
+  const noon = evaluate("昼", "12:00", hours?.find((h) => h.hour === 12) ?? hours?.[0]);
+  if (!noon) return null;
+  return { score: noon.score, best: noon, windows: [noon], tideType, fallback: true };
+}
+
+export function stars(score) {
+  return `${"★".repeat(score)}${"☆".repeat(5 - score)}`;
+}
+
 /**
  * 釣行スコアの説明を出す。「どういう式か」だけでなく
  * 「この日はなぜこの点になったか」を先に示す（式だけでは自分の日に当てはめられない）。
- * @param {{tideType:string, weatherCode:number, windMs:number, when?:string}} context
+ * @param {ReturnType<typeof fishingScoreOfDay>} day
  */
-export function showFishingScoreHelp({ tideType, weatherCode, windMs, when = "" }) {
-  const { score, ruleIndex, weather, wind } = fishingScoreDetail(tideType, weatherCode, windMs);
-  const stars = `${"★".repeat(score)}${"☆".repeat(5 - score)}`;
+export function showFishingScoreHelp(day) {
+  if (!day) return null;
+  const { score, best, windows, tideType, fallback } = day;
 
-  showInfoDialog("釣行スコア", `
+  const windowRow = (w) => `
+    <li class="${w === best ? "hit" : ""}">
+      <span class="rule-star">${stars(w.score)}</span>
+      <span class="mz-name">${escapeHtml(w.label)}<span class="mz-time">${escapeHtml(w.at)}</span></span>
+      <span class="mz-wx">${escapeHtml(describeWeather(w.weatherCode).label)}
+        / ${w.wind.toFixed(1)}m/s</span>
+    </li>`;
+
+  return showInfoDialog("釣行スコア", `
     <div class="score-head">
-      <span class="score-stars">${stars}</span>
+      <span class="score-stars">${stars(score)}</span>
       <span class="score-num-sm">${score} / 5</span>
     </div>
     <div class="rows" style="margin-bottom:14px">
       <div class="row"><span class="label">潮回り</span>
         <span class="val">${escapeHtml(tideType ?? "—")}</span></div>
-      <div class="row"><span class="label">天気${when ? `（${escapeHtml(when)}）` : ""}</span>
-        <span class="val">${escapeHtml(describeWeather(weatherCode).label)}
-          （${WEATHER_CATEGORY_LABELS[weather]}）</span></div>
-      <div class="row"><span class="label">風速</span>
-        <span class="val">${wind.toFixed(1)} m/s</span></div>
     </div>
 
-    <div class="list-sub" style="margin-bottom:6px">判定のしかた（上から順に当てはめる）</div>
+    <div class="list-sub" style="margin-bottom:6px">${fallback
+      ? "日の出・日没が取れないので 12 時で見ています"
+      : "マヅメごとの判定（良いほうがその日のスコア）"}</div>
+    <ol class="score-rules mazume">${windows.map(windowRow).join("")}</ol>
+
+    <div class="list-sub" style="margin:12px 0 6px">判定のしかた（上から順に当てはめる）</div>
     <ol class="score-rules">
       ${FISHING_SCORE_RULES.map((rule, i) => `
-        <li class="${i === ruleIndex ? "hit" : ""}">
-          <span class="rule-star">${"★".repeat(rule.score)}${"☆".repeat(5 - rule.score)}</span>
+        <li class="${i === best.ruleIndex ? "hit" : ""}">
+          <span class="rule-star">${stars(rule.score)}</span>
           <span>${escapeHtml(rule.label)}</span>
         </li>`).join("")}
     </ol>
 
     <div class="list-sub" style="margin-top:12px;line-height:1.6">
-      天気は ${when ? escapeHtml(when) : "その時点"}の予報を代表値にしています。
-      潮回りは月齢からの計算です。目安であり、釣れることを保証するものではありません。
+      天気と風は${fallback ? "" : "日の出・日没に"}いちばん近い時刻の予報を代表値にしています。
+      潮回りは月齢からの計算で、1 日を通して同じです。
+      目安であり、釣れることを保証するものではありません。
     </div>`);
 }
 

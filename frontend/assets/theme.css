@@ -482,6 +482,13 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
   flex-shrink: 0; font-size: 11px; letter-spacing: 1px; color: var(--mustard);
 }
 
+/* マヅメごとの判定。名前・時刻・天気を 1 行に収める */
+.score-rules.mazume li { gap: 8px; }
+.mz-name { display: flex; align-items: baseline; gap: 6px; }
+.mz-time { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-muted); }
+.mz-wx { margin-left: auto; font-size: 11px; color: var(--text-muted); text-align: right; }
+.score-rules.mazume li.hit .mz-wx { color: var(--text-secondary); }
+
 /* 押すと説明が出ることを示す。数値の右にそっと付ける */
 .info-hint {
   background: none; border: none; padding: 0 0 0 5px; cursor: pointer;
@@ -789,6 +796,10 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 }
 .info-cell { background: var(--bg-card); padding: 10px 12px; }
 .info-cell .label { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+.info-cell .sub {
+  margin-top: 3px; font-size: 10px; color: var(--text-muted);
+  font-family: 'JetBrains Mono', monospace;
+}
 .info-cell .value {
   font-family: 'JetBrains Mono', monospace; font-size: 14px; color: var(--text-primary);
 }

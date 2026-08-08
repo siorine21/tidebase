@@ -74,7 +74,7 @@
   import {
     client, requireSession, renderNav, escapeHtml,
     fetchTide, fetchWeather, todayInJst, formatJstDate, formatShortDate, relativeDays,
-    describeWeather, windDirection, fishingScore, showFishingScoreHelp,
+    describeWeather, windDirection, fishingScoreOfDay, showFishingScoreHelp,
     listSpots, listRecords, tideCorrelation, icon,
     recordFishName, nowInJst, hoursFromHhmm, addJstDays,
     listTidePoints, fetchTideForPoint, tidePointOfSpot, savedTidePoint, saveTidePoint, formatLag,
@@ -137,7 +137,7 @@
     if (forecast?.sun) sunCache.set(today, forecast.sun);
     tideCache.set(today, tide);
 
-    renderHero(baseSpot, tide, weather, point);
+    renderHero(baseSpot, tide, weather, point, forecast?.sun ?? null);
     renderChart();
     renderHourly(weather);
     scrollToNow("auto");
@@ -212,7 +212,7 @@
       + `${point.note ? ` ${point.note}。` : ""}${point.source ? ` 出典: ${point.source}` : ""}`;
   }
 
-  function renderHero(spot, tide, weather, point) {
+  function renderHero(spot, tide, weather, point, sun) {
     const meta = document.getElementById("hero-meta");
     const tags = document.getElementById("hero-tags");
     const now = weather?.find((w) => w.hour === nowInJst().hour) ?? weather?.[0] ?? null;
@@ -229,19 +229,17 @@
     }
     meta.innerHTML = parts.join(" / ");
 
-    if (tide && now) {
-      const score = fishingScore(tide.tide_type, now.weather_code, now.wind_speed_ms);
+    // スコアはマヅメで判定する（D-051）。上の天気表示は「いま」なので別物
+    scoreContext = tide ? fishingScoreOfDay(tide.tide_type, weather, sun) : null;
+    if (tide && scoreContext) {
+      const { score, best } = scoreContext;
       document.getElementById("score").textContent = score;
-      // 説明を出せるようになったので、まるごとボタンとして押せるようにする
-      scoreContext = {
-        tideType: tide.tide_type, weatherCode: now.weather_code,
-        windMs: now.wind_speed_ms, when: `${now.hour} 時`,
-      };
       document.getElementById("score-help").disabled = false;
       tags.innerHTML = [
         `<span class="tag tag-mustard">${tide.tide_type}</span>`,
         `<span class="tag ${score >= 4 ? "tag-green" : "tag-gray"}">釣行スコア ${score >= 4 ? "高" : score >= 3 ? "中" : "低"}</span>`,
-        now.wave_height_m != null ? `<span class="tag tag-blue">波高 ${now.wave_height_m}m</span>` : "",
+        `<span class="tag tag-blue">${escapeHtml(best.label)} ${escapeHtml(best.at)}</span>`,
+        now?.wave_height_m != null ? `<span class="tag tag-blue">波高 ${now.wave_height_m}m</span>` : "",
         `<span class="tag tag-gray">月齢 ${tide.moon_age}</span>`,
       ].join("");
     } else if (!spot) {
