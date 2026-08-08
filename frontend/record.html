@@ -27,7 +27,8 @@
   import {
     client, requireSession, renderNav, escapeHtml, toJapaneseError, formatJstDate, icon,
     createMap, spotMarker, googleMapsUrl, googleDirectionsUrl, isCoordinateInJapan,
-    listTidePoints, fetchTideForPoint, tideAt, tideTimelineSvg,
+    listTidePoints, fetchTideForPoint, tideAt, tideTimelineSvg, sunStripHtml,
+    sunTimes, tideFlowAt, TIDE_FLOW_LABELS, nearestMazume, mazumeLabel,
     listRecordPhotos, deleteRecordPhotos, signedPhotoUrls,
   } from "./assets/app.js";
 
@@ -116,10 +117,22 @@
       return;
     }
 
-    const at = tideAt(tide, r.fished_time.slice(0, 5));
+    const hhmm = r.fished_time.slice(0, 5);
+    const at = tideAt(tide, hhmm);
+    const flow = tideFlowAt(tide, hhmm);
+
+    // 日の出・日没は計算で出す（D-056）。予報 API は過去 3 か月しか遡れないので、
+    // 去年の釣行にはマヅメが出せない。座標はスポット優先、無ければ潮汐地点
+    const spotUsable = isCoordinateInJapan(r.spot_latitude, r.spot_longitude);
+    const lat = spotUsable ? r.spot_latitude : point.lat;
+    const lng = spotUsable ? r.spot_longitude : point.lng;
+    const sun = sunTimes(lat, lng, r.fished_at);
+    const mazume = mazumeLabel(nearestMazume(sun, hhmm));
+
     const chart = tideTimelineSvg({
       days: [r.fished_at], tides: [tide], today: null,
-      marker: { date: r.fished_at, hhmm: r.fished_time.slice(0, 5), label: r.fished_time.slice(0, 5) },
+      suns: sun ? new Map([[r.fished_at, sun]]) : new Map(),
+      marker: { date: r.fished_at, hhmm, label: hhmm },
       dayUnits: 360, height: 168,
     });
 
@@ -129,13 +142,17 @@
         <div class="row"><span class="label">潮位</span>
           <span class="val">${at ? `${at.level} cm` : "—"}</span></div>
         <div class="row"><span class="label">潮の動き</span>
-          <span class="val">${at ? escapeHtml(at.trend) : "—"}</span></div>
+          <span class="val">${at ? escapeHtml(at.trend) : "—"}${
+            flow ? ` <span class="sub-val">${escapeHtml(TIDE_FLOW_LABELS[flow.key])}</span>` : ""}</span></div>
+        <div class="row"><span class="label">マヅメ</span>
+          <span class="val"${mazume?.inWindow ? ` style="color:var(--green)"` : ""}>${
+            mazume ? escapeHtml(mazume.text) : "—"}</span></div>
         <div class="row"><span class="label">潮汐地点</span>
           <span class="val">${escapeHtml(point.name)}</span></div>
       </div>
-      ${chart ? `<div class="tide-scroller">${chart.svg}</div>` : ""}
+      ${chart ? `<div class="tide-scroller">${chart.svg}${sunStripHtml(chart.sunMarks)}</div>` : ""}
       <div class="list-sub" style="margin-top:8px">
-        気象庁の推算値${point.area ? "（基準観測点からの推算）" : ""}
+        気象庁の推算値${point.area ? "（基準観測点からの推算）" : ""}・日の出日没は計算値
       </div>`;
   }
 

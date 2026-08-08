@@ -717,8 +717,7 @@ export async function fetchWeather(lat, lng, date) {
   const base = `latitude=${lat}&longitude=${lng}&timezone=Asia%2FTokyo`
     + `&start_date=${date}&end_date=${nextDay}`;
   const forecastUrl = "https://api.open-meteo.com/v1/forecast?" + base
-    + "&hourly=temperature_2m,weather_code,wind_speed_10m,wind_direction_10m&wind_speed_unit=ms"
-    + "&daily=sunrise,sunset";
+    + "&hourly=temperature_2m,weather_code,wind_speed_10m,wind_direction_10m&wind_speed_unit=ms";
   const marineUrl = "https://marine-api.open-meteo.com/v1/marine?" + base + "&hourly=wave_height";
 
   const [forecastRes, marineRes] = await Promise.all([
@@ -734,8 +733,13 @@ export async function fetchWeather(lat, lng, date) {
     waves = marine.hourly?.wave_height ?? null;
   }
 
-  const h = forecast.hourly;
-  const hours = h.time.map((time, i) => ({
+  // 日の出・日没は計算で出す（D-056）。API から取ると過去 3 か月しか遡れない
+  return { hours: mapHourly(forecast.hourly, waves), sun: sunTimes(lat, lng, date) };
+}
+
+/** Open-Meteo の hourly（配列の束）を 1 時間 1 件の形に直す。 */
+function mapHourly(h, waves = null) {
+  return h.time.map((time, i) => ({
     time,
     hour: Number(time.slice(11, 13)),
     temp_c: h.temperature_2m[i],
@@ -744,14 +748,51 @@ export async function fetchWeather(lat, lng, date) {
     wind_dir_deg: h.wind_direction_10m[i],
     wave_height_m: waves ? waves[i] : null,
   }));
+}
 
-  // daily は start_date から並ぶので 0 番目が対象日。値は "YYYY-MM-DDTHH:MM"（JST）
-  // 対象日と違う日付が返ってきたら（座標とタイムゾーンが噛み合っていない）採用しない
-  const daily = forecast.daily ?? {};
-  const sameDay = (value) => value?.slice(0, 10) === date;
-  const rise = sameDay(daily.sunrise?.[0]) ? daily.sunrise[0].slice(11, 16) : null;
-  const set = sameDay(daily.sunset?.[0]) ? daily.sunset[0].slice(11, 16) : null;
-  return { hours, sun: rise && set ? { rise, set } : null };
+/**
+ * 複数日ぶんの時間別予報と日の出・日没を **1 リクエストで**まとめて取る（D-055）。
+ * 週間カレンダーに釣行スコアを出すのに使う。日ごとに叩くと 7 往復になってしまう。
+ *
+ * 各日の hours には翌日 0 時の 1 件を足してある（「24 時間後まで」を満たすため。
+ * 単日の fetchWeather と同じ形にして、そのまま使い回せるようにしている）。
+ * 予報の届かない日（16 日より先など）はキーごと入らない。
+ * @returns {Promise<Map<string, {hours: object[], sun: {rise:string,set:string}|null}>>}
+ */
+export async function fetchWeatherRange(lat, lng, startDate, endDate) {
+  const last = new Date(Date.parse(`${endDate}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
+  const url = "https://api.open-meteo.com/v1/forecast?"
+    + `latitude=${lat}&longitude=${lng}&timezone=Asia%2FTokyo`
+    + `&start_date=${startDate}&end_date=${last}`
+    + "&hourly=temperature_2m,weather_code,wind_speed_10m,wind_direction_10m&wind_speed_unit=ms";
+
+  const result = new Map();
+  let forecast;
+  try {
+    const response = await fetchWithTimeout(url);
+    if (!response.ok) return result;
+    forecast = await response.json();
+  } catch {
+    return result;      // 天気が出なくても潮回りは表示できる
+  }
+  if (!forecast.hourly?.time) return result;
+
+  const byDate = new Map();
+  for (const row of mapHourly(forecast.hourly)) {
+    const date = row.time.slice(0, 10);
+    if (!byDate.has(date)) byDate.set(date, []);
+    byDate.get(date).push(row);
+  }
+
+  for (const [date, hours] of byDate) {
+    if (date > endDate) continue;                       // 翌日 0 時を足すためだけに取った日
+    const nextMidnight = byDate.get(addDays(date, 1))?.[0];
+    result.set(date, {
+      hours: nextMidnight ? [...hours, nextMidnight] : hours,
+      sun: sunTimes(lat, lng, date),                    // 日の出・日没は計算（D-056）
+    });
+  }
+  return result;
 }
 
 /**
@@ -764,27 +805,6 @@ export function isCoordinateInJapan(lat, lng) {
     && y >= 20 && y <= 46 && x >= 122 && x <= 154;
 }
 
-/**
- * 週間カレンダー用の日別天気。予報は 16 日先までなので、範囲外の日は
- * 単に結果に含まれない（呼び出し側は「天気なし」として扱う）。
- * @returns {Promise<Record<string, number>>} 日付 → WMO 天気コード
- */
-export async function fetchDailyWeather(lat, lng, startDate, endDate) {
-  const url = "https://api.open-meteo.com/v1/forecast?"
-    + `latitude=${lat}&longitude=${lng}&timezone=Asia%2FTokyo`
-    + `&start_date=${startDate}&end_date=${endDate}&daily=weather_code`;
-  try {
-    const response = await fetchWithTimeout(url);
-    if (!response.ok) return {};
-    const { daily } = await response.json();
-    if (!daily?.time) return {};
-    return Object.fromEntries(
-      daily.time.map((date, i) => [date, daily.weather_code[i]])
-        .filter(([, code]) => code != null));
-  } catch {
-    return {};   // 天気が出なくても潮回りは表示できる
-  }
-}
 
 /** "HH:MM" を小数の時刻に変換する（グラフの横位置計算用）。 */
 export function hoursFromHhmm(hhmm) {
@@ -835,6 +855,61 @@ const WEATHER_CATEGORY_LABELS = {
   sunny: "晴れ", cloudy: "曇り", rain: "雨・雪", storm: "雷雨",
 };
 
+/* ---- 日の出・日没（D-056） --------------------------------------------- */
+
+const RAD = Math.PI / 180;
+
+/**
+ * 日の出・日没（JST の "HH:MM"）。天文計算なので通信は要らない。
+ *
+ * API から取らない理由: Open-Meteo の予報は**過去 3 か月ぶんしか遡れない**。
+ * 釣果は何年も残るものなので、去年の釣行に「朝マヅメだったか」を出せなくなる。
+ * 計算なら何年前でも何年先でも出せて、圏外でも動く。
+ *
+ * 標準的な日の出方程式（太陽の視半径と大気差ぶんの -0.833°を含む）。
+ * 誤差は日本の緯度で 1 分程度で、マヅメの判定には十分。
+ * @returns {{rise: string, set: string}|null} 白夜・極夜では null
+ */
+export function sunTimes(lat, lng, date) {
+  // Number(null) も Number("") も 0 になる。0 は赤道の有効な緯度なので、
+  // ここで弾かないと「座標が無い」が「ギニア湾の日の出」に化ける
+  if (lat == null || lat === "" || lng == null || lng === "" || !date) return null;
+  const y = Number(lat), x = Number(lng);
+  if (!Number.isFinite(y) || !Number.isFinite(x)) return null;
+
+  // JST 正午のユリウス日を基準にする（その日の太陽の位置を代表させる）
+  const jdNoon = Date.parse(`${date}T03:00:00Z`) / 86400000 + 2440587.5;
+  if (!Number.isFinite(jdNoon)) return null;
+
+  const n = Math.round(jdNoon - 2451545.0 + 0.0008);
+  const jStar = n - x / 360;                                    // 平均太陽正午
+  const m = (357.5291 + 0.98560028 * jStar) % 360;              // 太陽平均近点角
+  const c = 1.9148 * Math.sin(m * RAD)
+    + 0.02 * Math.sin(2 * m * RAD)
+    + 0.0003 * Math.sin(3 * m * RAD);                           // 中心差
+  const lambda = (m + c + 180 + 102.9372) % 360;                // 黄経
+  const jTransit = 2451545.0 + jStar
+    + 0.0053 * Math.sin(m * RAD) - 0.0069 * Math.sin(2 * lambda * RAD);
+  const decl = Math.asin(Math.sin(lambda * RAD) * Math.sin(23.4397 * RAD));
+
+  const cosOmega = (Math.sin(-0.833 * RAD) - Math.sin(y * RAD) * Math.sin(decl))
+    / (Math.cos(y * RAD) * Math.cos(decl));
+  if (cosOmega > 1 || cosOmega < -1) return null;               // 一日中夜／一日中昼
+  const omega = Math.acos(cosOmega) / RAD;
+
+  return { rise: jdToJstHhmm(jTransit - omega / 360), set: jdToJstHhmm(jTransit + omega / 360) };
+}
+
+/**
+ * ユリウス日 → JST の "HH:MM"。
+ * 秒は**切り捨てる**（四捨五入すると Open-Meteo の値より systematically 1 分遅くなる。
+ * 実測で平均 +0.5 分ずれていた）。
+ */
+function jdToJstHhmm(jd) {
+  const jst = new Date(Math.floor(((jd - 2440587.5) * 86400000 + 9 * 3600000) / 60000) * 60000);
+  return `${String(jst.getUTCHours()).padStart(2, "0")}:${String(jst.getUTCMinutes()).padStart(2, "0")}`;
+}
+
 /* ---- マヅメ（D-051） --------------------------------------------------- */
 
 /**
@@ -849,6 +924,38 @@ export function mazumeWindows(sun) {
     { key: "morning", label: "朝マヅメ", at: sun.rise },
     { key: "evening", label: "夕マヅメ", at: sun.set },
   ];
+}
+
+/**
+ * 指定時刻にいちばん近いマヅメと、そこからのずれ。
+ * 「その 1 匹はマヅメだったのか」を釣果詳細に出すのに使う（D-056）。
+ * @returns {{label:string, at:string, diffMinutes:number}|null} diff は正なら「後」
+ */
+export function nearestMazume(sun, hhmm) {
+  const at = hoursFromHhmm(hhmm);
+  const windows = mazumeWindows(sun);
+  if (at == null || !windows.length) return null;
+  return windows
+    .map((w) => ({ ...w, diffMinutes: Math.round((at - hoursFromHhmm(w.at)) * 60) }))
+    .reduce((a, b) => (Math.abs(b.diffMinutes) < Math.abs(a.diffMinutes) ? b : a));
+}
+
+/** マヅメとみなす幅（中心から前後）。 */
+export const MAZUME_WINDOW_MINUTES = 60;
+
+/** 「朝マヅメ 05:04 の 18 分後」のような文言。 */
+export function mazumeLabel(near) {
+  if (!near) return null;
+  const d = near.diffMinutes;
+  const abs = Math.abs(d);
+  const span = abs >= 60
+    ? `${Math.floor(abs / 60)} 時間${abs % 60 ? ` ${abs % 60} 分` : ""}`
+    : `${abs} 分`;
+  const when = d === 0 ? "ちょうど" : `${span}${d > 0 ? "後" : "前"}`;
+  return {
+    text: `${near.label} ${near.at} ${when}`,
+    inWindow: abs <= MAZUME_WINDOW_MINUTES,
+  };
 }
 
 /** "HH:MM" にいちばん近い時刻の予報。 */

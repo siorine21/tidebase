@@ -241,6 +241,7 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 
 .row .label { color: var(--text-secondary); }
 .row .val { font-family: 'JetBrains Mono', monospace; color: var(--blue); }
+.row .val .sub-val { color: var(--text-muted); font-size: 11px; }
 
 .muted { color: var(--text-muted); font-size: 12px; }
 
@@ -911,6 +912,11 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .week-grid .tt { font-size: 9px; font-weight: 700; }
 .week-grid .wx { height: 18px; display: flex; align-items: center; }
 .week-grid .wx .icon { width: 15px; height: 15px; color: var(--text-secondary); }
+/* 釣行スコア。7 列に ★★★★☆ は入らないので、星 1 つ＋数字にする（D-055） */
+.week-grid .sc {
+  font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--mustard-lt);
+}
+.week-grid .sc.dim { color: var(--text-muted); }
 
 /* ---------- SCR-014 設定 ---------- */
 .app-header .link-btn {

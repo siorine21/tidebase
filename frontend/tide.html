@@ -82,12 +82,12 @@
   import {
     requireSession, renderNav, escapeHtml, icon,
     todayInJst, formatJstDate, nowInJst, hoursFromHhmm, addJstDays, weekOf,
-    fetchWeather, fetchDailyWeather, describeWeather, windDirection,
+    fetchWeatherRange, describeWeather, windDirection,
     fishingScoreOfDay, showFishingScoreHelp, stars,
     listSpots, listTidePoints, fetchTideForPoint, tidePointOfSpot,
     savedTidePoint, saveTidePoint, formatLag,
     listFavoriteTidePoints, saveFavoriteTidePoints,
-    tideType, TIDE_TYPE_COLORS, isCoordinateInJapan, tideTimelineSvg, sunStripHtml, levelAxisHtml, tideLevelAt,
+    tideType, TIDE_TYPE_COLORS, isCoordinateInJapan, tideTimelineSvg, sunStripHtml, levelAxisHtml, tideLevelAt, sunTimes,
   } from "./assets/app.js";
 
   const DEFAULT_POINT = "ST:MI";   // 静岡特化の既定（D-030）
@@ -164,7 +164,7 @@
     renderChart();
     renderWeek();
     applyDate();        // 地点名・推算表記もここで更新する
-    await loadVisibleDays();
+    await loadWeekDays();
   }
 
   // 追加用の select は常設して出し入れするだけにする（動的生成はフォーカスの
@@ -231,7 +231,7 @@
   function renderChart() {
     const days = weekOf(state.week);
     const result = tideTimelineSvg({
-      days, tides: days.map((date) => tideOf(date)), suns: sunCache, today,
+      days, tides: days.map((date) => tideOf(date)), suns, today,
       dayUnits: DAY_UNITS, height: CHART_H, padTop: PAD_TOP, padBottom: PAD_BOTTOM,
     });
     const axis = document.getElementById("level-axis");
@@ -292,15 +292,23 @@
     return days[Math.min(Math.max(index, 0), days.length - 1)];
   }
 
-  /** 見えている範囲とその前後の日を読み込む（週の全部をまとめて取りにいかない）。 */
-  async function loadVisibleDays() {
+  /**
+   * 週の 7 日ぶんを読み込む。
+   * 以前は「見えている範囲だけ」にしていたが、週間カレンダーに釣行スコアを
+   * 出すようになって結局 7 日ぶんの潮位が要るようになった（D-055）。
+   * 見えている日から先に取りにいくので、グラフの表示は前と同じ速さで出る。
+   */
+  async function loadWeekDays() {
     const days = weekOf(state.week);
     const width = dayWidth() || 1;
     const from = Math.floor(scroller.scrollLeft / width) - 1;
     const to = Math.floor((scroller.scrollLeft + scroller.clientWidth) / width) + 1;
-    const wanted = [];
-    for (let i = from; i <= to; i++) if (i >= 0 && i < days.length) wanted.push(days[i]);
-    await Promise.all(wanted.map(loadDay));
+    const near = (date, i) => (i >= from && i <= to ? 0 : 1);
+    const ordered = days
+      .map((date, i) => ({ date, rank: near(date, i) }))
+      .sort((a, b) => a.rank - b.rank)
+      .map((x) => x.date);
+    await Promise.all(ordered.map(loadDay));
   }
 
   async function loadDay(date) {
@@ -315,6 +323,7 @@
     // 取得中に地点が変わっていたら描かない
     if (key.startsWith(`${state.point.value}|`)) {
       renderChart();
+      renderWeek();        // 潮の動きぶんが決まるので、その日の星が出せるようになる
       loadWeather(date).then((hours) => {
         if (!hours) return;
         renderChart();                       // 日の出・日没が届いたので夜間帯を描き直す
@@ -340,27 +349,41 @@
         renderWeek();
         applyDate();
       }
-      await loadVisibleDays();
+      await loadWeekDays();
     }, 120);
   });
 
   /* ---------- 天気（日付ごとに取得してキャッシュ） ---------- */
   const weatherCache = new Map();   // 日付 → 時間別予報
-  const sunCache = new Map();       // 日付 → 日の出・日没
 
   /** 天気は地点の座標で取る（この画面はスポットではなく地点が主役）。 */
   function pickWeatherCoordinates() {
     return state.point.lat != null ? { lat: state.point.lat, lng: state.point.lng } : null;
   }
 
-  async function loadWeather(date) {
-    if (weatherCache.has(date)) return weatherCache.get(date);
+  /**
+   * 日の出・日没。計算で出せる（D-056）ので通信を待たない。
+   * 夜の帯と日の出の印が「天気が届くまで出ない」状態を作らないため。
+   */
+  const sunCache = new Map();       // 地点|日付 → 日の出・日没
+  function sunOf(date) {
     const at = pickWeatherCoordinates();
     if (!at) return null;
-    const forecast = await fetchWeather(at.lat, at.lng, date).catch(() => null);
-    weatherCache.set(date, forecast?.hours ?? null);
-    if (forecast?.sun) sunCache.set(date, forecast.sun);
-    return forecast?.hours ?? null;
+    const key = `${state.point.value}|${date}`;
+    if (!sunCache.has(key)) sunCache.set(key, sunTimes(at.lat, at.lng, date));
+    return sunCache.get(key);
+  }
+  const suns = { get: sunOf };      // tideTimelineSvg へ渡す（Map と同じ使い方）
+
+  /**
+   * 指定日の時間別予報。取得は週まとめ（D-055）なので、
+   * ここでは「その週ぶんが届くのを待つ」だけ。
+   * 日ごとに取りにいくと 1 週間で 7 往復してしまう。
+   */
+  async function loadWeather(date) {
+    if (weatherCache.has(date)) return weatherCache.get(date);
+    await loadWeekWeather(weekOf(state.week));
+    return weatherCache.get(date) ?? null;
   }
 
   /** 選択中の日をサマリ・天気に反映する。 */
@@ -395,7 +418,7 @@
     // 朝マヅメ・夕マヅメで判定し、良いほうをその日のスコアにする（D-051・D-052）
     scoreContext = weather
       ? fishingScoreOfDay({
-          tideType: type, hours: weather, sun: sunCache.get(date) ?? null, tide })
+          tideType: type, hours: weather, sun: sunOf(date), tide })
       : null;
     const score = scoreContext?.score ?? null;
 
@@ -447,7 +470,7 @@
   }
 
   /* ---------- 週間カレンダー ---------- */
-  async function renderWeek() {
+  function renderWeek() {
     const days = weekOf(state.week);
     // 見出しは日付の範囲、ナビの真ん中は週の呼び名。同じ情報を二重に出さない
     document.getElementById("week-range").textContent =
@@ -458,18 +481,36 @@
     document.getElementById("week-today").hidden = isThisWeek;
 
     // 潮回りは月齢から出せるので通信不要。天気は予報の届く範囲だけ載る
-    const box = document.getElementById("week");
-    box.innerHTML = days.map((date) => dayCell(date, dailyCodes.get(date) ?? null)).join("");
-
-    const at = pickWeatherCoordinates();
-    if (!at || dailyCodes.has(days[0])) return;
-    const codes = await fetchDailyWeather(at.lat, at.lng, days[0], days[6]);
-    for (const [date, code] of Object.entries(codes)) dailyCodes.set(date, code);
-    if (weekOf(state.week)[0] !== days[0]) return;   // 待っている間に週が変わった
-    box.innerHTML = days.map((date) => dayCell(date, dailyCodes.get(date) ?? null)).join("");
+    document.getElementById("week").innerHTML = days.map(dayCell).join("");
   }
 
-  const dailyCodes = new Map();   // 日付 → WMO 天気コード
+  /**
+   * 週の天気を 1 リクエストでまとめて取る（D-055）。
+   * 釣行スコアを日別に出すには、日の出・日没とマヅメ時刻の風まで要る。
+   * 取れたものは選択日用のキャッシュにも入れるので、日を切り替えても再取得しない。
+   */
+  // 取りにいった週（週の初日 → 進行中の Promise）。
+  // 予報が届かない週は結果が空のままなので、「取れたか」ではなく「取りにいったか」で
+  // 止める。そうしないと再描画のたびに叩き続ける。
+  const requestedWeeks = new Map();
+
+  function loadWeekWeather(days) {
+    const key = days[0];
+    if (requestedWeeks.has(key)) return requestedWeeks.get(key);
+    const at = pickWeatherCoordinates();
+    if (!at) return Promise.resolve();
+
+    const pending = (async () => {
+      const range = await fetchWeatherRange(at.lat, at.lng, days[0], days[6]);
+      for (const [date, { hours }] of range) weatherCache.set(date, hours);
+      if (weekOf(state.week)[0] !== key) return;   // 待っている間に週が変わった
+      renderWeek();
+      renderChart();                               // 夜の帯・日の出の印も描き直す
+      applyDate();
+    })();
+    requestedWeeks.set(key, pending);
+    return pending;
+  }
 
   /** 「今週」から何週ぶん離れているかを言葉にする。 */
   function weekLabel(weekStart) {
@@ -482,18 +523,32 @@
     return diff > 0 ? `${diff} 週間後` : `${-diff} 週間前`;
   }
 
-  function dayCell(date, weatherCode) {
+  function dayCell(date) {
     const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
     const type = tideType(date);
     const classes = ["day"];
     if (date === today) classes.push("today");
     if (date === state.date) classes.push("selected");
+
+    const hours = weatherCache.get(date) ?? null;
+    const noon = hours?.find((w) => w.hour === 12) ?? hours?.[0] ?? null;
+    // 潮汐も揃っていないと潮の動きぶんが出せない。揃うまではスコアを出さない
+    // （途中の点を見せると、あとで数字が変わって見える）
+    const day = hours && sunOf(date) && tideOf(date)
+      ? fishingScoreOfDay({ tideType: type, hours, sun: sunOf(date), tide: tideOf(date) })
+      : null;
+
+    // 狭いセルなので星は 1 つだけにして数字を添える（★★★★☆ は 7 列に入らない）
+    const score = day
+      ? `<span class="sc"${day.score >= 4 ? ` style="color:var(--green)"` : ""}>★${day.score}</span>`
+      : `<span class="sc dim">—</span>`;
     return `
       <button type="button" class="${classes.join(" ")}" data-date="${date}">
         <span class="wd wd-${weekday}">${WEEKDAYS_EN[weekday]}</span>
         <span class="dd">${Number(date.slice(8))}</span>
         <span class="tt" style="color:${TIDE_TYPE_COLORS[type]}">${type}</span>
-        <span class="wx">${weatherCode == null ? "" : describeWeather(weatherCode).icon}</span>
+        <span class="wx">${noon == null ? "" : describeWeather(noon.weather_code).icon}</span>
+        ${score}
       </button>`;
   }
 
@@ -509,7 +564,8 @@
   document.getElementById("week-today").addEventListener("click", async () => {
     state.week = today; state.date = today;
     renderChart(); renderWeek(); applyDate();
-    await loadVisibleDays();
+    loadWeekWeather(weekOf(state.week));
+    await loadWeekDays();
     scrollToNow();          // 「今週」は現在時刻の位置まで戻す
   });
 
@@ -520,8 +576,9 @@
     renderChart();
     renderWeek();
     applyDate();
+    loadWeekWeather(weekOf(state.week));
     scrollToDate(state.date, "auto");
-    await loadVisibleDays();
+    await loadWeekDays();
   }
 
   function message(text, kind) {
@@ -538,8 +595,9 @@
   renderTabs();
   renderWeek();
   applyDate();
+  loadWeekWeather(weekOf(state.week));
   scrollToDate(state.date, "auto");
-  await loadVisibleDays();
+  await loadWeekDays();
   scrollToNow("auto");        // 開いた直後は「いま」が見えている状態にする
 </script>
 </body>

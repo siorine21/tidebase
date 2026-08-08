@@ -82,7 +82,7 @@
     listSpots, listRecords, tideCorrelation, icon,
     recordFishName, nowInJst, hoursFromHhmm, addJstDays,
     listTidePoints, fetchTideForPoint, tidePointOfSpot, savedTidePoint, saveTidePoint, formatLag,
-    isCoordinateInJapan, tideTimelineSvg, sunStripHtml, levelAxisHtml, tideLevelAt,
+    isCoordinateInJapan, tideTimelineSvg, sunStripHtml, levelAxisHtml, tideLevelAt, sunTimes,
   } from "./assets/app.js";
 
   // 静岡県特化のため既定は舞阪（浜名湖口・遠州灘西部の基準）
@@ -139,10 +139,13 @@
       weatherAt ? fetchWeather(weatherAt.lat, weatherAt.lng, today).catch(() => null) : null,
     ]);
     const weather = forecast?.hours ?? null;
-    if (forecast?.sun) sunCache.set(today, forecast.sun);
     tideCache.set(today, tide);
+    // 日の出・日没は計算で出す（D-056）。天気の通信を待たずに夜の帯と印が描ける
+    if (weatherAt) {
+      for (const date of chartDays) sunCache.set(date, sunTimes(weatherAt.lat, weatherAt.lng, date));
+    }
 
-    renderHero(baseSpot, tide, weather, point, forecast?.sun ?? null);
+    renderHero(baseSpot, tide, weather, point, sunCache.get(today) ?? null);
     renderChart();
     renderHourly(weather);
     scrollToNow("auto");
@@ -309,7 +312,6 @@
         weatherAt ? fetchWeather(weatherAt.lat, weatherAt.lng, date).catch(() => null) : null,
       ]);
       tideCache.set(date, tide);
-      if (forecast?.sun) sunCache.set(date, forecast.sun);
       renderChart();
     }));
   }
