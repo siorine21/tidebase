@@ -1433,28 +1433,44 @@ export async function createGroup(name) {
 }
 
 /** 未使用・期限内の招待だけを返す。 */
+/**
+ * グループの招待リンク。**使用済みも含めて**返す（D-059）。
+ * 3 本送ったうち誰が使ったかが分からないと、催促のしようがない。
+ * 期限切れは出しても打つ手がないので除く。
+ */
 export async function listInvites(groupId) {
   const { data, error } = await client
     .from("group_invites")
     .select("token, label, expires_at, created_at, used_at")
     .eq("group_id", groupId)
-    .is("used_at", null)
-    .gt("expires_at", new Date().toISOString())
+    .or(`used_at.not.is.null,expires_at.gt.${new Date().toISOString()}`)
     .order("created_at", { ascending: false });
   if (error) throw error;
   return data;
 }
 
-export async function createInvite(groupId, label) {
+/**
+ * 招待リンクを作る。**1 本で 1 人だけ**登録できる（使い切り）。
+ * 何人か招待するときは人数ぶんまとめて作る（D-059）。
+ * メモを付けて 2 本以上作るときは「たろう 1」「たろう 2」と番号を振って区別できるようにする。
+ * @param {number} count 作る本数
+ */
+export async function createInvite(groupId, label, count = 1) {
   const userId = await requireUserId();
+  const n = Math.max(1, Math.min(Number(count) || 1, GROUP_MEMBER_LIMIT));
+  const name = (label ?? "").trim();
+  const rows = Array.from({ length: n }, (_, i) => ({
+    group_id: groupId, created_by: userId,
+    label: name ? (n > 1 ? `${name} ${i + 1}` : name) : null,
+  }));
   const { data, error } = await client
-    .from("group_invites")
-    .insert({ group_id: groupId, created_by: userId, label: label || null })
-    .select("token, label, expires_at")
-    .single();
+    .from("group_invites").insert(rows).select("token, label, expires_at");
   if (error) throw error;
   return data;
 }
+
+/** グループの人数上限（010 の group_member_limit() と同じ値）。 */
+export const GROUP_MEMBER_LIMIT = 8;
 
 export async function revokeInvite(token) {
   const { error } = await client.from("group_invites").delete().eq("token", token);

@@ -75,7 +75,7 @@
     client, requireSession, renderNav, toJapaneseError, requireUserId, currentUserId,
     escapeHtml, icon, renderIcons, formatJstDate,
     myGroup, listGroupMembers, createGroup, listInvites, createInvite,
-    revokeInvite, leaveGroup, inviteUrl, isAppAdmin,
+    revokeInvite, leaveGroup, inviteUrl, isAppAdmin, GROUP_MEMBER_LIMIT,
   } from "./assets/app.js";
 
   const MIN_PASSWORD_LENGTH = 8;   // Supabase 側の password_min_length と揃える
@@ -201,6 +201,10 @@
   }
 
   function renderGroup(group, members, invites, canInvite) {
+    // 人数上限までの残り。未使用の招待も「席を押さえている」ものとして数える
+    // （3 人ぶん作ってから「あと 5 人」と出ると、二重に招待してしまう）
+    const pendingInvites = invites.filter((inv) => !inv.used_at).length;
+    const remaining = Math.max(0, GROUP_MEMBER_LIMIT - members.length - pendingInvites);
     groupCard.innerHTML = `
       <h2><span data-icon="groups"></span> ${escapeHtml(group.name)}</h2>
       <div id="member-list">
@@ -223,14 +227,31 @@
           <label for="invite-label">招待する人（メモ・任意）</label>
           <input type="text" id="invite-label" maxlength="20" placeholder="例: たろう">
         </div>
+        <div class="field">
+          <label for="invite-count">何人ぶん作るか</label>
+          <select id="invite-count">
+            ${Array.from({ length: Math.max(1, remaining) }, (_, i) => `
+              <option value="${i + 1}">${i + 1} 人ぶん</option>`).join("")}
+          </select>
+          <!-- 使い切り仕様を画面に書いておく。書いていなかったせいで、
+               1 本を 3 人に回して 2 人目が弾かれた（D-059） -->
+          <div class="hint">
+            リンク 1 本で登録できるのは 1 人だけです。何人か招待するときは人数ぶん作って、
+            それぞれ別の人に送ってください。あと ${remaining} 人まで参加できます。
+          </div>
+        </div>
         <button type="button" class="btn" id="make-invite">招待リンクを作る</button>
         <div id="invite-list" style="margin-top:14px">
           ${invites.length ? `
-            <div class="list-sub" style="margin-bottom:6px">未使用の招待リンク</div>
-            ${invites.map((inv) => `
+            <div class="list-sub" style="margin-bottom:6px">招待リンク</div>
+            ${invites.map((inv) => inv.used_at ? `
+              <div class="card invite-used" style="background:var(--bg-deep);margin-bottom:8px">
+                <div class="list-title">${escapeHtml(inv.label ?? "（メモなし）")}</div>
+                <div class="list-sub">${formatJstDate(inv.used_at.slice(0, 10))} に使用済み</div>
+              </div>` : `
               <div class="card" style="background:var(--bg-deep);margin-bottom:8px" data-token="${inv.token}">
                 <div class="list-title">${escapeHtml(inv.label ?? "（メモなし）")}</div>
-                <div class="list-sub">${formatJstDate(inv.expires_at.slice(0, 10))} まで有効</div>
+                <div class="list-sub">未使用 · ${formatJstDate(inv.expires_at.slice(0, 10))} まで有効</div>
                 <input type="text" class="invite-url" readonly value="${escapeHtml(inviteUrl(inv.token))}"
                        style="width:100%;margin-top:8px;font-size:12px">
                 <div class="actions" style="margin-top:8px">
@@ -267,9 +288,14 @@
       const group = await myGroup();
       make.disabled = true; make.textContent = "作成中…";
       try {
-        await createInvite(group.id, document.getElementById("invite-label").value.trim());
+        await createInvite(group.id,
+          document.getElementById("invite-label").value.trim(),
+          Number(document.getElementById("invite-count").value) || 1);
+        const count = Number(document.getElementById("invite-count").value) || 1;
         await loadGroup();
-        message("招待リンクを作りました。LINE などで本人にだけ送ってください。", "success");
+        message(count > 1
+          ? `招待リンクを ${count} 本作りました。1 本につき 1 人なので、別の人に 1 本ずつ送ってください。`
+          : "招待リンクを作りました。LINE などで本人にだけ送ってください。", "success");
       } catch (error) {
         make.disabled = false; make.textContent = "招待リンクを作る";
         message(toJapaneseError(error), "error");

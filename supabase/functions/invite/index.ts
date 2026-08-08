@@ -136,6 +136,11 @@ async function handlePost(request: Request): Promise<Response> {
     return json(403, { error: REASONS[result.reason ?? "used"] ?? REASONS.used });
   }
 
+  // 作った直後に失敗したら消す（下の catch）。消さないと
+  // 「アカウントはあるがグループに入っていない」人が残り、やり直そうとしても
+  // 「このメールアドレスは既に登録されています」で永久に詰む（D-059）。
+  let createdUserId: string | null = null;
+
   try {
     // Admin API でユーザーを作る。disable_signup の対象外。
     // email_confirm: true — 確認メールは使わない。Supabase の内蔵メールは
@@ -155,6 +160,7 @@ async function handlePost(request: Request): Promise<Response> {
       });
     }
     const user = await created.json() as { id: string };
+    createdUserId = user.id;
 
     // handle_new_user トリガーが profiles を作っているので、名前を入れる
     const named = await api(`/rest/v1/profiles?id=eq.${user.id}`, {
@@ -173,6 +179,12 @@ async function handlePost(request: Request): Promise<Response> {
     await rpc("redeem_invite", { invite_token: token, new_user: user.id });
     return json(200, { ok: true });
   } catch (error) {
+    // 途中で作ったアカウントは消す。残すとやり直しが「既に登録されています」で
+    // 弾かれ、グループに入れないまま詰んでしまう
+    if (createdUserId) {
+      await api(`/auth/v1/admin/users/${createdUserId}`, { method: "DELETE" })
+        .catch(() => {});
+    }
     // 押さえた招待を戻して、同じリンクをもう一度使えるようにする
     await rpc("release_invite", { invite_token: token }).catch(() => {});
     const { userMessage, status } = error as { userMessage?: string; status?: number };
