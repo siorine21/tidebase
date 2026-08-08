@@ -243,6 +243,13 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .row .val { font-family: 'JetBrains Mono', monospace; color: var(--blue); }
 .row .val .sub-val { color: var(--text-muted); font-size: 11px; }
 
+/* タックルの登録済みチップ。× で消せる（D-066） */
+.chip-x {
+  background: none; border: none; padding: 0 0 0 4px; margin-left: 2px;
+  color: var(--text-muted); cursor: pointer; line-height: 1; vertical-align: middle;
+}
+.chip-x:hover { color: var(--red); }
+
 /* 使用済みの招待リンク。もう操作できないので控えめに出す（D-059） */
 .invite-used { opacity: 0.6; }
 
@@ -437,6 +444,14 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
   background: var(--blue-bg); border: 1px solid var(--blue-deep); color: var(--blue);
 }
 
+/* 自分の釣果（D-064）。カラシはこのアプリで「自分のもの」を指す色
+   （スコアの円・ナビの選択中）なので、青（ほかの人）と役割で対になる */
+.owner-badge.mine {
+  background: var(--mustard-bg); border-color: var(--mustard-dk); color: var(--mustard-lt);
+}
+
+/* 左の線は「自分のものではない」ことの目印。自分の行にも付けると
+   全行に線が入って、かえって見分けがつかなくなる */
 .list-item.shared { border-left: 3px solid var(--blue-mid); }
 
 /* 招待リンクは選択してコピーできるよう input のままにする（読み取り専用） */

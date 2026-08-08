@@ -29,7 +29,7 @@
     createMap, spotMarker, googleMapsUrl, googleDirectionsUrl, isCoordinateInJapan,
     listTidePoints, fetchTideForPoint, tideAt, tideTimelineSvg, sunStripHtml,
     sunTimes, tideFlowAt, TIDE_FLOW_LABELS, nearestMazume, mazumeLabel,
-    listRecordPhotos, deleteRecordPhotos, signedPhotoUrls, lureCategoryText,
+    listRecordPhotos, deleteRecordPhotos, signedPhotoUrls, lureCategoryText, ownerBadge,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -170,7 +170,7 @@
     const WATER = { saltwater: "海水", brackish: "汽水", freshwater: "淡水" };
     const rows = [
       // 他人の釣果は投稿者を最初に出す（誰の記録かを見間違えないように）
-      r.is_mine ? null : ["投稿者", r.owner_name],
+      ["投稿者", r.is_mine ? "自分" : r.owner_name],
       ["釣行日", formatJstDate(r.fished_at, { weekday: true })
         + (r.fished_time ? ` ${r.fished_time.slice(0, 5)}` : "")],
       ["スポット", r.spot_name ? `${r.spot_name}（${WATER[r.spot_water_type] ?? "—"}）` : null],
@@ -196,7 +196,7 @@
 
     box.innerHTML = `
       ${r.is_mine ? "" : `<div class="message shared-note">
-        <span class="owner-badge">${escapeHtml(r.owner_name)}</span> さんの釣果です（閲覧のみ）
+        ${ownerBadge(r)} さんの釣果です（閲覧のみ）
       </div>`}
       <div class="card">
         <div class="rows">

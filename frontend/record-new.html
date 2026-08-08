@@ -80,14 +80,21 @@
         <span class="chip" data-value="ボトム直撃">ボトム直撃</span>
       </div>
     </div>
+    <!-- 登録済みのタックルがあれば選ぶだけにする（D-066）。
+         借りた竿なども記録できるよう、自由入力へ切り替えられる -->
     <div class="row-2">
-      <div class="field"><label for="rod">ロッド</label><input type="text" id="rod"></div>
-      <div class="field"><label for="reel">リール</label><input type="text" id="reel"></div>
+      <div class="field"><label for="rod">ロッド</label>
+        <select id="rod-select" hidden></select><input type="text" id="rod"></div>
+      <div class="field"><label for="reel">リール</label>
+        <select id="reel-select" hidden></select><input type="text" id="reel"></div>
     </div>
     <div class="row-2">
-      <div class="field"><label for="line">ライン</label><input type="text" id="line"></div>
-      <div class="field"><label for="leader">リーダー</label><input type="text" id="leader"></div>
+      <div class="field"><label for="line">ライン</label>
+        <select id="line-select" hidden></select><input type="text" id="line"></div>
+      <div class="field"><label for="leader">リーダー</label>
+        <select id="leader-select" hidden></select><input type="text" id="leader"></div>
     </div>
+    <div class="list-sub" id="tackle-note"></div>
   </section>
 
   <!-- STEP 3: スポット -->
@@ -186,6 +193,7 @@
     client, requireSession, renderNav, escapeHtml, toJapaneseError, requireUserId,
     todayInJst, nowInJst, listSpots, listSpecies, listRecipes, suggestFishName, icon,
     groupSpeciesByCategory, createMap, spotMarker, LURE_CATEGORIES,
+    listTackle, TACKLE_KINDS,
     listRecordPhotos, uploadRecordPhoto, deleteRecordPhotos, signedPhotoUrls, PHOTO_MAX_COUNT,
   } from "./assets/app.js";
 
@@ -215,10 +223,11 @@
   document.getElementById("fished-at").value = todayInJst();
   renderStepper();
 
-  const [species, recipes, spots] = await Promise.all([
+  const [species, recipes, spots, tackle] = await Promise.all([
     listSpecies().catch(() => []),
     listRecipes().catch(() => []),
     listSpots().catch(() => []),
+    listTackle().catch(() => ({})),
   ]);
 
   // 水域区分ごとにグループ表示（海水 → 汽水 → 淡水）
@@ -231,6 +240,46 @@
   document.getElementById("recipe").insertAdjacentHTML("beforeend",
     recipes.map((r) => `<option value="${r.id}">${r.is_favorite ? "[お気に入り] " : ""}${escapeHtml(r.name)}</option>`).join(""));
   renderSpots(spots);
+
+  /* ---------- タックル（D-066） ----------
+     登録済みがあれば 4 つとも選択式にする。無ければ今までどおり自由入力。
+     「その 1 本だけ違う」ときのために、まとめて自由入力へ戻せるようにしてある。 */
+  let tackleFree = false;
+  function renderTackle() {
+    const hasAny = TACKLE_KINDS.some(({ kind }) => (tackle[kind] ?? []).length);
+    const useSelect = hasAny && !tackleFree;
+    for (const { kind } of TACKLE_KINDS) {
+      const input = document.getElementById(kind);
+      const select = document.getElementById(`${kind}-select`);
+      input.hidden = useSelect;
+      select.hidden = !useSelect;
+      if (!useSelect) continue;
+      // 保存済みの値が登録一覧に無いこともある（借りた竿など）。消さずに残す
+      const names = [...new Set([...(tackle[kind] ?? []), input.value].filter(Boolean))];
+      select.innerHTML = `<option value="">選択しない</option>`
+        + names.map((n) => `<option value="${escapeHtml(n)}"${n === input.value ? " selected" : ""}
+              >${escapeHtml(n)}</option>`).join("");
+    }
+    document.getElementById("tackle-note").innerHTML = hasAny
+      ? `<button type="button" class="chip" id="tackle-toggle">${
+          useSelect ? "自由入力にする" : "登録済みから選ぶ"}</button>`
+      : `よく使うタックルは<a href="settings.html">設定</a>から登録すると、`
+        + `ここで選ぶだけになります。`;
+  }
+
+  // select の値は保存対象の input に写す（保存側は今までどおり文字列を見る）
+  for (const { kind } of TACKLE_KINDS) {
+    document.getElementById(`${kind}-select`).addEventListener("change", (e) => {
+      document.getElementById(kind).value = e.target.value;
+      saveDraft();
+    });
+  }
+  document.getElementById("tackle-note").addEventListener("click", (e) => {
+    if (!e.target.closest("#tackle-toggle")) return;
+    tackleFree = !tackleFree;
+    renderTackle();
+  });
+  renderTackle();
 
   /* ---------- ルアー種別（D-058） ----------
      レシピを選んだらその種別が自動で入り、手では変えられなくする。
@@ -819,6 +868,7 @@
     state.lureSmall = data.lureSmall ?? null;
     syncLureCategory();
 
+    renderTackle();          // 復元した値を選択式にも反映する
     markChip("layer-chips", state.layer);
     markChip("visibility-chips", state.visibility);
     if (state.spotId) {

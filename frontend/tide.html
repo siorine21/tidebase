@@ -106,7 +106,9 @@
   const byValue = new Map(points.map((p) => [p.value, p]));
 
   const spots = await listSpots().catch(() => []);
-  const baseSpot = spots.find((s) => isCoordinateInJapan(s.latitude, s.longitude)) ?? null;
+  // 共有スポットも混ざるので、まず自分のものから選ぶ（D-065）
+  const usable = (s) => isCoordinateInJapan(s.latitude, s.longitude);
+  const baseSpot = spots.find((s) => s.is_mine && usable(s)) ?? spots.find(usable) ?? null;
 
   // 表示する地点: URL 指定 → 端末に保存した選択 → スポットの地点 → 既定（舞阪）
   const requested = new URLSearchParams(location.search).get("point");

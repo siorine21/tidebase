@@ -26,7 +26,7 @@
 <script type="module">
   import {
     client, requireSession, renderNav, escapeHtml, toJapaneseError,
-    listSpots, listRecords, createMap, spotMarker, spotType, waterLabel,
+    listSpots, getSpot, listRecords, createMap, spotMarker, spotType, waterLabel, ownerBadge,
     SPOT_TYPES, WATER_TYPES, googleMapsUrl, googleDirectionsUrl, formatJstDate, icon,
     recordFishName, listTidePoints, tidePointOfSpot, formatLag, isCoordinateInJapan,
   } from "./assets/app.js";
@@ -49,16 +49,21 @@
   const edit = { lat: null, lng: null, water: null, type: null };
   const tidePoints = await listTidePoints().catch(() => []);
 
+  // 宣言は load() の呼び出しより前に置くこと。const/let は巻き上がらないので、
+  // 後ろに置くと load() の中で「初期化前に参照した」で落ちる
+  let loadError = null;
+
   await load();
 
   async function load() {
-    const [{ data, error }, recordList, spotList] = await Promise.all([
-      client.from("spots").select("*").eq("id", id).maybeSingle(),
+    loadError = null;
+    const [data, recordList, spotList] = await Promise.all([
+      getSpot(id).catch((error) => { loadError = error; return null; }),
       listRecords({ limit: 200, spotId: id }).catch(() => []),
       listSpots().catch(() => []),
     ]);
-    if (error) {
-      document.getElementById("content").innerHTML = `<div class="empty">${escapeHtml(toJapaneseError(error))}</div>`;
+    if (loadError) {
+      document.getElementById("content").innerHTML = `<div class="empty">${escapeHtml(toJapaneseError(loadError))}</div>`;
       return;
     }
     if (!data) {
@@ -89,6 +94,8 @@
           <div class="row"><span class="label">座標</span>
             <span class="val">${hasPosition() ? `${spot.latitude}, ${spot.longitude}`
               : "未設定（編集から地図で指定）"}</span></div>
+          <div class="row"><span class="label">登録者</span>
+            <span class="val">${spot.is_mine ? "自分" : escapeHtml(spot.owner_name ?? "メンバー")}</span></div>
           <div class="row"><span class="label">釣行</span>
             <span class="val">${records.length} 回</span></div>
           <div class="row"><span class="label">釣果</span>
@@ -108,10 +115,14 @@
       </div>
       <div>${renderRecords()}</div>
 
-      <div class="actions">
-        <button type="button" class="btn btn-quiet" id="edit-toggle">${icon("edit", { size: 15 })} 編集</button>
-        <button type="button" class="btn btn-quiet" id="delete">削除する</button>
-      </div>
+      ${spot.is_mine ? `
+        <div class="actions">
+          <button type="button" class="btn btn-quiet" id="edit-toggle">${icon("edit", { size: 15 })} 編集</button>
+          <button type="button" class="btn btn-quiet" id="delete">削除する</button>
+        </div>` : `
+        <div class="message shared-note">
+          ${ownerBadge({ is_mine: false, owner_name: spot.owner_name })} さんのスポットです（閲覧のみ）
+        </div>`}
 
       <section id="edit-panel" class="card" hidden>
         <h2>スポットを編集</h2>
@@ -199,6 +210,7 @@
 
   /* ---------- 編集 ---------- */
   function bind() {
+    if (!spot.is_mine) return;   // 以下は編集用。他人のスポットには要素が無い
     document.getElementById("edit-toggle").addEventListener("click", openEdit);
     document.getElementById("edit-cancel").addEventListener("click", () => {
       document.getElementById("edit-panel").hidden = true;

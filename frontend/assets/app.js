@@ -1288,11 +1288,26 @@ export async function requireUserId() {
   return id;
 }
 
+/**
+ * スポット一覧。自分のもの＋同じグループの人のもの（D-065）。
+ * 各行に `is_mine` と `owner_name` が付く。編集できるのは自分のものだけで、
+ * それは画面の作りではなく `spots` の RLS が担保している。
+ * 自分のものを先に並べる（ホームの基準スポットは自分の釣り場であってほしい）。
+ */
 export async function listSpots() {
   const { data, error } = await client
-    .from("spots")
+    .from("spot_feed")
     .select("*")
+    .order("is_mine", { ascending: false })
     .order("created_at", { ascending: false });
+  if (error) throw error;
+  return data;
+}
+
+/** 1 件だけ取る。共有されたスポットも開ける。 */
+export async function getSpot(id) {
+  const { data, error } = await client
+    .from("spot_feed").select("*").eq("id", id).maybeSingle();
   if (error) throw error;
   return data;
 }
@@ -1313,6 +1328,17 @@ export async function listRecords({ limit = 50, spotId = null } = {}) {
   const { data, error } = await query;
   if (error) throw error;
   return data;
+}
+
+/**
+ * 誰の釣果かを示すタグ（D-064）。自分のものにも付ける。
+ * 色はカラシ（自分）と青（ほかの人）。カラシはこのアプリで
+ * 「自分のもの」を指す色（スコアの円・ナビの選択中）なので、意味が揃う。
+ */
+export function ownerBadge(record) {
+  return record?.is_mine
+    ? `<span class="owner-badge mine">自分</span>`
+    : `<span class="owner-badge">${escapeHtml(record?.owner_name ?? "メンバー")}</span>`;
 }
 
 /**
@@ -1733,6 +1759,41 @@ export function escapeHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, (c) => (
     { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
   ));
+}
+
+/* ---------------- タックル（D-066） ---------------- */
+
+export const TACKLE_KINDS = [
+  { kind: "rod", label: "ロッド" },
+  { kind: "reel", label: "リール" },
+  { kind: "line", label: "ライン" },
+  { kind: "leader", label: "リーダー" },
+];
+
+/** 自分のタックル。種別 → 名前の配列。 */
+export async function listTackle() {
+  const { data, error } = await client
+    .from("tackle_items").select("kind, name").order("name");
+  if (error) throw error;
+  const byKind = Object.fromEntries(TACKLE_KINDS.map((k) => [k.kind, []]));
+  for (const row of data) byKind[row.kind]?.push(row.name);
+  return byKind;
+}
+
+export async function addTackle(kind, name) {
+  const userId = await requireUserId();
+  const { data, error } = await client
+    .from("tackle_items")
+    .insert({ user_id: userId, kind, name: name.trim() })
+    .select("id, kind, name").single();
+  if (error) throw error;
+  return data;
+}
+
+export async function removeTackle(kind, name) {
+  const { error } = await client
+    .from("tackle_items").delete().eq("kind", kind).eq("name", name);
+  if (error) throw error;
 }
 
 /* ---------------- ルアーカテゴリ（確定仕様書 2.1・9.1 章） ---------------- */

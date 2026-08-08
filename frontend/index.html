@@ -80,7 +80,7 @@
     fetchTide, fetchWeather, todayInJst, formatJstDate, formatShortDate, relativeDays,
     describeWeather, windDirection, fishingScoreOfDay, showFishingScoreHelp,
     listSpots, listRecords, tideCorrelation, icon,
-    recordFishName, nowInJst, hoursFromHhmm, addJstDays,
+    recordFishName, ownerBadge, nowInJst, hoursFromHhmm, addJstDays,
     listTidePoints, fetchTideForPoint, tidePointOfSpot, savedTidePoint, saveTidePoint, formatLag,
     isCoordinateInJapan, tideTimelineSvg, sunStripHtml, levelAxisHtml, tideLevelAt, sunTimes,
   } from "./assets/app.js";
@@ -108,7 +108,11 @@
 
     // 基準スポット: 最近登録した海水・汽水スポット（潮汐・天気の取得地点）
     const spots = await listSpots().catch(() => []);
-    const baseSpot = spots.find((s) => s.water_type !== "freshwater") ?? spots[0] ?? null;
+    // 共有スポットも混ざるので、まず自分のものから選ぶ（D-065）。
+    // ここは「自分のホームの潮汐と天気」を出すための基準
+    const mine = spots.filter((s) => s.is_mine);
+    const pickBase = (list) => list.find((s) => s.water_type !== "freshwater") ?? list[0] ?? null;
+    const baseSpot = pickBase(mine) ?? pickBase(spots);
 
     // 潮汐地点: 明示的な選択 → 基準スポットの地点 → 静岡県の既定（舞阪）
     const points = await listTidePoints().catch(() => []);
@@ -351,7 +355,7 @@
         + (r.fished_time ? ` ${r.fished_time.slice(0, 5)}` : "");
       const sub = [when, r.spot_name, r.recipe_name]
         .filter(Boolean).map(escapeHtml).join(" / ");
-      const owner = r.is_mine ? "" : `<span class="owner-badge">${escapeHtml(r.owner_name)}</span>`;
+      const owner = ownerBadge(r);
       return `
         <a class="list-item${r.is_mine ? "" : " shared"}" href="record.html?id=${r.id}">
           <div class="thumb">${icon(r.is_skunked ? "skunk" : "fish", { size: 20 })}</div>
