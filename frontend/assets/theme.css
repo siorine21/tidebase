@@ -278,11 +278,15 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .hero-label { font-size: 11px; letter-spacing: 2px; color: var(--text-muted); }
 .hero-date { font-family: 'JetBrains Mono', monospace; font-size: 17px; color: var(--text-primary); }
 
+/* 押すと計算方法の説明が出る（D-050）。押せない間も見た目は変えない */
 .score-circle {
-  flex-shrink: 0; width: 62px; height: 62px; border-radius: 50%;
+  flex-shrink: 0; width: 62px; height: 62px; border-radius: 50%; padding: 0;
   border: 2px solid var(--mustard); display: flex; flex-direction: column;
   align-items: center; justify-content: center; background: var(--mustard-bg);
+  font: inherit; cursor: pointer;
 }
+.score-circle:disabled { cursor: default; opacity: 1; }
+.score-circle:not(:disabled):hover { background: var(--mustard); }
 .score-num { font-family: 'JetBrains Mono', monospace; font-size: 26px; line-height: 1; color: var(--mustard-lt); }
 .score-label { font-size: 10px; color: var(--text-muted); }
 
@@ -437,6 +441,54 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
   background: var(--bg-card); border-top: 1px solid var(--border);
   border-radius: 0 0 var(--radius) var(--radius);
 }
+
+/* ---------- 説明ダイアログ（釣行スコアなど） ---------- */
+.info-dialog {
+  width: min(420px, calc(100vw - 32px));
+  padding: 0; border: 1px solid var(--border-strong); border-radius: var(--radius);
+  background: var(--bg-card); color: var(--text-primary);
+}
+.info-dialog::backdrop { background: rgba(10, 21, 32, 0.72); }
+.info-dialog-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px; border-bottom: 1px solid var(--border);
+}
+.info-dialog-head h2 {
+  margin: 0; font-size: 14px; font-weight: 700; color: var(--text-primary); letter-spacing: 0;
+}
+/* .back は .page-head の中でしか効かないので、ここで自前に持つ */
+.info-dialog-head .close {
+  background: none; border: none; padding: 4px; cursor: pointer;
+  color: var(--text-secondary); display: flex;
+}
+.info-dialog-head .close:hover { color: var(--text-primary); }
+.info-dialog-body { padding: 14px; font-size: 13px; max-height: 70vh; overflow-y: auto; }
+
+.score-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+.score-stars { font-size: 22px; color: var(--mustard-lt); letter-spacing: 2px; }
+.score-num-sm { font-family: 'JetBrains Mono', monospace; color: var(--text-secondary); }
+
+.score-rules { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.score-rules li {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 10px; border-radius: 8px; font-size: 12px;
+  background: var(--bg-deep); border: 1px solid transparent; color: var(--text-secondary);
+}
+/* 実際に効いた規則。どれで決まったかが一目で分かるようにする */
+.score-rules li.hit {
+  background: var(--mustard-bg); border-color: var(--border-strong); color: var(--text-primary);
+}
+.score-rules .rule-star {
+  flex-shrink: 0; font-size: 11px; letter-spacing: 1px; color: var(--mustard);
+}
+
+/* 押すと説明が出ることを示す。数値の右にそっと付ける */
+.info-hint {
+  background: none; border: none; padding: 0 0 0 5px; cursor: pointer;
+  color: var(--text-muted); font: inherit; vertical-align: middle;
+}
+.info-hint:hover { color: var(--mustard); }
+.info-cell .value .info-hint .icon { width: 14px; height: 14px; }
 
 /* ---------- 釣果写真 ---------- */
 .photo-grid {

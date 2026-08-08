@@ -23,10 +23,11 @@
         <div class="hero-label">TODAY</div>
         <div class="hero-date" id="today">—</div>
       </div>
-      <div class="score-circle">
+      <button type="button" class="score-circle" id="score-help"
+              aria-label="釣行スコアの説明" disabled>
         <div class="score-num" id="score">—</div>
         <div class="score-label">/5</div>
-      </div>
+      </button>
     </div>
     <div class="hero-meta" id="hero-meta">読み込み中…</div>
     <div class="tags" id="hero-tags"></div>
@@ -73,7 +74,8 @@
   import {
     client, requireSession, renderNav, escapeHtml,
     fetchTide, fetchWeather, todayInJst, formatJstDate, formatShortDate, relativeDays,
-    describeWeather, windDirection, fishingScore, listSpots, listRecords, tideCorrelation, icon,
+    describeWeather, windDirection, fishingScore, showFishingScoreHelp,
+    listSpots, listRecords, tideCorrelation, icon,
     recordFishName, nowInJst, hoursFromHhmm, addJstDays,
     listTidePoints, fetchTideForPoint, tidePointOfSpot, savedTidePoint, saveTidePoint, formatLag,
     isCoordinateInJapan, tideTimelineSvg, tideLevelAt,
@@ -86,6 +88,12 @@
   let chartDays = [];
   let tideCache = new Map();          // 日付 → 潮汐
   const sunCache = new Map();         // 日付 → 日の出・日没
+
+  // いま何でスコアを判定したか。スコア円を押されたときに説明へ渡す
+  let scoreContext = null;
+  document.getElementById("score-help").addEventListener("click", () => {
+    if (scoreContext) showFishingScoreHelp(scoreContext);
+  });
 
   const session = await requireSession();
   if (session) {
@@ -224,6 +232,12 @@
     if (tide && now) {
       const score = fishingScore(tide.tide_type, now.weather_code, now.wind_speed_ms);
       document.getElementById("score").textContent = score;
+      // 説明を出せるようになったので、まるごとボタンとして押せるようにする
+      scoreContext = {
+        tideType: tide.tide_type, weatherCode: now.weather_code,
+        windMs: now.wind_speed_ms, when: `${now.hour} 時`,
+      };
+      document.getElementById("score-help").disabled = false;
       tags.innerHTML = [
         `<span class="tag tag-mustard">${tide.tide_type}</span>`,
         `<span class="tag ${score >= 4 ? "tag-green" : "tag-gray"}">釣行スコア ${score >= 4 ? "高" : score >= 3 ? "中" : "低"}</span>`,

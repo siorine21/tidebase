@@ -732,14 +732,105 @@ export function hoursFromHhmm(hhmm) {
 
 /* ---------------- 釣行スコア（設計補完書 7 章・D-018） ---------------- */
 
-export function fishingScore(tideType, weatherCode, windMs) {
+/**
+ * 釣行スコアの判定規則。上から順に当てはめ、最初に一致したものを採用する。
+ * 画面の説明と実装がずれないよう、判定そのものをこの表から行う（D-050）。
+ */
+export const FISHING_SCORE_RULES = [
+  {
+    score: 1, label: "雷雨、または風速 15m/s 以上",
+    match: (t, w, wind) => w === "storm" || wind >= 15,
+  },
+  {
+    score: 2, label: "雨・雪、または風速 10m/s 超",
+    match: (t, w, wind) => w === "rain" || wind > 10,
+  },
+  {
+    score: 5, label: "大潮 + 晴れか曇り + 風速 5m/s 以下",
+    match: (t, w, wind) => t === "大潮" && (w === "sunny" || w === "cloudy") && wind <= 5,
+  },
+  {
+    score: 4, label: "中潮 + 晴れか曇り + 風速 7m/s 以下",
+    match: (t, w, wind) => t === "中潮" && (w === "sunny" || w === "cloudy") && wind <= 7,
+  },
+  { score: 3, label: "上のどれにも当てはまらない", match: () => true },
+];
+
+/** スコアと、その根拠になった規則。画面で「なぜこの点か」を出すのに使う。 */
+export function fishingScoreDetail(tideType, weatherCode, windMs) {
   const weather = weatherCategory(weatherCode);
-  if (weather === "storm" || windMs >= 15) return 1;
-  if (weather === "rain" || windMs > 10) return 2;
-  const fine = weather === "sunny" || weather === "cloudy";
-  if (tideType === "大潮" && fine && windMs <= 5) return 5;
-  if (tideType === "中潮" && fine && windMs <= 7) return 4;
-  return 3;
+  const wind = Number(windMs) || 0;
+  const index = FISHING_SCORE_RULES.findIndex((r) => r.match(tideType, weather, wind));
+  return { score: FISHING_SCORE_RULES[index].score, ruleIndex: index, weather, wind };
+}
+
+export function fishingScore(tideType, weatherCode, windMs) {
+  return fishingScoreDetail(tideType, weatherCode, windMs).score;
+}
+
+const WEATHER_CATEGORY_LABELS = {
+  sunny: "晴れ", cloudy: "曇り", rain: "雨・雪", storm: "雷雨",
+};
+
+/**
+ * 釣行スコアの説明を出す。「どういう式か」だけでなく
+ * 「この日はなぜこの点になったか」を先に示す（式だけでは自分の日に当てはめられない）。
+ * @param {{tideType:string, weatherCode:number, windMs:number, when?:string}} context
+ */
+export function showFishingScoreHelp({ tideType, weatherCode, windMs, when = "" }) {
+  const { score, ruleIndex, weather, wind } = fishingScoreDetail(tideType, weatherCode, windMs);
+  const stars = `${"★".repeat(score)}${"☆".repeat(5 - score)}`;
+
+  showInfoDialog("釣行スコア", `
+    <div class="score-head">
+      <span class="score-stars">${stars}</span>
+      <span class="score-num-sm">${score} / 5</span>
+    </div>
+    <div class="rows" style="margin-bottom:14px">
+      <div class="row"><span class="label">潮回り</span>
+        <span class="val">${escapeHtml(tideType ?? "—")}</span></div>
+      <div class="row"><span class="label">天気${when ? `（${escapeHtml(when)}）` : ""}</span>
+        <span class="val">${escapeHtml(describeWeather(weatherCode).label)}
+          （${WEATHER_CATEGORY_LABELS[weather]}）</span></div>
+      <div class="row"><span class="label">風速</span>
+        <span class="val">${wind.toFixed(1)} m/s</span></div>
+    </div>
+
+    <div class="list-sub" style="margin-bottom:6px">判定のしかた（上から順に当てはめる）</div>
+    <ol class="score-rules">
+      ${FISHING_SCORE_RULES.map((rule, i) => `
+        <li class="${i === ruleIndex ? "hit" : ""}">
+          <span class="rule-star">${"★".repeat(rule.score)}${"☆".repeat(5 - rule.score)}</span>
+          <span>${escapeHtml(rule.label)}</span>
+        </li>`).join("")}
+    </ol>
+
+    <div class="list-sub" style="margin-top:12px;line-height:1.6">
+      天気は ${when ? escapeHtml(when) : "その時点"}の予報を代表値にしています。
+      潮回りは月齢からの計算です。目安であり、釣れることを保証するものではありません。
+    </div>`);
+}
+
+/** 共通の説明ダイアログ。Esc・背景タップ・×ボタンで閉じる。 */
+export function showInfoDialog(title, html) {
+  document.getElementById("info-dialog")?.remove();
+  const dialog = document.createElement("dialog");
+  dialog.id = "info-dialog";
+  dialog.className = "info-dialog";
+  dialog.innerHTML = `
+    <div class="info-dialog-head">
+      <h2>${escapeHtml(title)}</h2>
+      <button type="button" class="close" aria-label="閉じる">${icon("close", { size: 18 })}</button>
+    </div>
+    <div class="info-dialog-body">${html}</div>`;
+  document.body.appendChild(dialog);
+
+  dialog.querySelector(".close").addEventListener("click", () => dialog.close());
+  // 背景（dialog 自身の余白）を押したときだけ閉じる
+  dialog.addEventListener("click", (e) => { if (e.target === dialog) dialog.close(); });
+  dialog.addEventListener("close", () => dialog.remove());
+  dialog.showModal();
+  return dialog;
 }
 
 /* ---------------- データアクセス ---------------- */
