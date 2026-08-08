@@ -66,7 +66,7 @@
     <div class="page-sub" id="tide-correction" hidden></div>
   </div>
   <div class="scroll-hint">
-    <span data-icon="back"></span>横にスクロールで前後の時間へ（1 画面 = 12 時間・日をまたいで連続）<span data-icon="chevron-right"></span>
+    <span data-icon="back"></span>横にスクロールで前後の時間へ（1 画面 = 1 日・日をまたいで連続）<span data-icon="chevron-right"></span>
   </div>
 
   <!-- 時間別天気 -->
@@ -209,11 +209,13 @@
      夜釣りは日付をまたぐ（22 時に入って翌 3 時まで、など）。1 日ずつ切ると
      ちょうど見たいところで途切れるため、週の 7 日ぶんを 1 本の曲線として描き、
      横スクロールで時間軸を移動する。
-     画面 1 枚には 12 時間ぶんが見えている（D-053）。 */
+     画面 1 枚には 1 日ぶんが見えている（D-063）。 */
 
-  const SCREENS_PER_DAY = 2;          // 画面 1 枚 = 12 時間
-  // viewBox 幅も同じ倍率で広げる。広げないと、preserveAspectRatio="none" の
-  // 横引き伸ばしが 2 倍になり、時刻ラベルが横に潰れて読めなくなる
+  // 画面 1 枚 = 1 日（24 時間）。ホームと揃えてある（D-063）。
+  // 変えるときは theme.css の .tide-track の幅も一緒に直すこと
+  const SCREENS_PER_DAY = 1;
+  // viewBox 幅も同じ倍率にする。ずれると preserveAspectRatio="none" の
+  // 横引き伸ばしが変わり、時刻ラベルが横に潰れて読めなくなる
   const DAY_UNITS = 320 * SCREENS_PER_DAY;
   const CHART_DAYS = 7;
   const CHART_H = 176, PAD_TOP = 30, PAD_BOTTOM = 30;
