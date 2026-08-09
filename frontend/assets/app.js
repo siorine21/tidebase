@@ -1990,34 +1990,106 @@ export const DEFAULT_MAP_ZOOM = 11;
 export class PlaceSearchUnavailable extends Error {}
 
 /**
- * 地名・住所から座標を引く（国土地理院 地名検索）。
- * 地図タイルと同じ国土地理院なので、出典の扱いを増やさずに済む。
- * @returns {Promise<Array<{name: string, lat: number, lng: number}>>}
+ * 国土地理院 地名検索。**住所（と大きな地名）の索引**なので、
+ * 「アルクスポンド焼津」のような施設名では何も返らない。
+ * 地図タイルと同じ提供元なので、出典の扱いは増えない。
+ */
+async function searchPlaceGsi(q) {
+  // ヘッダーは足さない。付けると CORS の事前確認（preflight）を招きかねず、
+  // この API は付けなくても JSON を返す
+  const response = await fetch(
+    `https://msearch.gsi.go.jp/address-search/AddressSearch?q=${encodeURIComponent(q)}`,
+  );
+  if (!response.ok) throw new Error(`GSI ${response.status}`);
+  const data = await response.json();
+  if (!Array.isArray(data)) throw new Error("GSI の応答を読めません");
+  return data.map((feature) => {
+    // GeoJSON なので coordinates は [経度, 緯度] の順。逆に読むと地球の裏側に飛ぶ
+    const [lng, lat] = feature?.geometry?.coordinates ?? [];
+    return {
+      name: String(feature?.properties?.title ?? "").trim(),
+      detail: "", source: "gsi",
+      lat: Number(lat), lng: Number(lng),
+    };
+  });
+}
+
+/**
+ * OpenStreetMap（Nominatim）。**施設や地物の索引**なので、
+ * 管理釣り場・湖・漁港・ダムのような「住所ではない場所」はこちらが拾う。
+ * 地図タイルには使っていないが、検索だけ借りる。
+ * 重い使い方はしない約束なので、押したときだけ 1 回投げる。
+ */
+async function searchPlaceOsm(q) {
+  const params = new URLSearchParams({
+    q, format: "jsonv2", limit: "10", countrycodes: "jp", "accept-language": "ja",
+  });
+  const response = await fetch(`https://nominatim.openstreetmap.org/search?${params}`);
+  if (!response.ok) throw new Error(`OSM ${response.status}`);
+  const data = await response.json();
+  if (!Array.isArray(data)) throw new Error("OSM の応答を読めません");
+  return data.map((place) => {
+    const display = String(place?.display_name ?? "").trim();
+    const name = String(place?.name ?? "").trim() || display.split(",")[0].trim();
+    // display_name は「名前, 市, 県, 日本」の並び。先頭の名前を除いた残りを説明に回すと、
+    // 同じ名前の場所が並んだときに見分けられる
+    const detail = display.startsWith(name)
+      ? display.slice(name.length).replace(/^[,、]\s*/, "")
+      : display;
+    return {
+      name, detail, source: "osm",
+      lat: Number(place?.lat), lng: Number(place?.lon),
+    };
+  });
+}
+
+const PLACE_SOURCES = [searchPlaceGsi, searchPlaceOsm];
+
+/** 同じ場所が両方から返ることがある。名前が同じで 200m 以内なら 1 つにまとめる。 */
+function isSamePlace(a, b) {
+  return a.name === b.name
+    && Math.abs(a.lat - b.lat) < 0.002 && Math.abs(a.lng - b.lng) < 0.002;
+}
+
+/**
+ * 名前がどれだけ探した言葉に近いか。小さいほど前に出す。
+ * これが無いと、「アルクスポンド焼津」で住所側が拾った「焼津市」が先頭に来てしまう。
+ */
+function placeRelevance(name, q) {
+  if (name === q) return 0;
+  if (name.startsWith(q)) return 1;
+  if (name.includes(q)) return 2;
+  if (q.includes(name)) return 3;
+  return 4;
+}
+
+/**
+ * 地名・住所・施設名から座標を引く。
+ * 住所（国土地理院）と施設・地物（OpenStreetMap）は索引の中身が別物なので、
+ * **両方に投げて混ぜる**。片方が落ちても、もう片方の結果を返す。
+ * @returns {Promise<Array<{name: string, detail: string, source: string, lat: number, lng: number}>>}
  */
 export async function searchPlace(query) {
   const q = String(query ?? "").trim();
   if (!q) return [];
-  let response;
-  try {
-    // ヘッダーは足さない。付けると CORS の事前確認（preflight）を招きかねず、
-    // この API は付けなくても JSON を返す
-    response = await fetch(
-      `https://msearch.gsi.go.jp/address-search/AddressSearch?q=${encodeURIComponent(q)}`,
-    );
-  } catch {
-    // 通信そのものが失敗（オフライン・CORS 拒否・提供終了）
+
+  const settled = await Promise.allSettled(PLACE_SOURCES.map((search) => search(q)));
+  // 全部だめなときだけ「つながらなかった」。片方生きているなら結果を出す
+  if (settled.every((r) => r.status === "rejected")) {
     throw new PlaceSearchUnavailable("地名検索につながりませんでした。");
   }
-  if (!response.ok) throw new PlaceSearchUnavailable("地名検索につながりませんでした。");
-  const data = await response.json().catch(() => null);
-  if (!Array.isArray(data)) throw new PlaceSearchUnavailable("地名検索の応答を読めませんでした。");
-  return data
-    .map((feature) => {
-      // GeoJSON なので coordinates は [経度, 緯度] の順。逆に読むと地球の裏側に飛ぶ
-      const [lng, lat] = feature?.geometry?.coordinates ?? [];
-      return { name: String(feature?.properties?.title ?? "").trim(), lat: Number(lat), lng: Number(lng) };
-    })
-    .filter((hit) => hit.name && isCoordinateInJapan(hit.lat, hit.lng))
+
+  const merged = [];
+  for (const result of settled) {
+    if (result.status !== "fulfilled") continue;
+    for (const hit of result.value) {
+      if (!hit.name || !isCoordinateInJapan(hit.lat, hit.lng)) continue;
+      if (merged.some((kept) => isSamePlace(kept, hit))) continue;
+      merged.push(hit);
+    }
+  }
+  return merged
+    .sort((a, b) => placeRelevance(a.name, q) - placeRelevance(b.name, q))
     .slice(0, 8);   // 候補が 20 件も並ぶと、かえって選べない
 }
 
@@ -2075,9 +2147,12 @@ export function attachPlaceSearch(container, onPick) {
   container.innerHTML = `
     <div class="place-search-row">
       <input type="search" class="place-query" enterkeyhint="search" maxlength="120"
-             placeholder="地名・住所・地図の URL" aria-label="地名・住所・地図の URL で探す">
+             placeholder="地名・施設名・住所・地図の URL" aria-label="地名・施設名・住所・地図の URL で探す">
       <button type="button" class="chip place-go">探す</button>
     </div>
+    <!-- 逃げ道は困る前から見せておく。管理釣り場や小さな池は、
+         どの地名データにも載っていないことがある（D-070） -->
+    <p class="place-hint">見つからないときは Google マップの URL を貼り付けても探せます。</p>
     <div class="place-hits" hidden role="listbox"></div>`;
 
   const input = container.querySelector(".place-query");
@@ -2120,8 +2195,17 @@ export function attachPlaceSearch(container, onPick) {
       }
       hits.innerHTML = found.map((hit, i) => `
         <button type="button" class="place-hit" data-i="${i}" role="option">
-          ${icon("map-pin", { size: 13 })}<span>${escapeHtml(hit.name)}</span>
-        </button>`).join("");
+          ${icon("map-pin", { size: 13 })}
+          <span class="place-hit-body">
+            <span class="place-hit-name">${escapeHtml(hit.name)}</span>
+            ${hit.detail ? `<span class="place-hit-detail">${escapeHtml(hit.detail)}</span>` : ""}
+          </span>
+        </button>`).join("")
+        // 出典。地図タイルの「国土地理院」は Leaflet 側が出しているが、
+        // ここに並ぶ地名は OpenStreetMap のものも混ざるので、出た画面で断る
+        + `<p class="place-credit">地名検索: 国土地理院 /
+             <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener"
+               >OpenStreetMap</a> contributors</p>`;
       hits.hidden = false;
       hits.querySelectorAll(".place-hit").forEach((button) => {
         button.addEventListener("click", () => choose(found[Number(button.dataset.i)]));

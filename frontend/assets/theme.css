@@ -699,10 +699,10 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
      vh のままだと地図が実際の表示領域からはみ出し、下の凡例やリストに気づけない。
    - 引く量は「ヘッダー + 凡例 + リストの先頭 + ボトムナビ」がぶんが残る値にする。
      地図だけで画面が埋まっていると、下に何かある事自体が伝わらない。 */
-/* 引く量には地名検索の行（約 44px）も含む（D-069） */
+/* 引く量には地名検索の行と、その下の案内文（あわせて約 62px）も含む（D-069・D-070） */
 #map {
-  height: calc(100vh - 374px);        /* dvh 非対応ブラウザ向け */
-  height: calc(100dvh - 374px);
+  height: calc(100vh - 392px);        /* dvh 非対応ブラウザ向け */
+  height: calc(100dvh - 392px);
   min-height: 240px;
   border-radius: 0; border-left: 0; border-right: 0;
 }
@@ -799,17 +799,34 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .place-hit:last-child { border-bottom: none; }
 .place-hit:hover { background: var(--mustard-bg); color: var(--mustard-lt); }
 .place-hit .icon { flex-shrink: 0; color: var(--text-muted); }
+.place-hit-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.place-hit-name { line-height: 1.35; }
+/* 同じ名前の場所が並んだときに見分けるための住所。1 行に抑える */
+.place-hit-detail {
+  font-size: 11px; color: var(--text-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.place-hint { margin: 6px 0 0; font-size: 11px; color: var(--text-muted); line-height: 1.5; }
+.place-credit {
+  margin: 0; padding: 6px 10px; font-size: 10px; color: var(--text-muted);
+  border-top: 1px solid var(--border); background: var(--bg-deep);
+}
+.place-credit a { color: var(--text-secondary); }
 .place-note { margin: 0; padding: 9px 10px; font-size: 12px; color: var(--text-secondary); line-height: 1.6; }
 
 .sheet {
-  position: fixed; left: 0; right: 0; bottom: 62px; z-index: 22;
+  /* 地図の操作ボタン（.map-tools・500）より前に出すこと（D-070）。
+     .map-tools は地図の右上から下へ伸びるが、地図の高さで切られないので
+     シートの上まで降りてくる。22 のままだと、シートの「スポット名」の欄に
+     「やめる」ボタンが重なり、名前を入れようとして触ると登録が取り消されていた。 */
+  position: fixed; left: 0; right: 0; bottom: 62px; z-index: 600;
   background: var(--bg-card); border-top: 1px solid var(--border-strong);
   border-radius: 14px 14px 0 0; padding: 14px 16px 18px;
   box-shadow: 0 -6px 20px rgba(0,0,0,0.5);
   /* 高さを抑えて、地図が見えたまま入力できるようにする（D-069）。
      スポット種別が 12 個あるのでシートは伸びやすく、以前は画面をほぼ覆っていた。
      地名で探して立てたピンは、まさに目で確かめたいもの */
-  max-height: 62dvh; overflow-y: auto; overscroll-behavior: contain;
+  max-height: 52dvh; overflow-y: auto; overscroll-behavior: contain;
 }
 .sheet[hidden] { display: none; }
 .sheet .close { position: absolute; top: 10px; right: 14px; }
