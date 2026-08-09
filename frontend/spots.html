@@ -15,6 +15,10 @@
   <span class="page-sub" id="count">—</span>
 </header>
 
+<!-- 地名でスポットの位置を探す（D-069）。地図の外に置く：
+     地図に重ねると、候補を選ぼうとした指が地図のタップになって暴発する -->
+<div id="place-search" style="padding:10px 16px 0; max-width:640px; margin:0 auto"></div>
+
 <div class="map-wrap">
   <div id="map"></div>
   <div class="map-tools">
@@ -73,6 +77,7 @@
     listSpots, createMap, spotMarker, spotType, waterLabel,
     SPOT_TYPES, WATER_TYPES, googleMapsUrl, googleDirectionsUrl, isNightMap, setNightMap, icon,
     isCoordinateInJapan,
+    attachPlaceSearch,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -132,7 +137,8 @@
   function renderList() {
     const box = document.getElementById("list");
     if (!spots.length) {
-      box.innerHTML = `<div class="empty">スポットがまだありません。「＋ 追加」を押して地図をタップすると登録できます。</div>`;
+      box.innerHTML = `<div class="empty">スポットがまだありません。
+        上の欄で地名を探すか、「＋ 追加」を押して地図をタップすると登録できます。</div>`;
       return;
     }
     box.innerHTML = spots.map((s) => {
@@ -199,27 +205,73 @@
     );
   });
 
+  /* ---------- 地名で位置を探す（D-069） ----------
+     探して地図が飛ぶだけでは、結局そこから指でピンを立て直すことになる。
+     見つかった時点でピンを置き、名前も入れて、登録の一歩手前まで進めておく。
+     ずれていれば地図をタップして置き直せる（＝追加モードのまま渡す）。 */
+  attachPlaceSearch(document.getElementById("place-search"), (hit) => {
+    map.setView([hit.lat, hit.lng], 16);
+    setAddMode(true);
+    placeDraft(hit.lat, hit.lng);
+    const nameInput = document.getElementById("new-name");
+    // 入力済みの名前を検索語で上書きしない。地名は「舘山寺町」のような住所のこともあり、
+    // スポット名として使えるとは限らない
+    if (!nameInput.value.trim() && hit.name) nameInput.value = hit.name;
+  });
+
   /* ---------- 新規登録（地図タップ） ---------- */
-  document.getElementById("add-mode").addEventListener("click", (e) => {
-    state.addMode = !state.addMode;
-    e.currentTarget.classList.toggle("on", state.addMode);
-    e.currentTarget.innerHTML = icon(state.addMode ? "close" : "plus", { size: 14 })
-      + (state.addMode ? "やめる" : "追加");
-    message(state.addMode ? "地図をタップしてスポットの位置を指定してください。" : "", state.addMode ? "success" : null);
+  function setAddMode(on) {
+    state.addMode = on;
+    const button = document.getElementById("add-mode");
+    button.classList.toggle("on", on);
+    button.innerHTML = icon(on ? "close" : "plus", { size: 14 }) + (on ? "やめる" : "追加");
+  }
+
+  function placeDraft(lat, lng) {
+    state.draft = { lat, lng };
+    if (draftMarker) draftMarker.remove();
+    draftMarker = L.marker([lat, lng], {
+      icon: spotMarker({ spot_type: null, name: "新規", low_tide_only: false }),
+    }).addTo(map);
+    document.getElementById("new-coords").textContent =
+      `緯度 ${lat.toFixed(6)} / 経度 ${lng.toFixed(6)}`;
+    document.getElementById("new-sheet").hidden = false;
+    document.getElementById("sheet").hidden = true;
+    keepPinVisible(lat, lng);
+  }
+
+  /* 立てたピンが登録シートの裏に隠れないよう、地図をずらす（D-069）。
+     地名で探したときは「その場所で合っているか」を目で確かめたいのに、
+     シートが下半分を覆っていると、肝心のピンが見えない。
+     地図アプリでシートが上がってくるときと同じ動き。 */
+  function keepPinVisible(lat, lng) {
+    // シートを出した直後は高さが確定していないので、描画を 1 回待つ
+    requestAnimationFrame(() => {
+      const mapBox = document.getElementById("map").getBoundingClientRect();
+      const sheetTop = document.getElementById("new-sheet").getBoundingClientRect().top;
+      // 地図のうち、シートに隠れていない帯
+      const bandBottom = Math.min(mapBox.bottom, sheetTop);
+      if (bandBottom - mapBox.top < 60) return;   // 帯が狭すぎるときは動かさない
+      const shift = (mapBox.top + mapBox.height / 2) - (mapBox.top + bandBottom) / 2;
+      if (shift <= 0) return;                     // もともと見えているなら触らない
+      const zoom = map.getZoom();
+      const point = map.project([lat, lng], zoom);
+      point.y += shift;                           // 中心を south にずらす＝ピンは上に出る
+      map.setView(map.unproject(point, zoom), zoom, { animate: true });
+    });
+  }
+
+  document.getElementById("add-mode").addEventListener("click", () => {
+    setAddMode(!state.addMode);
+    message(state.addMode
+      ? "地図をタップするか、上の欄で地名を探すと位置を指定できます。" : "",
+      state.addMode ? "success" : null);
     if (!state.addMode) clearDraft();
   });
 
   map.on("click", (e) => {
     if (!state.addMode) return;
-    state.draft = { lat: e.latlng.lat, lng: e.latlng.lng };
-    if (draftMarker) draftMarker.remove();
-    draftMarker = L.marker([state.draft.lat, state.draft.lng], {
-      icon: spotMarker({ spot_type: null, name: "新規", low_tide_only: false }),
-    }).addTo(map);
-    document.getElementById("new-coords").textContent =
-      `緯度 ${state.draft.lat.toFixed(6)} / 経度 ${state.draft.lng.toFixed(6)}`;
-    document.getElementById("new-sheet").hidden = false;
-    document.getElementById("sheet").hidden = true;
+    placeDraft(e.latlng.lat, e.latlng.lng);
   });
 
   function renderChips() {
@@ -277,9 +329,9 @@
     clearDraft();
     document.getElementById("new-name").value = "";
     document.getElementById("new-lowtide").checked = false;
-    state.addMode = false;
-    const addButton = document.getElementById("add-mode");
-    addButton.classList.remove("on"); addButton.textContent = "＋ 追加";
+    // ここは以前ボタンの中身を "＋ 追加" の文字に戻していて、登録するたびに
+    // アイコンが消えていた（D-027 で線画アイコンにした分が飛ぶ）。setAddMode に寄せる
+    setAddMode(false);
     renderAll();
     message("スポットを登録しました。", "success");
   });

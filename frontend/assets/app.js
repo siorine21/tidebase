@@ -1969,6 +1969,178 @@ export function setNightMap(on) {
 export const DEFAULT_MAP_CENTER = [34.7100, 137.6000];
 export const DEFAULT_MAP_ZOOM = 11;
 
+/* ============================================================
+   地名でスポットの位置を探す（D-069）
+
+   報告: 地元の海辺や湖ならすぐピンを指せるが、少し離れた地や山の中だと
+   ピンを立てるのが難しい。
+
+   初期表示は浜名湖なので、たとえば長野の湖に立てるには、
+   縮小 → 移動 → 拡大を何度も繰り返すことになる。指で追える距離ではない。
+
+   探し方を 2 つ用意する。どちらも同じ入力欄に入れる。
+     1. 地名・住所（例「野尻湖」「静岡県浜松市西区舘山寺町」）… 国土地理院の地名検索
+     2. 座標や地図アプリの URL の貼り付け … 通信なしでその場で読む
+   2 を必ず添えるのは、1 が外部サービス頼みだから。地名検索が落ちても、
+   Google マップで探して URL を貼れば必ず登録できる、という逃げ道を残す。
+   （Google マップは漁港・ダム・湖の収録が圧倒的に厚く、みんな使い慣れてもいる）
+   ============================================================ */
+
+/** 地名検索がつながらなかったときの目印。UI で貼り付けの案内に切り替える。 */
+export class PlaceSearchUnavailable extends Error {}
+
+/**
+ * 地名・住所から座標を引く（国土地理院 地名検索）。
+ * 地図タイルと同じ国土地理院なので、出典の扱いを増やさずに済む。
+ * @returns {Promise<Array<{name: string, lat: number, lng: number}>>}
+ */
+export async function searchPlace(query) {
+  const q = String(query ?? "").trim();
+  if (!q) return [];
+  let response;
+  try {
+    // ヘッダーは足さない。付けると CORS の事前確認（preflight）を招きかねず、
+    // この API は付けなくても JSON を返す
+    response = await fetch(
+      `https://msearch.gsi.go.jp/address-search/AddressSearch?q=${encodeURIComponent(q)}`,
+    );
+  } catch {
+    // 通信そのものが失敗（オフライン・CORS 拒否・提供終了）
+    throw new PlaceSearchUnavailable("地名検索につながりませんでした。");
+  }
+  if (!response.ok) throw new PlaceSearchUnavailable("地名検索につながりませんでした。");
+  const data = await response.json().catch(() => null);
+  if (!Array.isArray(data)) throw new PlaceSearchUnavailable("地名検索の応答を読めませんでした。");
+  return data
+    .map((feature) => {
+      // GeoJSON なので coordinates は [経度, 緯度] の順。逆に読むと地球の裏側に飛ぶ
+      const [lng, lat] = feature?.geometry?.coordinates ?? [];
+      return { name: String(feature?.properties?.title ?? "").trim(), lat: Number(lat), lng: Number(lng) };
+    })
+    .filter((hit) => hit.name && isCoordinateInJapan(hit.lat, hit.lng))
+    .slice(0, 8);   // 候補が 20 件も並ぶと、かえって選べない
+}
+
+/** 短縮 URL は開かないと座標が入っていない。貼られたら気づけるようにしておく。 */
+const SHORT_MAP_LINK = /^https?:\/\/(maps\.app\.goo\.gl|goo\.gl\/maps)\//i;
+
+export function isShortMapLink(text) {
+  return SHORT_MAP_LINK.test(String(text ?? "").trim());
+}
+
+/**
+ * 座標や地図アプリの URL を、通信なしで座標として読む。
+ * 読めなければ null（＝地名として検索する）。
+ */
+export function parseLatLng(text) {
+  const s = String(text ?? "").trim();
+  if (!s) return null;
+
+  const pick = (lat, lng) => {
+    const y = Number(lat), x = Number(lng);
+    // 緯度と経度で範囲が違う。ここを 1 つの条件にまとめると南北と東西の取り違えを見逃す
+    if (!Number.isFinite(y) || !Number.isFinite(x)) return null;
+    if (Math.abs(y) > 90 || Math.abs(x) > 180) return null;
+    return { lat: y, lng: x };
+  };
+
+  // Google マップの URL は「!3d緯度!4d経度」に**その場所**が入る。
+  // 先頭の「@緯度,経度」は画面の中心なので、地点そのものとは少しずれる。こちらを先に見る
+  const place = s.match(/!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/);
+  if (place) return pick(place[1], place[2]);
+
+  const view = s.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
+  if (view) return pick(view[1], view[2]);
+
+  // ?q=緯度,経度 / ?ll=緯度,経度（Apple マップ）/ geo:緯度,経度
+  const query = s.match(/[?&](?:q|ll|daddr|center)=(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/i)
+    ?? s.match(/^geo:(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/i);
+  if (query) return pick(query[1], query[2]);
+
+  // 素の「34.7108, 137.5972」。URL の中の数字を拾わないよう、全体が座標のときだけ
+  const pair = s.match(/^(-?\d{1,3}(?:\.\d+)?)\s*[,\s]\s*(-?\d{1,3}(?:\.\d+)?)$/);
+  if (pair) return pick(pair[1], pair[2]);
+
+  return null;
+}
+
+/**
+ * 地名の検索欄を作る。スポットを作れる画面が 2 つある（マップ画面と釣果入力）ので、
+ * 見た目も挙動も 1 か所で持つ。
+ * @param {HTMLElement} container 中身は差し替える
+ * @param {(hit: {name: string, lat: number, lng: number}) => void} onPick
+ */
+export function attachPlaceSearch(container, onPick) {
+  container.classList.add("place-search");
+  container.innerHTML = `
+    <div class="place-search-row">
+      <input type="search" class="place-query" enterkeyhint="search" maxlength="120"
+             placeholder="地名・住所・地図の URL" aria-label="地名・住所・地図の URL で探す">
+      <button type="button" class="chip place-go">探す</button>
+    </div>
+    <div class="place-hits" hidden role="listbox"></div>`;
+
+  const input = container.querySelector(".place-query");
+  const hits = container.querySelector(".place-hits");
+
+  const note = (html) => { hits.innerHTML = `<p class="place-note">${html}</p>`; hits.hidden = false; };
+
+  // 貼り付けの案内。地名検索が使えないときはこれだけが頼りになるので、手順まで書く
+  const PASTE_HELP = "Google マップで場所を開き、共有 → リンクをコピーして"
+    + "ここに貼り付けても登録できます（「34.7108, 137.5972」のような座標でも構いません）。";
+
+  function choose(hit) {
+    hits.hidden = true;
+    hits.innerHTML = "";
+    onPick(hit);
+  }
+
+  async function run() {
+    const text = input.value.trim();
+    if (!text) return;
+
+    // 座標・URL なら通信しない。地名検索が落ちていても、この道は必ず通る
+    const point = parseLatLng(text);
+    if (point) {
+      if (!isCoordinateInJapan(point.lat, point.lng)) {
+        return note("日本の範囲から外れています。緯度と経度が逆になっていないか確かめてください。");
+      }
+      return choose({ name: "", lat: point.lat, lng: point.lng });
+    }
+    if (isShortMapLink(text)) {
+      return note("短縮された URL には座標が入っていません。"
+        + "一度ブラウザで開いて、表示された長い URL を貼り付けてください。");
+    }
+
+    note("探しています…");
+    try {
+      const found = await searchPlace(text);
+      if (!found.length) {
+        return note(`「${escapeHtml(text)}」は見つかりませんでした。<br>${PASTE_HELP}`);
+      }
+      hits.innerHTML = found.map((hit, i) => `
+        <button type="button" class="place-hit" data-i="${i}" role="option">
+          ${icon("map-pin", { size: 13 })}<span>${escapeHtml(hit.name)}</span>
+        </button>`).join("");
+      hits.hidden = false;
+      hits.querySelectorAll(".place-hit").forEach((button) => {
+        button.addEventListener("click", () => choose(found[Number(button.dataset.i)]));
+      });
+    } catch (error) {
+      note(error instanceof PlaceSearchUnavailable
+        ? `地名で探せませんでした。<br>${PASTE_HELP}`
+        : escapeHtml(toJapaneseError(error)));
+    }
+  }
+
+  container.querySelector(".place-go").addEventListener("click", run);
+  input.addEventListener("keydown", (e) => {
+    // このページには別の form があるので、Enter がそちらを送信しないように止める
+    if (e.key === "Enter") { e.preventDefault(); run(); }
+  });
+  return { input, run };
+}
+
 /** 地図を生成する。tiles: "pale"（淡色・既定）/ "photo"（航空写真）。 */
 /**
  * 地図を作る。

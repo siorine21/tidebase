@@ -126,7 +126,9 @@
       <div style="margin-top:12px">
         <div class="field"><label for="spot-name">スポット名</label><input type="text" id="spot-name" maxlength="100"></div>
         <div class="field">
-          <label>位置（地図をタップしてピンを立てる）</label>
+          <label>位置（地名で探すか、地図をタップしてピンを立てる）</label>
+          <!-- 地名検索（D-069）。地図の外・上に置く -->
+          <div id="spot-place-search" style="margin-bottom:8px"></div>
           <div class="map-box" id="spot-map" style="margin-bottom:6px"></div>
           <div class="page-sub" id="spot-coords">地図をタップすると、その場所にピンが立ちます。</div>
         </div>
@@ -192,7 +194,7 @@
   import {
     client, requireSession, renderNav, escapeHtml, toJapaneseError, requireUserId,
     todayInJst, nowInJst, listSpots, listSpecies, listRecipes, suggestFishName, icon,
-    groupSpeciesByCategory, createMap, spotMarker, LURE_CATEGORIES,
+    groupSpeciesByCategory, createMap, spotMarker, LURE_CATEGORIES, attachPlaceSearch,
     listTackle, TACKLE_KINDS,
     listRecordPhotos, uploadRecordPhoto, deleteRecordPhotos, signedPhotoUrls, PHOTO_MAX_COUNT,
   } from "./assets/app.js";
@@ -551,6 +553,16 @@
     spotMap.on("click", (e) => placePin(e.latlng.lat, e.latlng.lng));
     setTimeout(() => spotMap.invalidateSize(), 50);
   }
+
+  /* 地名で位置を探す（D-069）。マップ画面と同じ部品を使う。
+     見つかったらピンまで置いて、スポット名も空なら入れておく */
+  attachPlaceSearch(document.getElementById("spot-place-search"), (hit) => {
+    initSpotMap();            // 何度呼んでも 1 回しか作らない
+    spotMap.setView([hit.lat, hit.lng], 16);
+    placePin(hit.lat, hit.lng);
+    const nameInput = document.getElementById("spot-name");
+    if (!nameInput.value.trim() && hit.name) nameInput.value = hit.name;
+  });
 
   function placePin(lat, lng) {
     draft.lat = Number(Number(lat).toFixed(6));

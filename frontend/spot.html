@@ -29,6 +29,7 @@
     listSpots, getSpot, listRecords, createMap, spotMarker, spotType, waterLabel, ownerBadge,
     SPOT_TYPES, WATER_TYPES, googleMapsUrl, googleDirectionsUrl, formatJstDate, icon,
     recordFishName, listTidePoints, tidePointOfSpot, formatLag, isCoordinateInJapan,
+    attachPlaceSearch,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -46,6 +47,7 @@
   let records = [];
   let allSpots = [];
   let editMap = null;
+  let editMarker = null;
   const edit = { lat: null, lng: null, water: null, type: null };
   const tidePoints = await listTidePoints().catch(() => []);
 
@@ -141,7 +143,9 @@
           <div class="page-sub" id="e-tide-note" style="margin-top:6px;line-height:1.5"></div>
         </div>
         <div class="field">
-          <label>座標（地図をタップして変更）</label>
+          <label>座標（地名で探すか、地図をタップして変更）</label>
+          <!-- 地名検索（D-069）。位置未設定のスポットを直すときにこれが要る -->
+          <div id="edit-place-search" style="margin-bottom:8px"></div>
           <div class="map-box" id="edit-map" style="margin-bottom:6px"></div>
           <div class="page-sub" id="e-coords"></div>
         </div>
@@ -245,20 +249,29 @@
         ? { center: [edit.lat, edit.lng], zoom: 15, lock: true }
         : { lock: true });
       editMap = created.map;
-      let marker = positioned
-        ? L.marker([edit.lat, edit.lng], { icon: spotMarker(spot, { label: false }) }).addTo(editMap)
-        : null;
-      editMap.on("click", (e) => {
-        edit.lat = Number(e.latlng.lat.toFixed(6));
-        edit.lng = Number(e.latlng.lng.toFixed(6));
-        if (marker) marker.setLatLng([edit.lat, edit.lng]);
-        else marker = L.marker([edit.lat, edit.lng], { icon: spotMarker(spot, { label: false }) }).addTo(editMap);
-        updateCoordsLabel();
-      });
+      if (positioned) placeEditPin(edit.lat, edit.lng);
+      editMap.on("click", (e) => placeEditPin(e.latlng.lat, e.latlng.lng));
     }
     setTimeout(() => editMap.invalidateSize(), 50);
     panel.scrollIntoView({ behavior: "smooth" });
   }
+
+  function placeEditPin(lat, lng) {
+    edit.lat = Number(Number(lat).toFixed(6));
+    edit.lng = Number(Number(lng).toFixed(6));
+    const pinIcon = spotMarker(spot, { label: false });
+    if (editMarker) editMarker.setLatLng([edit.lat, edit.lng]);
+    else editMarker = L.marker([edit.lat, edit.lng], { icon: pinIcon }).addTo(editMap);
+    updateCoordsLabel();
+  }
+
+  /* 地名で座標を直す（D-069）。位置未設定のまま残っているスポットは、
+     地図を延々と動かさないと直せなかった */
+  attachPlaceSearch(document.getElementById("edit-place-search"), (hit) => {
+    if (!editMap) return;
+    editMap.setView([hit.lat, hit.lng], 16);
+    placeEditPin(hit.lat, hit.lng);
+  });
 
   function updateCoordsLabel() {
     document.getElementById("e-coords").textContent = edit.lat == null
@@ -333,7 +346,10 @@
     const { error } = await client.from("spots").update(payload).eq("id", spot.id);
     button.disabled = false; button.textContent = "変更を保存";
     if (error) return message(toJapaneseError(error), "error");
+    // 地図を作り直すので、ピンの参照も一緒に捨てる。
+    // 残しておくと、次に開いた地図に載っていないマーカーを動かそうとする
     editMap = null;
+    editMarker = null;
     await load();
     message("スポットを更新しました。", "success");
   }

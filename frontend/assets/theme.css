@@ -699,9 +699,10 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
      vh のままだと地図が実際の表示領域からはみ出し、下の凡例やリストに気づけない。
    - 引く量は「ヘッダー + 凡例 + リストの先頭 + ボトムナビ」がぶんが残る値にする。
      地図だけで画面が埋まっていると、下に何かある事自体が伝わらない。 */
+/* 引く量には地名検索の行（約 44px）も含む（D-069） */
 #map {
-  height: calc(100vh - 330px);        /* dvh 非対応ブラウザ向け */
-  height: calc(100dvh - 330px);
+  height: calc(100vh - 374px);        /* dvh 非対応ブラウザ向け */
+  height: calc(100dvh - 374px);
   min-height: 240px;
   border-radius: 0; border-left: 0; border-right: 0;
 }
@@ -766,11 +767,49 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 }
 .map-tools button.on { border-color: var(--mustard); color: var(--mustard-lt); background: var(--mustard-bg); }
 
+/* 地名でスポットの位置を探す（D-069）。
+   入力欄は普通に流す（重ねるとシートの上に浮いてしまう）。
+   候補リストだけ浮かせて、開いても地図が下に押し出されないようにする */
+.place-search { position: relative; }
+.place-search-row { display: flex; gap: 6px; }
+.place-query {
+  flex: 1; min-width: 0; padding: 8px 10px;
+  background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text-primary); font-family: inherit; font-size: 13px;
+}
+.place-query:focus { outline: none; border-color: var(--border-strong); }
+.place-go { flex-shrink: 0; }
+.place-hits {
+  position: absolute; left: 0; right: 0; top: calc(100% + 6px);
+  /* 候補リストは何より前に出す。下をくぐられると読めないし押せない。
+     競合するのは Leaflet のズーム操作（.leaflet-top が 1000）と、
+     「タップして地図を操作」の覆い（.map-unlock が 500）。
+     同じ値で並べると、あとに描かれる地図側が勝ってしまう */
+  z-index: 1100;
+  background: var(--bg-card); box-shadow: 0 6px 16px rgba(0,0,0,0.5);
+  border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+  max-height: 216px; overflow-y: auto;   /* 候補 8 件で画面が埋まらないように */
+}
+.place-hit {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  padding: 9px 10px; text-align: left; cursor: pointer;
+  background: none; border: none; border-bottom: 1px solid var(--border);
+  color: var(--text-primary); font-family: inherit; font-size: 13px;
+}
+.place-hit:last-child { border-bottom: none; }
+.place-hit:hover { background: var(--mustard-bg); color: var(--mustard-lt); }
+.place-hit .icon { flex-shrink: 0; color: var(--text-muted); }
+.place-note { margin: 0; padding: 9px 10px; font-size: 12px; color: var(--text-secondary); line-height: 1.6; }
+
 .sheet {
   position: fixed; left: 0; right: 0; bottom: 62px; z-index: 22;
   background: var(--bg-card); border-top: 1px solid var(--border-strong);
   border-radius: 14px 14px 0 0; padding: 14px 16px 18px;
   box-shadow: 0 -6px 20px rgba(0,0,0,0.5);
+  /* 高さを抑えて、地図が見えたまま入力できるようにする（D-069）。
+     スポット種別が 12 個あるのでシートは伸びやすく、以前は画面をほぼ覆っていた。
+     地名で探して立てたピンは、まさに目で確かめたいもの */
+  max-height: 62dvh; overflow-y: auto; overscroll-behavior: contain;
 }
 .sheet[hidden] { display: none; }
 .sheet .close { position: absolute; top: 10px; right: 14px; }
