@@ -8,20 +8,15 @@
 <link rel="stylesheet" href="assets/theme.css">
 </head>
 <body class="app-body">
-<!-- SCR-018 マイタックル（ロッド・リール・ライン・リーダー・D-068）
+<!-- SCR-018 マイタックル（ロッド・リール・ライン・リーダー・D-068 / D-073）
      ※ SCR-009 はワイヤーフレーム v7.2 でルアーレシピ詳細に使われているので採らない。
      ルアーレシピとは別ページ。絞り込みはここには要らないし、
-     1 画面に両方を積むと、増えたときに下までスクロールしないと見えなくなる。 -->
+     1 画面に両方を積むと、増えたときに下までスクロールしないと見えなくなる。
+     ボトムナビからも直接来られる（D-073）。 -->
 <header class="app-header">
   <h1>MY TACKLE</h1>
   <span class="page-sub" id="count">—</span>
 </header>
-
-<!-- ルアーレシピと道具立ての行き来。絞り込みはレシピ側にしか要らない -->
-<div class="seg">
-  <a class="seg-item" href="recipes.html">ルアーレシピ</a>
-  <a class="seg-item on" href="tackle.html">マイタックル</a>
-</div>
 
 <main>
   <div id="message" class="message" hidden role="alert"></div>
@@ -38,7 +33,7 @@
 
   const session = await requireSession();
   if (!session) throw new Error("unauthenticated");
-  renderNav("recipes");
+  renderNav("tackle");
 
   function message(text, kind) {
     const box = document.getElementById("message");

@@ -243,21 +243,6 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .row .val { font-family: 'JetBrains Mono', monospace; color: var(--blue); }
 .row .val .sub-val { color: var(--text-muted); font-size: 11px; }
 
-/* ページ切り替え（ルアーレシピ / マイタックル・D-068）。
-   ボトムナビの枠は 5 つで埋まっているので、この 2 つはここで行き来する */
-.seg {
-  display: flex; gap: 6px; padding: 10px 16px 0;
-  max-width: 640px; margin: 0 auto;
-}
-.seg-item {
-  flex: 1; text-align: center; padding: 8px 10px; border-radius: 999px;
-  font-size: 13px; text-decoration: none;
-  background: var(--bg-card); border: 1px solid var(--border); color: var(--text-secondary);
-}
-.seg-item.on {
-  background: var(--mustard-bg); border-color: var(--border-strong); color: var(--mustard-lt);
-}
-
 /* 自分のタックル（D-067）。名前ごとに「変える」「消す」が並ぶので、
    チップではなく行にする */
 .tackle-group { margin-bottom: 16px; }

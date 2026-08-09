@@ -1734,8 +1734,12 @@ export function renderNav(current) {
     ["tide", "tide.html", "tide", "潮汐"],
     ["map", "spots.html", "map", "マップ"],
     ["records", "records.html", "records", "釣果"],
-    // レシピとマイタックルは別ページ。ナビはよく開くレシピ側を指す（D-068）
+    // レシピとタックルは別物なので、ナビでも並べて置く（D-073）。
+    // 「レシピ」の下にタックルがぶら下がっていると、名前と中身が食い違って迷う。
+    // 6 つ目を足すと 1 枠が細くなるのを気にしていたが、実際に測ると
+    // 幅 360px の画面でも 1 枠 60px あり、いちばん長い「タックル」でも 41px で収まる。
     ["recipes", "recipes.html", "recipes", "レシピ"],
+    ["tackle", "tackle.html", "rod", "タックル"],
   ];
   document.body.insertAdjacentHTML("beforeend", `
     <nav class="bottom-nav">
