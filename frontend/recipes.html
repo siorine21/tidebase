@@ -216,7 +216,7 @@
             ${(r.tags ?? []).length ? `<div style="margin-top:6px">${r.tags.map((t) => `<span class="hash"># ${escapeHtml(t.name)}</span>`).join("")}</div>` : ""}
             <div class="perf-bar"><div class="perf-fill" style="width:${(weight(r.id) / maxCount) * 100}%"></div></div>
           </div>
-          <!-- 実績＝獲れた匹数、反応＝バラシ・ミスバイトの回数（D-092）。
+          <!-- 実績＝キャッチした匹数、反応＝バラシ・ミスバイトの回数（D-092）。
                以前はボウズも実績に数えていた -->
           <div class="score">
             <div class="n">${n}</div><div class="l">実績</div>

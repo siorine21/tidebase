@@ -1403,16 +1403,20 @@ export async function getSpot(id) {
    だが**魚がいたこと**こそ、次にどこへ行くかを決める材料になる。
    釣果より件数が多いので、判断材料としてはむしろ厚い。
 
-   並びは上（獲れた）から下（何も無し）へ。画面でもこの順に出す。
+   並びは上（キャッチ）から下（何も無し）へ。画面でもこの順に出す。
+
+   **「獲れた」とは言わない**（D-093）。あれは持ち帰った、の意味になる。
+   リリースする釣りでは合わない。内部の値も landed（ランディングした）で、
+   そのあと持ち帰るかどうかとは別の話。バラシと対になる語でもある。
    reaction は「魚がルアーに反応したか」。レシピの反応数はこれで数える。
    目視は反応に入れない。ルアーには触れていないので、ルアーの手柄ではない。 */
 export const OUTCOMES = [
-  { value: "landed",   label: "獲れた",      short: "釣果",   iconName: "fish",
+  { value: "landed",   label: "キャッチ",    short: "釣果",   iconName: "fish",
     countLabel: "匹数", reaction: true,  tagClass: "tag-mustard",
-    hint: "取り込めた" },
+    hint: "取り込めた（リリース含む）" },
   { value: "lost",     label: "バラシ",      short: "バラシ", iconName: "lost",
     countLabel: "バラした回数", reaction: true, tagClass: "tag-red",
-    hint: "掛けたが獲れなかった" },
+    hint: "掛けたが獲り込めなかった" },
   { value: "bite",     label: "ミスバイト",  short: "アタリ", iconName: "bite",
     countLabel: "アタリの回数", reaction: true, tagClass: "tag-blue",
     hint: "アタリはあったが乗らなかった" },
@@ -1468,7 +1472,7 @@ export function recordFishName(record) {
   const name = record.fish_label ?? record.fish_name_local ?? record.fish_species?.name;
   if (name) return name;
   // 魚種を入れていないときの言い方は、到達段階で変わる（D-092）。
-  // バラシに「釣果」と出ると、獲れたように読めてしまう
+  // バラシに「釣果」と出ると、キャッチしたように読めてしまう
   const outcome = recordOutcome(record);
   return outcome.value === "landed" ? "釣果" : "魚";
 }
@@ -2109,7 +2113,7 @@ export async function listRecipesDetailed() {
  * **以前はボウズも 1 件として数えていた**（recipe_id の付いた行を無条件に
  * 数えていた）。「実績」と書いてあるのに釣れなかった釣行が混ざるので、
  * 到達段階（D-092）を入れるついでに分けた。
- *   landed   … 獲れた匹数
+ *   landed   … キャッチした匹数
  *   reaction … バラシ・ミスバイトの回数。ルアーに反応があったということ
  * 目視は入れない。ルアーには触れていないので、ルアーの手柄ではない。
  */
