@@ -47,7 +47,7 @@
 <script src="vendor/supabase.js"></script>
 <script src="assets/config.js"></script>
 <script type="module">
-  import { client, redirectIfSignedIn, toJapaneseError } from "./assets/app.js";
+  import { client, redirectIfSignedIn, toJapaneseError, navigate } from "./assets/app.js";
 
   await redirectIfSignedIn();
 
@@ -82,7 +82,7 @@
       submit.textContent = "ログイン";
       return;
     }
-    location.replace("index.html");
+    navigate("index.html", { replace: true });
   });
 </script>
 </body>

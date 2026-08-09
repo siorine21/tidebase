@@ -33,12 +33,13 @@
   import {
     client, requireSession, renderNav, escapeHtml, toJapaneseError,
     categoryLabel, categoryTagClass, toggleFavorite, formatJstDate, icon, recordFishName,
+    navigate,
   } from "./assets/app.js";
 
   const session = await requireSession();
   if (!session) throw new Error("unauthenticated");
   renderNav("recipes");
-  document.getElementById("back").addEventListener("click", () => location.href = "recipes.html");
+  document.getElementById("back").addEventListener("click", () => navigate("recipes.html"));
 
   const params = new URLSearchParams(location.search);
   const id = params.get("id");
@@ -140,7 +141,7 @@
       if (!confirm("このレシピを削除しますか？\n過去の釣果記録との紐付きは解除されます。（釣果記録は残ります）")) return;
       const { error: deleteError } = await client.from("lure_recipes").delete().eq("id", r.id);
       if (deleteError) return showMessage(toJapaneseError(deleteError), "error");
-      location.replace("recipes.html");
+      navigate("recipes.html", { replace: true });
     });
   }
 

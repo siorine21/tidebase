@@ -86,6 +86,7 @@
   import {
     client, requireSession, renderNav, escapeHtml, toJapaneseError, requireUserId,
     LURE_CATEGORIES, listMakers, listTags, setRecipeTags,
+    navigate,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -227,7 +228,7 @@
 
   /* ---------- 保存 ---------- */
   document.getElementById("close").addEventListener("click", () => {
-    location.href = recipeId ? `recipe.html?id=${recipeId}` : "recipes.html";
+    navigate(recipeId ? `recipe.html?id=${recipeId}` : "recipes.html");
   });
 
   document.getElementById("save").addEventListener("click", async (e) => {
@@ -271,7 +272,7 @@
     } catch (tagError) {
       return fail(button, tagError);
     }
-    location.replace(`recipe.html?id=${saved.id}&saved=1`);
+    navigate(`recipe.html?id=${saved.id}&saved=1`, { replace: true });
   });
 
   function fail(button, error) {

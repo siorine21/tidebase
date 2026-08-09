@@ -98,6 +98,7 @@
     myGroup, listGroupMembers, createGroup, listInvites, createInvite,
     revokeInvite, leaveGroup, inviteUrl, isAppAdmin, GROUP_MEMBER_LIMIT,
     APP_VERSION,
+    navigate,
   } from "./assets/app.js";
 
   document.getElementById("app-version").textContent =
@@ -173,7 +174,7 @@
   /* ---------- ログアウト ---------- */
   document.getElementById("signout").addEventListener("click", async () => {
     await client.auth.signOut();
-    location.replace("login.html");
+    navigate("login.html", { replace: true });
   });
 
   function message(text, kind) {

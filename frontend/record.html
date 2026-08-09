@@ -38,6 +38,7 @@
     listTidePoints, fetchTideForPoint, tideAt, tideTimelineSvg, sunStripHtml,
     sunTimes, tideFlowAt, TIDE_FLOW_LABELS, nearestMazume, mazumeLabel,
     listRecordPhotos, deleteRecordPhotos, signedPhotoUrls, lureCategoryText, ownerBadge,
+    navigate,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -275,7 +276,7 @@
         msg.hidden = false;
         return;
       }
-      location.replace("records.html");
+      navigate("records.html", { replace: true });
     });
   }
 </script>

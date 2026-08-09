@@ -63,6 +63,7 @@
   import {
     client, redirectIfSignedIn, toJapaneseError, escapeHtml,
     checkInvite, signUpWithInvite,
+    navigate,
   } from "./assets/app.js";
 
   const MIN_PASSWORD_LENGTH = 8;
@@ -142,7 +143,7 @@
       show("登録が完了しました。ログイン画面からお進みください。", "success");
       return;
     }
-    location.replace("index.html");
+    navigate("index.html", { replace: true });
   });
 </script>
 </body>

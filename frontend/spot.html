@@ -38,12 +38,13 @@
     SPOT_TYPES, WATER_TYPES, googleMapsUrl, googleDirectionsUrl, formatJstDate, icon,
     recordFishName, listTidePoints, tidePointOfSpot, formatLag, isCoordinateInJapan,
     attachPlaceSearch,
+    navigate,
   } from "./assets/app.js";
 
   const session = await requireSession();
   if (!session) throw new Error("unauthenticated");
   renderNav("map");
-  document.getElementById("back").addEventListener("click", () => location.href = "spots.html");
+  document.getElementById("back").addEventListener("click", () => navigate("spots.html"));
 
   const id = new URLSearchParams(location.search).get("id");
   if (!id) {
@@ -374,7 +375,7 @@
     if (!confirm("このスポットを削除しますか？\nこの操作は取り消せません。")) return;
     const { error } = await client.from("spots").delete().eq("id", spot.id);
     if (error) return message(toJapaneseError(error), "error");
-    location.replace("spots.html");
+    navigate("spots.html", { replace: true });
   }
 
   function openReassign() {

@@ -216,6 +216,7 @@
     SPOT_TYPES, WATER_TYPES,
     listTackle, TACKLE_KINDS,
     listRecordPhotos, uploadRecordPhoto, deleteRecordPhotos, signedPhotoUrls, PHOTO_MAX_COUNT,
+    navigate,
   } from "./assets/app.js";
 
   const STEPS = ["魚種", "タックル", "スポット", "写真", "メモ"];
@@ -881,13 +882,13 @@
             String(photoError?.message ?? photoError ?? "").slice(0, 300));
         } catch { /* 使えない環境では諦める */ }
         clearDraft();
-        location.replace(`record.html?id=${saved.id}&photoerror=1`);
+        navigate(`record.html?id=${saved.id}&photoerror=1`, { replace: true });
         return;
       }
     }
 
     clearDraft();
-    location.replace(recordId ? `record.html?id=${recordId}&saved=1` : "records.html?saved=1");
+    navigate(recordId ? `record.html?id=${recordId}&saved=1` : "records.html?saved=1", { replace: true });
   });
 
   /* ---------- 入力途中の内容を残す ----------
@@ -1015,7 +1016,7 @@
 
   document.getElementById("draft-discard").addEventListener("click", () => {
     clearDraft();
-    location.replace("record-new.html");
+    navigate("record-new.html", { replace: true });
   });
 
   await restore();

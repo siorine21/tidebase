@@ -18,7 +18,7 @@ export const client = window.supabase.createClient(
 export async function requireSession() {
   const { data } = await client.auth.getSession();
   if (!data.session) {
-    location.replace("login.html");
+    navigate("login.html", { replace: true });
     return null;
   }
   return data.session;
@@ -27,7 +27,7 @@ export async function requireSession() {
 /** ログイン済みなら遷移先へ送る（ログイン・登録画面用）。 */
 export async function redirectIfSignedIn(destination = "index.html") {
   const { data } = await client.auth.getSession();
-  if (data.session) location.replace(destination);
+  if (data.session) navigate(destination, { replace: true });
 }
 
 /** Supabase のエラーを日本語の一文にする。 */
@@ -1836,6 +1836,42 @@ function showUpdateBar(latest) {
     location.replace(url.toString());
   });
 }
+
+/* 画面から画面へ移るときも版を持ち回る（D-089）。
+
+   D-088 で CSS と JS には版を打ったが、**HTML そのものには打てない**
+   （GitHub Pages はヘッダーを触れず、一律 max-age=600 で配る）。
+   その結果、設定は新しいのにレシピだけ古い、という食い違いが実際に起きた。
+   画面ごとにキャッシュの期限が別々に来るため。
+
+   古い HTML は古い app.js を読むので、D-088 の帯も出せない。
+   そこで、いる画面が新しければ、そこから開く画面も必ず新しくなるようにする。
+   版を付けた URL は端末が持っていないので、必ず取りに行く。 */
+export function withVersion(href) {
+  if (APP_VERSION.startsWith("__")) return href;      // 手元では何もしない
+  const url = new URL(href, location.href);
+  if (url.origin !== location.origin) return href;    // 外部リンクは触らない
+  if (!url.pathname.endsWith(".html")) return href;   // HTML 以外は版を打ってある
+  url.searchParams.set("v", APP_VERSION);
+  return url.pathname + url.search + url.hash;
+}
+
+/** 画面を移る。version を引き継ぐ。戻るを残したくないときは replace: true。 */
+export function navigate(href, { replace = false } = {}) {
+  const target = withVersion(href);
+  if (replace) location.replace(target);
+  else location.href = target;
+}
+
+/* リンクは踏まれる直前に書き換える（捕捉フェーズ）。
+   すべての画面の <a> を書き換えて回るより、ここ 1 か所で済む。 */
+document.addEventListener("click", (event) => {
+  const link = event.target.closest?.("a[href]");
+  if (!link || link.target === "_blank" || link.hasAttribute("download")) return;
+  const href = link.getAttribute("href");
+  if (!href || href.startsWith("#")) return;
+  link.setAttribute("href", withVersion(href));
+}, true);
 
 export async function checkForUpdate() {
   if (APP_VERSION.startsWith("__")) return null;   // 手元では差し替わっていないので何もしない
