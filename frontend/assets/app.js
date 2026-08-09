@@ -2093,6 +2093,29 @@ export async function searchPlace(query) {
     .slice(0, 8);   // 候補が 20 件も並ぶと、かえって選べない
 }
 
+/**
+ * 短縮 URL を座標に開く（Edge Function 経由・D-072）。
+ * ブラウザからはリダイレクトを追えない（goo.gl は CORS を許していないので、
+ * 飛んだ先の URL が読めない）。サーバー側で 1 回踏んでもらう。
+ * @returns {Promise<{lat:number, lng:number, name:string, approximate:boolean}>}
+ */
+export async function resolveMapLink(url) {
+  const { data: { session } } = await client.auth.getSession();
+  const response = await fetchWithTimeout(`${config.supabaseUrl}/functions/v1/resolve-map-link`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: config.supabaseAnonKey,
+      Authorization: `Bearer ${session?.access_token ?? ""}`,
+    },
+    body: JSON.stringify({ url }),
+    timeout: 20000,   // リダイレクトを踏んでから住所を引くので、少し長めに待つ
+  });
+  const body = await response.json().catch(() => null);
+  if (!response.ok) throw new Error(body?.error ?? "リンクを開けませんでした。");
+  return body;
+}
+
 /** 短縮 URL は開かないと座標が入っていない。貼られたら気づけるようにしておく。 */
 const SHORT_MAP_LINK = /^https?:\/\/(maps\.app\.goo\.gl|goo\.gl\/maps)\//i;
 
@@ -2198,8 +2221,23 @@ export function attachPlaceSearch(container, onPick) {
       return choose({ name: "", lat: point.lat, lng: point.lng });
     }
     if (isShortMapLink(text)) {
-      return note("短縮された URL には座標が入っていません。"
-        + "一度ブラウザで開いて、表示された長い URL を貼り付けてください。");
+      note("リンクを開いています…");
+      try {
+        const hit = await resolveMapLink(text);
+        choose({ name: hit.name ?? "", lat: hit.lat, lng: hit.lng });
+        // 住所から求めた位置は施設そのものではない。黙って置くと、
+        // 「ここでいい」と思ったまま登録されてしまう
+        if (hit.approximate) {
+          note(`${escapeHtml(hit.address ?? "住所")}のあたりに置きました。`
+            + "<br>このリンクには座標が入っていなかったので、"
+            + "<strong>住所から求めたおおよその位置</strong>です。"
+            + "地図をタップして正しい場所に直してください。");
+        }
+      } catch (error) {
+        note(escapeHtml(toJapaneseError(error))
+          + "<br>一度ブラウザで開いて、表示された長い URL を貼り付けてください。");
+      }
+      return;
     }
 
     note("探しています…");

@@ -12,6 +12,9 @@ test-edge:
 	tsc supabase/functions/tide/parser.ts --outDir supabase/functions/tide/_build \
 	  --target es2022 --module es2022 --moduleResolution bundler --strict
 	node --test supabase/functions/tide/parser.test.mjs
+	tsc supabase/functions/resolve-map-link/parse.ts --outDir supabase/functions/resolve-map-link/_build \
+	  --target es2022 --module es2022 --moduleResolution bundler --strict
+	node --test supabase/functions/resolve-map-link/parse.test.mjs
 
 # フロントの純粋関数のテスト（要: node 22+）
 test-frontend:

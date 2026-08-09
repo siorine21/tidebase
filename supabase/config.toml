@@ -8,3 +8,9 @@ verify_jwt = false
 # 認可はトークン（UUID v4）の所持で行う（supabase/functions/invite/index.ts）
 [functions.invite]
 verify_jwt = false
+
+# resolve-map-link は外へ取りに行くので、ログイン済みの人だけに絞る（D-072）。
+# ただし verify_jwt = true でも publishable（anon）キーだけで通ってしまうため、
+# 関数の中でも利用者のトークンかどうかを確かめている。
+[functions.resolve-map-link]
+verify_jwt = true
