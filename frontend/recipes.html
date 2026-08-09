@@ -200,7 +200,9 @@
       const specs = [r.weight_g ? `${r.weight_g}g` : null, r.color].filter(Boolean).join(" / ");
       return `
         <a class="recipe-card" href="recipe.html?id=${r.id}">
-          <div class="thumb">${icon("recipes", { size: 20 })}</div>
+          <!-- ルアーは平べったいので、他のアイコンと同じ 20px だと枠の中で小さく見える。
+               面積で他と揃えるとこのくらい（D-087）。枠は 42px。 -->
+          <div class="thumb">${icon("recipes", { size: 34 })}</div>
           <div class="body">
             <div class="name">${escapeHtml(r.name)}${r.is_favorite ? ` ${icon("star", { size: 14, className: "filled" })}` : ""}</div>
             ${r.makers?.name ? `<div class="maker">${escapeHtml(r.makers.name)}</div>` : ""}

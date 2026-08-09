@@ -81,7 +81,8 @@
     box.innerHTML = `
       <div class="card">
         <div style="display:flex;gap:12px;align-items:flex-start">
-          <div class="thumb">${icon("recipes", { size: 20 })}</div>
+          <!-- 一覧と同じ大きさに揃える（D-087）。平べったいので 20px だと枠に埋もれる。 -->
+          <div class="thumb">${icon("recipes", { size: 34 })}</div>
           <div style="flex:1;min-width:0">
             <div class="list-title" style="font-size:16px">${escapeHtml(r.name)}</div>
             <div class="tags" style="margin-top:8px">
