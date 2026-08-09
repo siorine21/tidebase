@@ -28,6 +28,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+
+      # 配る中身に版を打つ（D-088）。
+      # GitHub Pages は HTML も CSS も JS も max-age=600 で配るので、
+      # 版を付けないと端末に古いものが残り、「配ったのに変わらない」が起きる。
+      # - assets/version.json … 画面から no-store で取り直して新旧を比べる
+      # - ?v=<sha> …………………… 中身が変わったら URL も変わるので必ず取り直される
+      - name: 資産に版を打つ
+        run: |
+          set -eu
+          V="${GITHUB_SHA::8}"
+          cd frontend
+          printf '{ "v": "%s" }\n' "$V" > assets/version.json
+          find . -maxdepth 1 -name '*.html' -print0 | xargs -0 sed -i \
+            -e "s#assets/theme\.css\"#assets/theme.css?v=$V\"#g" \
+            -e "s#assets/config\.js\"#assets/config.js?v=$V\"#g" \
+            -e "s#\./assets/app\.js\"#./assets/app.js?v=$V\"#g"
+          sed -i \
+            -e "s#\"\./icons\.js\"#\"./icons.js?v=$V\"#g" \
+            -e "s#__APP_VERSION__#$V#" assets/app.js
+          grep -q "$V" assets/app.js
+          grep -q "theme.css?v=$V" index.html
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: frontend

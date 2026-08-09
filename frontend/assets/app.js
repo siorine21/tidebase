@@ -1814,6 +1814,43 @@ export async function tideCorrelation() {
 
 /** ボトムナビを描画する。current は home / tide / map / records / recipes。
     設定はここに置かない（毎日開く場所ではないため、ホームのヘッダーから開く）。 */
+/* ---------------- 配った版が端末に届いているか（D-088） ----------------
+   GitHub Pages は HTML も JS も max-age=600 で配る。配信は成功しているのに
+   端末には 10 分ほど古い画面が残るし、ホーム画面から起動したまま
+   閉じずに使っていると、それより長く残る。
+   実際に「アイコンは変わったのにレシピの画面が変わらない」が起きた。
+
+   版だけを毎回取り直して（no-store・数十バイト）、読み込んである版と違えば知らせる。
+   **勝手に読み込み直さない。** 入力の途中で消えるほうが困る。 */
+export const APP_VERSION = "__APP_VERSION__";   // 配信時に GitHub Actions が差し替える
+
+function showUpdateBar(latest) {
+  if (document.querySelector(".update-bar")) return;
+  document.body.insertAdjacentHTML("afterbegin",
+    `<button type="button" class="update-bar">新しい版があります。タップして読み込み直す</button>`);
+  document.querySelector(".update-bar").addEventListener("click", () => {
+    /* 同じ URL のままだと端末が持っている古い HTML をそのまま返すことがある。
+       版を付けた別の URL にすると、必ず取りに行く。 */
+    const url = new URL(location.href);
+    url.searchParams.set("v", latest);
+    location.replace(url.toString());
+  });
+}
+
+export async function checkForUpdate() {
+  if (APP_VERSION.startsWith("__")) return null;   // 手元では差し替わっていないので何もしない
+  try {
+    const response = await fetch(`assets/version.json?t=${Date.now()}`, { cache: "no-store" });
+    if (!response.ok) return null;
+    const latest = (await response.json()).v;
+    if (!latest || latest === APP_VERSION) return null;
+    showUpdateBar(latest);
+    return latest;
+  } catch {
+    return null;                                   // 圏外なら黙って諦める
+  }
+}
+
 export function renderNav(current) {
   const items = [
     ["home", "index.html", "home", "ホーム"],
@@ -1835,6 +1872,7 @@ export function renderNav(current) {
         </a>`).join("")}
     </nav>`);
   renderIcons();
+  checkForUpdate();          // 画面を開くたびに 1 回。待たない
 }
 
 /** data-icon 属性を持つ要素にアイコンを描画する。 */

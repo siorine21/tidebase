@@ -336,6 +336,16 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 
 .app-body { padding-bottom: 76px; }   /* ボトムナビ分の余白 */
 
+/* 新しい版が配られているのに端末に古いものが残っているときの帯（D-088）。
+   上に固定する。ボトムナビ（z-index 20）とぶつからないように上へ置く。 */
+.update-bar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 30;
+  border: 0; border-bottom: 1px solid var(--mustard-dk);
+  padding: 9px 12px max(9px, env(safe-area-inset-top));
+  background: var(--mustard-dk); color: #12283E;
+  font-size: 12px; font-weight: 600; text-align: center; cursor: pointer;
+}
+
 /* ---------- ボトムナビ ---------- */
 .bottom-nav {
   position: fixed; left: 0; right: 0; bottom: 0;

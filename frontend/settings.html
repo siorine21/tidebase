@@ -83,7 +83,10 @@
     </button>
   </div>
 
-  <div class="page-sub" style="text-align:center;margin-top:18px">TIDEBASE</div>
+  <!-- 端末に届いている版（D-088）。「配ったのに変わらない」を切り分けるために出す。 -->
+  <div class="page-sub" style="text-align:center;margin-top:18px">TIDEBASE
+    <span id="app-version" style="opacity:0.6"></span>
+  </div>
 </main>
 
 <script src="vendor/supabase.js"></script>
@@ -94,7 +97,11 @@
     escapeHtml, icon, renderIcons, formatJstDate,
     myGroup, listGroupMembers, createGroup, listInvites, createInvite,
     revokeInvite, leaveGroup, inviteUrl, isAppAdmin, GROUP_MEMBER_LIMIT,
+    APP_VERSION,
   } from "./assets/app.js";
+
+  document.getElementById("app-version").textContent =
+    APP_VERSION.startsWith("__") ? "（手元）" : ` ${APP_VERSION}`;
 
   const MIN_PASSWORD_LENGTH = 8;   // Supabase 側の password_min_length と揃える
 
