@@ -59,9 +59,13 @@
 
   <!-- STEP 2: タックル・ルアー -->
   <section class="card step-panel" data-step="2" hidden>
+    <!-- 登録済みのレシピから選ぶか、名前だけ書くか（D-075）。
+         借りたルアーや、レシピにするほどでもないものを記録できるようにする -->
     <div class="field">
       <label for="recipe">使用ルアー / レシピ</label>
       <select id="recipe"><option value="">選択しない</option></select>
+      <input type="text" id="lure-name" maxlength="80" placeholder="例: サスケ 95 チャート" hidden>
+      <div class="list-sub" id="lure-source-note"></div>
     </div>
     <!-- レシピを登録していないルアーでも種別だけ残せるようにする（D-058）。
          レシピを選んだときは、そのレシピの種別が自動で入る -->
@@ -265,7 +269,7 @@
     document.getElementById("tackle-note").innerHTML = hasAny
       ? `<button type="button" class="chip" id="tackle-toggle">${
           useSelect ? "自由入力にする" : "登録済みから選ぶ"}</button>`
-      : `よく使うタックルは<a href="settings.html">設定</a>から登録すると、`
+      : `よく使うタックルは<a href="tackle.html">タックル</a>の画面から登録すると、`
         + `ここで選ぶだけになります。`;
   }
 
@@ -282,6 +286,35 @@
     renderTackle();
   });
   renderTackle();
+
+  /* ---------- ルアーの入れ方（D-075） ----------
+     レシピから選ぶか、名前だけ自由に書くか。タックル（D-066）と同じ考え方で、
+     登録していないものも記録できるようにする。
+     両方には入れさせない。どちらを出すべきか決められなくなるため
+     （DB 側も CHECK で弾いている）。 */
+  let lureFree = false;
+
+  function renderLureSource() {
+    const useSelect = !lureFree;
+    document.getElementById("recipe").hidden = !useSelect;
+    document.getElementById("lure-name").hidden = useSelect;
+    document.getElementById("lure-source-note").innerHTML =
+      `<button type="button" class="chip" id="lure-toggle">${
+        useSelect ? "自由入力にする" : "登録済みから選ぶ"}</button>`;
+  }
+
+  document.getElementById("lure-source-note").addEventListener("click", (e) => {
+    if (!e.target.closest("#lure-toggle")) return;
+    lureFree = !lureFree;
+    // 使わないほうは空にする。残しておくと、画面に答えが 2 つある状態になる
+    document.getElementById(lureFree ? "recipe" : "lure-name").value = "";
+    renderLureSource();
+    syncLureCategory({ fromRecipeChange: true });   // レシピを外したぶん種別の鍵を開ける
+    saveDraft();
+  });
+
+  document.getElementById("lure-name").addEventListener("input", saveDraft);
+  renderLureSource();
 
   /* ---------- ルアー種別（D-058） ----------
      レシピを選んだらその種別が自動で入り、手では変えられなくする。
@@ -773,7 +806,7 @@
     // ボウズは STEP1・2 を飛ばすため、編集で切り替えたときに古い値が残らないよう明示的に消す
     Object.assign(payload, state.isSkunked ? {
       fish_species_id: null, fish_name_local: null, length_cm: null, weight_g: null,
-      quantity_note: null, recipe_id: null, water_layer: null,
+      quantity_note: null, recipe_id: null, lure_name: null, water_layer: null,
       lure_category_large: null, lure_category_small: null,
       rod: null, reel: null, line: null, leader: null,
     } : {
@@ -783,7 +816,9 @@
       weight_g: num("weight"),
       catch_count: num("count") ?? 1,
       quantity_note: text("quantity-note"),
-      recipe_id: document.getElementById("recipe").value || null,
+      // どちらか片方だけ。両方入れると DB 側の CHECK で弾かれる
+      recipe_id: lureFree ? null : (document.getElementById("recipe").value || null),
+      lure_name: lureFree ? text("lure-name") : null,
       lure_category_large: state.lureLarge,
       // 大分類が無いのに小分類だけ、という状態は DB 側でも弾いている
       lure_category_small: state.lureLarge ? state.lureSmall : null,
@@ -834,7 +869,8 @@
       layer: state.layer, visibility: state.visibility, displayName: state.displayName ?? null,
       species: value("species"), length: value("length"), weight: value("weight"),
       count: value("count"), quantityNote: value("quantity-note"),
-      recipe: value("recipe"), lureLarge: state.lureLarge, lureSmall: state.lureSmall,
+      recipe: value("recipe"), lureName: value("lure-name"), lureFree,
+      lureLarge: state.lureLarge, lureSmall: state.lureSmall,
       rod: value("rod"), reel: value("reel"),
       line: value("line"), leader: value("leader"),
       fishedAt: value("fished-at"), fishedTime: value("fished-time"), memo: value("memo"),
@@ -866,7 +902,8 @@
     const set = (id, v) => { if (v != null) document.getElementById(id).value = v; };
     set("species", data.species); set("length", data.length); set("weight", data.weight);
     set("count", data.count); set("quantity-note", data.quantityNote);
-    set("recipe", data.recipe); set("rod", data.rod); set("reel", data.reel);
+    set("recipe", data.recipe); set("lure-name", data.lureName);
+    set("rod", data.rod); set("reel", data.reel);
     set("line", data.line); set("leader", data.leader);
     set("fished-at", data.fishedAt); set("fished-time", data.fishedTime);
     set("memo", data.memo);
@@ -878,6 +915,8 @@
     state.displayName = data.displayName ?? null;
     state.lureLarge = data.lureLarge ?? null;
     state.lureSmall = data.lureSmall ?? null;
+    lureFree = Boolean(data.lureFree ?? data.lureName);
+    renderLureSource();
     syncLureCategory();
 
     renderTackle();          // 復元した値を選択式にも反映する
@@ -903,7 +942,7 @@
       species: r.fish_species_id ?? "", length: r.length_cm ?? "", weight: r.weight_g ?? "",
       // ボウズは catch_count = 0 で保存されるが、解除したときの初期値は 1 が自然
       count: r.is_skunked ? 1 : r.catch_count ?? 1, quantityNote: r.quantity_note ?? "",
-      recipe: r.recipe_id ?? "",
+      recipe: r.recipe_id ?? "", lureName: r.lure_name ?? "", lureFree: Boolean(r.lure_name),
       lureLarge: r.lure_category_large ?? null, lureSmall: r.lure_category_small ?? null,
       rod: r.rod ?? "", reel: r.reel ?? "",
       line: r.line ?? "", leader: r.leader ?? "",

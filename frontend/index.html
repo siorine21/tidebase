@@ -366,7 +366,7 @@
           + (r.catch_count > 1 ? ` ×${r.catch_count}` : "");
       const when = formatShortDate(r.fished_at)
         + (r.fished_time ? ` ${r.fished_time.slice(0, 5)}` : "");
-      const sub = [when, r.spot_name, r.recipe_name]
+      const sub = [when, r.spot_name, r.lure_label]
         .filter(Boolean).map(escapeHtml).join(" / ");
       const owner = ownerBadge(r);
       return `

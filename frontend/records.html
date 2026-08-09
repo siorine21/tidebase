@@ -145,7 +145,7 @@
         : `${escapeHtml(recordFishName(r))}${r.length_cm ? ` ${r.length_cm}cm` : ""}`
           + (r.catch_count > 1 ? ` ×${r.catch_count}` : "");
       const sub = [
-        r.spot_name, r.recipe_name ?? lureCategoryText(r), r.water_layer,
+        r.spot_name, r.lure_label ?? lureCategoryText(r), r.water_layer,
         r.tide_type, r.quantity_note,
       ].filter(Boolean).map(escapeHtml).join(" / ");
       // 誰の釣果かはひと目で分かるようにする（自分のものには何も付けない）

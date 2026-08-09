@@ -182,7 +182,8 @@
       ["重量", r.weight_g ? (r.weight_g >= 1000 ? `${(r.weight_g / 1000).toFixed(1)} kg` : `${r.weight_g} g`) : null],
       ["匹数", r.is_skunked ? "0（ボウズ）" : r.catch_count],
       ["数量メモ", r.quantity_note],
-      ["ルアー", r.recipe_name],
+      // レシピを選んだときはその名前、自由入力ならその文字列（D-075）
+      ["ルアー", r.lure_label],
       ["ルアー種別", lureCategoryText(r)],
       ["ヒットレンジ", r.water_layer],
       ["ロッド", r.rod], ["リール", r.reel], ["ライン", r.line], ["リーダー", r.leader],
