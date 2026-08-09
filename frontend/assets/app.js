@@ -797,6 +797,31 @@ export function windDirection(degrees) {
   return WIND_DIRS[Math.round(degrees / 45) % 8];
 }
 
+/* ---------------- 天気の参照先（D-076） ----------------
+   Open-Meteo 経由で **気象庁の数値予報（MSM 5km メッシュ / 39 時間以降は GSM）** を使う。
+   日本の海沿いを見るなら、全球モデル（GFS・ICON・ECMWF）より格子が細かく、
+   何より国内の予報の元になっているものと同じ。
+
+   既定（best_match）でも、この地点では気象庁と同じ値が返ってくることを確かめた
+   （GFS・ICON・ECMWF とは明らかに違う値になる）。それでも**名指しする**のは、
+   選び方が向こうの都合で変わっても、こちらの表示が黙って変わらないようにするため。
+
+   ただし名指しは「その日その時に気象庁のデータが無ければ何も出ない」を意味する。
+   取れなかったときは既定に戻して取り直す。天気が出ないより、
+   別モデルでも出たほうがいい。 */
+export const WEATHER_SOURCE = "気象庁 MSM/GSM（Open-Meteo 経由）";
+const WEATHER_MODEL = "jma_seamless";
+const WEATHER_HOURLY =
+  "temperature_2m,weather_code,wind_speed_10m,wind_direction_10m";
+
+/** 気象庁のモデルを名指しして取る。だめなら既定（best_match）で取り直す。 */
+async function fetchForecast(query) {
+  const url = `https://api.open-meteo.com/v1/forecast?${query}`;
+  const pinned = await fetchWithTimeout(`${url}&models=${WEATHER_MODEL}`).catch(() => null);
+  if (pinned && pinned.ok) return pinned;
+  return await fetchWithTimeout(url);
+}
+
 /**
  * 指定座標・指定日の 1 時間刻み予報と、その日の日の出・日没。
  * 波高は海上グリッド外だと null になる（設計補完書 1.1 章）。
@@ -808,12 +833,10 @@ export async function fetchWeather(lat, lng, date) {
   const nextDay = new Date(Date.parse(`${date}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
   const base = `latitude=${lat}&longitude=${lng}&timezone=Asia%2FTokyo`
     + `&start_date=${date}&end_date=${nextDay}`;
-  const forecastUrl = "https://api.open-meteo.com/v1/forecast?" + base
-    + "&hourly=temperature_2m,weather_code,wind_speed_10m,wind_direction_10m&wind_speed_unit=ms";
   const marineUrl = "https://marine-api.open-meteo.com/v1/marine?" + base + "&hourly=wave_height";
 
   const [forecastRes, marineRes] = await Promise.all([
-    fetchWithTimeout(forecastUrl),
+    fetchForecast(`${base}&hourly=${WEATHER_HOURLY}&wind_speed_unit=ms`),
     fetchWithTimeout(marineUrl).catch(() => null),
   ]);
   if (!forecastRes.ok) throw new Error(`天気データを取得できませんでした (${forecastRes.status})`);
@@ -853,15 +876,14 @@ function mapHourly(h, waves = null) {
  */
 export async function fetchWeatherRange(lat, lng, startDate, endDate) {
   const last = new Date(Date.parse(`${endDate}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
-  const url = "https://api.open-meteo.com/v1/forecast?"
-    + `latitude=${lat}&longitude=${lng}&timezone=Asia%2FTokyo`
+  const query = `latitude=${lat}&longitude=${lng}&timezone=Asia%2FTokyo`
     + `&start_date=${startDate}&end_date=${last}`
-    + "&hourly=temperature_2m,weather_code,wind_speed_10m,wind_direction_10m&wind_speed_unit=ms";
+    + `&hourly=${WEATHER_HOURLY}&wind_speed_unit=ms`;
 
   const result = new Map();
   let forecast;
   try {
-    const response = await fetchWithTimeout(url);
+    const response = await fetchForecast(query);
     if (!response.ok) return result;
     forecast = await response.json();
   } catch {

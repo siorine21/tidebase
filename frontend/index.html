@@ -67,6 +67,9 @@
   <div class="section-label"><span>HOURLY WEATHER</span><span class="note">← スクロール →</span></div>
   <div class="card">
     <div class="hourly" id="hourly"><div class="empty">読み込み中…</div></div>
+    <!-- どこの何を見ているのかを画面に出す（D-076）。
+         出典が分からないと、外れたときに「何が外れたのか」を判断できない -->
+    <div class="list-sub" id="weather-source" style="margin-top:10px"></div>
   </div>
 
   <div class="section-label"><span>RECENT CATCH</span><a class="note" href="records.html">すべて見る →</a></div>
@@ -88,7 +91,7 @@
     listSpots, listRecords, tideCorrelation, icon,
     recordFishName, ownerBadge, nowInJst, hoursFromHhmm, addJstDays,
     listTidePoints, fetchTideForPoint, tidePointOfSpot, savedTidePoint, saveTidePoint, formatLag,
-    hasUnreadNews,
+    hasUnreadNews, WEATHER_SOURCE,
     isCoordinateInJapan, tideTimelineSvg, sunStripHtml, levelAxisHtml, tideLevelAt, sunTimes,
   } from "./assets/app.js";
 
@@ -165,6 +168,12 @@
     renderHero(baseSpot, tide, weather, point, sunCache.get(today) ?? null);
     renderChart();
     renderHourly(weather);
+    // どこの天気なのかを出す。基準スポットが無ければ潮汐地点の座標で取っている
+    document.getElementById("weather-source").textContent = weatherAt
+      ? `${spotUsable ? (baseSpot.name ?? "無名スポット") : (point?.label ?? "既定の地点")}`
+        + `（北緯 ${Number(weatherAt.lat).toFixed(3)} / 東経 ${Number(weatherAt.lng).toFixed(3)}）の予報`
+        + ` · 出典: ${WEATHER_SOURCE}`
+      : `出典: ${WEATHER_SOURCE}`;
     scrollToNow("auto");
 
     // 前後の日をあとから読み足す
