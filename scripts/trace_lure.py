@@ -136,17 +136,47 @@ def area(loop):
     return abs(s) / 2
 
 
-def build_path(src=DEFAULT_SRC, tol=2.2, dilate=41, box=24.0, precision=2):
+def centroid_radius(loop):
+    cx = sum(p[0] for p in loop) / len(loop)
+    cy = sum(p[1] for p in loop) / len(loop)
+    return cx, cy, math.sqrt(area(loop) / math.pi)
+
+
+def pacman(cx, cy, r, mouth=55.0, facing=180.0, precision=2):
+    """パックマン。ima のマークがこの形で、ルアーの目もこれ（D-086）。
+
+    口は左（ルアーの鼻の側）に開く。マークを実測して開き角 55°。
+    照り返しのある丸い玉として描くと、ただの目玉になってしまう。
+    """
+    half = math.radians(mouth / 2)
+    a = math.radians(facing)
+    p1 = (cx + r * math.cos(a + half), cy + r * math.sin(a + half))
+    p2 = (cx + r * math.cos(a - half), cy + r * math.sin(a - half))
+    f = lambda v: round(v, precision)
+    # 口以外をぐるりと回るので large-arc-flag=1、画面の時計回りなので sweep-flag=1
+    return (f"M{f(cx)} {f(cy)}L{f(p1[0])} {f(p1[1])}"
+            f"A{f(r)} {f(r)} 0 1 1 {f(p2[0])} {f(p2[1])}Z")
+
+
+def build_path(src=DEFAULT_SRC, tol=2.2, dilate=41, box=24.0, precision=2,
+               mouth=55.0, pupil_ratio=0.75, eye_scale=1.35, eye_shift=(35, 0)):
     """24x24 の箱に中央寄せで収めたパスと、縦横比を返す。"""
     ink, w, h = load_mask(src, dilate)
     loops = sorted(trace_loops(ink, w, h), key=area, reverse=True)
     loops = [lp for lp in loops if area(lp) >= 200]
-    if dilate:
-        # 目は太らせる前の絵から取る。太らせると輪が塞がってしまう
-        thin, tw, th = load_mask(src, 0)
-        eyes = sorted(trace_loops(thin, tw, th), key=area, reverse=True)[2:4]
-        loops = loops[:2] + eyes
-    shapes = [simplify(lp, tol) for lp in loops[:4]]
+    shapes = [simplify(lp, tol) for lp in loops[:2]]
+
+    # 目の位置と大きさは太らせる前の絵から取る（太らせると輪が塞がる）。
+    # ただし**形はなぞらない**。元絵は丸い玉＋照り返しになっていて、
+    # 実物（ima のマークと同じパックマン）とは形が違う（D-086）。
+    # アイコンなので元絵より一回り大きくし、頭の厚いほうへ少しずらす。
+    thin, tw, th = load_mask(src, 0)
+    ring = sorted(trace_loops(thin, tw, th), key=area, reverse=True)[2]
+    ecx, ecy, er = centroid_radius(ring)
+    ecx += eye_shift[0]
+    ecy += eye_shift[1]
+    er *= eye_scale
+    pr = er * pupil_ratio
 
     xs = [p[0] for s in shapes for p in s]
     ys = [p[1] for s in shapes for p in s]
@@ -164,6 +194,13 @@ def build_path(src=DEFAULT_SRC, tol=2.2, dilate=41, box=24.0, precision=2):
                 ded.append(p)
         parts.append(f"M{ded[0][0]} {ded[0][1]}"
                      + "".join(f"L{x} {y}" for x, y in ded[1:]) + "Z")
+    # 目のふち（アイシールの縁）と、その中のパックマン。
+    cx, cy = ecx * k + ox, ecy * k + oy
+    f = lambda v: round(v, precision)
+    parts.append(f"M{f(cx - er * k)} {f(cy)}"
+                 f"a{f(er * k)} {f(er * k)} 0 1 0 {f(er * k * 2)} 0"
+                 f"a{f(er * k)} {f(er * k)} 0 1 0 {f(-er * k * 2)} 0Z")
+    parts.append(pacman(cx, cy, pr * k, mouth, precision=precision))
     return "".join(parts), (x1 - x0) / (y1 - y0)
 
 
@@ -173,7 +210,11 @@ if __name__ == "__main__":
     ap.add_argument("--src", default=DEFAULT_SRC)
     ap.add_argument("--tol", type=float, default=2.2, help="間引きの許容誤差（元画像の画素）")
     ap.add_argument("--dilate", type=int, default=41, help="墨を太らせる幅（元画像の画素）")
+    ap.add_argument("--mouth", type=float, default=55.0, help="パックマンの口の開き角（度）")
+    ap.add_argument("--pupil", type=float, default=0.75, help="黒目の大きさ（輪の半径に対する比）")
+    ap.add_argument("--eye-scale", type=float, default=1.35, help="目全体の倍率（元絵に対して）")
     args = ap.parse_args()
-    d, ratio = build_path(args.src, args.tol, args.dilate)
+    d, ratio = build_path(args.src, args.tol, args.dilate, mouth=args.mouth,
+                           pupil_ratio=args.pupil, eye_scale=args.eye_scale)
     print(d)
     print(f"<!-- 縦横比 {ratio:.3f}:1 / {len(d)} 文字 -->")
