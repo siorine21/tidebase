@@ -622,6 +622,14 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
   width: 100%; height: 100%; object-fit: cover;
   border-radius: 8px; border: 1px solid var(--border); background: var(--bg-deep);
 }
+/* 縮小が終わるまでの札（D-091）。大きな写真は数秒かかるので、
+   何も出ないと「選んだのに入らなかった」に見える。 */
+.photo-item.loading {
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 8px; border: 1px dashed var(--border-strong);
+  background: var(--bg-deep); color: var(--text-muted); font-size: 11px;
+}
+
 .photo-remove {
   position: absolute; top: 4px; right: 4px; width: 24px; height: 24px;
   display: flex; align-items: center; justify-content: center;

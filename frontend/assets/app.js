@@ -1501,35 +1501,50 @@ async function renderImage(source, { maxEdge = PHOTO_MAX_EDGE, budget = PHOTO_BU
   return { blob, width, height, type: blob.type };
 }
 
+/** 種別が空でも画像として扱う（D-091）。
+    Android の写真アプリや共有経由で選ぶと `type` が空になることがある。
+    そこで弾いていたので、**何も言わずに消える**という見え方になっていた。
+    開けるかどうかは実際に読んで確かめ、だめなら理由を出す。 */
+export function looksLikeImage(file) {
+  return file.type ? file.type.startsWith("image/") : true;
+}
+
+// これより大きいファイルは原寸でデコードしない（D-091）。
+// 1 億画素だと原寸のビットマップだけで 400MB を超え、端末によっては落ちる。
+const PHOTO_BIG_FILE_BYTES = 6 * 1024 * 1024;
+
 /**
- * 画像を 1 回だけデコードする。手前から順に試す（D-061）。
- *   1. そのまま     … 通常はこれで通る
- *   2. 縮小しながら … 巨大な写真はここで救う。原寸のビットマップを作らずに済む
- *   3. <img> 経由   … createImageBitmap が受け付けない形式の保険
+ * 画像を 1 回だけデコードする。手前から順に試す（D-061 / D-091）。
+ * 大きなファイルは**最初から縮小しながら**読む。原寸のビットマップを作らずに済む。
+ * 小さなファイルに縮小指定を使うと引き伸ばしてしまうので、そちらは原寸から。
  */
 async function loadImage(file) {
-  try {
-    return await createImageBitmap(file, { imageOrientation: "from-image" });
-  } catch { /* 次の手を試す */ }
+  const attempts = file.size > PHOTO_BIG_FILE_BYTES
+    ? [PHOTO_MAX_EDGE, 1024, 640, 0]
+    : [0, PHOTO_MAX_EDGE, 1024, 640];
+  for (const edge of attempts) {
+    try {
+      return await createImageBitmap(file, edge
+        // 幅だけ指定すれば高さは比率で決まる。画素数が減るぶんメモリの山が低くなる
+        ? { imageOrientation: "from-image", resizeWidth: edge, resizeQuality: "high" }
+        : { imageOrientation: "from-image" });
+    } catch { /* 次の手を試す */ }
+  }
 
-  try {
-    // 幅だけ指定すれば高さは比率で決まる。画素数が減るぶんメモリの山が低くなる
-    return await createImageBitmap(file, {
-      imageOrientation: "from-image", resizeWidth: PHOTO_MAX_EDGE, resizeQuality: "high",
-    });
-  } catch { /* 次の手を試す */ }
-
+  // createImageBitmap が受け付けない形式の保険。ブラウザ側で間引いて読んでくれる
   return await new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const image = new Image();
     image.onload = () => { URL.revokeObjectURL(url); resolve(image); };
     image.onerror = () => {
       URL.revokeObjectURL(url);
-      // HEIC は Android のブラウザが開けない。何をすればいいかまで書く
+      // 何が起きたのか分かるよう、種別と大きさを添える
+      const mb = (file.size / 1024 / 1024).toFixed(1);
       reject(new Error(
-        `この画像は開けませんでした（${file.type || "形式不明"}）。`
+        `この画像は開けませんでした（${file.type || "形式不明"} / ${mb} MB）。`
         + "HEIC で撮影している場合は、カメラの設定を JPEG にするか、"
-        + "写真アプリで JPEG に変換してからお試しください。"));
+        + "写真アプリで JPEG に変換してからお試しください。"
+        + "大きすぎて端末のメモリに乗らないこともあります。"));
     };
     image.src = url;
   });
@@ -1541,23 +1556,43 @@ function canvasToBlob(canvas, type, quality) {
   });
 }
 
-/** 釣果に写真を 1 枚追加する（表示用とサムネイルの 2 つを上げる）。 */
-export async function uploadRecordPhoto(recordId, file, sortOrder = 0) {
-  const userId = await requireUserId();
-
-  // デコードは 1 回だけ。以前は表示用とサムネイルで同じ写真を 2 回、
-  // しかも同時にデコードしていて、大きな写真ではメモリの山が 2 倍になっていた（D-061）
+/**
+ * 選んだ時点で縮小しておく（D-091）。
+ * 記録するときにまとめて縮小していたので、
+ *   - 選んでから何も起きず、上げられたのかどうか分からない
+ *   - 一覧の下絵に**原本**を出していて、大きな写真では出るまでに時間がかかる
+ * という状態だった。ここで済ませておけば、下絵は縮小済みの小さな画像で出せるし、
+ * 開けない写真はその場で分かる。
+ *
+ * デコードは 1 回だけ。表示用とサムネイルで 2 回デコードすると、
+ * 大きな写真ではメモリの山が 2 倍になる（D-061）。
+ */
+export async function preparePhoto(file) {
   const source = await loadImage(file);
-  let full, thumb;
   try {
-    full = await renderImage(source);
-    thumb = await renderImage(source, {
+    const full = await renderImage(source);
+    const thumb = await renderImage(source, {
       maxEdge: PHOTO_THUMB_EDGE, budget: PHOTO_THUMB_BUDGET_BYTES,
     });
+    return { full, thumb, name: file.name, previewUrl: URL.createObjectURL(thumb.blob) };
   } finally {
     source.close?.();
   }
+}
 
+/** 釣果に写真を 1 枚追加する（表示用とサムネイルの 2 つを上げる）。 */
+export async function uploadRecordPhoto(recordId, file, sortOrder = 0) {
+  const prepared = await preparePhoto(file);
+  try {
+    return await uploadPreparedPhoto(recordId, prepared, sortOrder);
+  } finally {
+    URL.revokeObjectURL(prepared.previewUrl);
+  }
+}
+
+/** 縮小済みの写真を上げる。 */
+export async function uploadPreparedPhoto(recordId, { full, thumb }, sortOrder = 0) {
+  const userId = await requireUserId();
   const extension = full.type === "image/webp" ? "webp" : "jpg";
   const photoId = crypto.randomUUID();
   const path = `${userId}/${photoId}.${extension}`;

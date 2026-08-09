@@ -215,7 +215,8 @@
     groupSpeciesByCategory, createMap, spotMarker, LURE_CATEGORIES, attachPlaceSearch,
     SPOT_TYPES, WATER_TYPES,
     listTackle, TACKLE_KINDS,
-    listRecordPhotos, uploadRecordPhoto, deleteRecordPhotos, signedPhotoUrls, PHOTO_MAX_COUNT,
+    listRecordPhotos, preparePhoto, uploadPreparedPhoto, looksLikeImage,
+    deleteRecordPhotos, signedPhotoUrls, PHOTO_MAX_COUNT,
     navigate,
   } from "./assets/app.js";
 
@@ -718,11 +719,15 @@
           <img src="${urls.get(p.thumb_path) ?? ""}" alt="">
           <button type="button" class="photo-remove" aria-label="削除">×</button>
         </div>`),
-      ...photos.added.map((p, i) => `
-        <div class="photo-item" data-kind="added" data-index="${i}">
-          <img src="${p.url}" alt="">
-          <button type="button" class="photo-remove" aria-label="削除">×</button>
-        </div>`),
+      ...photos.added.map((p, i) => p.ready
+        ? `<div class="photo-item" data-kind="added" data-index="${i}">
+             <img src="${p.url}" alt="">
+             <button type="button" class="photo-remove" aria-label="削除">×</button>
+           </div>`
+        // 縮小が終わるまでの札（D-091）。何も出ないと「上がらなかった」に見える
+        : `<div class="photo-item loading" data-kind="added" data-index="${i}">
+             <span>読込中</span>
+           </div>`),
     ].join("");
 
     const note = document.getElementById("photo-note");
@@ -734,7 +739,10 @@
     document.getElementById("photo-input").disabled = left <= 0;
   }
 
-  document.getElementById("photo-input").addEventListener("change", (e) => {
+  /* 選んだその場で縮小する（D-091）。
+     以前は記録するときにまとめて縮小していたので、大きな写真だと
+     「選んだのに何も起きない」ように見え、失敗の理由も記録のあとまで出なかった。 */
+  document.getElementById("photo-input").addEventListener("change", async (e) => {
     const files = [...e.target.files];
     e.target.value = "";                      // 同じ写真を選び直せるように
     const left = PHOTO_MAX_COUNT - photoCount();
@@ -742,10 +750,24 @@
       message(`写真は ${PHOTO_MAX_COUNT} 枚までです。`, "error");
     }
     for (const file of files.slice(0, Math.max(0, left))) {
-      if (!file.type.startsWith("image/")) continue;
-      photos.added.push({ file, url: URL.createObjectURL(file) });
+      if (!looksLikeImage(file)) {
+        // 黙って捨てない。何を捨てたのか本人に分かるようにする
+        message(`「${file.name}」は画像ではないようです（${file.type || "形式不明"}）。`, "error");
+        continue;
+      }
+      const item = { name: file.name, ready: false };
+      photos.added.push(item);
+      renderPhotos();
+      try {
+        const prepared = await preparePhoto(file);
+        Object.assign(item, prepared, { url: prepared.previewUrl, ready: true });
+      } catch (error) {
+        const index = photos.added.indexOf(item);
+        if (index >= 0) photos.added.splice(index, 1);
+        message(`「${file.name}」を読み込めませんでした。${toJapaneseError(error)}`, "error");
+      }
+      renderPhotos();
     }
-    renderPhotos();
   });
 
   document.getElementById("photo-list").addEventListener("click", (e) => {
@@ -754,7 +776,7 @@
     const item = button.closest(".photo-item");
     if (item.dataset.kind === "added") {
       const [removed] = photos.added.splice(Number(item.dataset.index), 1);
-      URL.revokeObjectURL(removed.url);
+      if (removed.url) URL.revokeObjectURL(removed.url);
     } else {
       const index = photos.existing.findIndex((p) => p.id === item.dataset.id);
       if (index >= 0) photos.removed.push(...photos.existing.splice(index, 1));
@@ -768,8 +790,10 @@
       await deleteRecordPhotos(photos.removed);
       photos.removed = [];
     }
+    // 縮小は選んだ時点で終わっている（D-091）。ここは上げるだけ
     for (const [index, item] of photos.added.entries()) {
-      await uploadRecordPhoto(targetRecordId, item.file, photos.existing.length + index);
+      if (!item.ready) continue;              // まだ縮小中のものは飛ばす
+      await uploadPreparedPhoto(targetRecordId, item, photos.existing.length + index);
       URL.revokeObjectURL(item.url);
     }
     photos.added = [];
