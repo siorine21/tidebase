@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NEWS | TIDEBASE</title>
+<link rel="stylesheet" href="vendor/fonts/fonts.css">
+<link rel="stylesheet" href="assets/theme.css">
+</head>
+<body class="app-body">
+<!-- SCR-019 お知らせ（D-074）
+     中身は assets/news.json。DB には置かない。書くのは作り手だけで、
+     使う人が投稿するものではないから。ファイルなら、直したときの
+     コミットと同じ流れで配れる（Pages のデプロイに相乗りする）。 -->
+<header class="app-header">
+  <a class="back" href="index.html" aria-label="ホームへ戻る" data-icon="back"></a>
+  <h1>NEWS</h1>
+  <span class="page-sub" id="count">—</span>
+</header>
+
+<main>
+  <div id="list"><div class="empty">読み込み中…</div></div>
+</main>
+
+<script src="vendor/supabase.js"></script>
+<script src="assets/config.js"></script>
+<script type="module">
+  import {
+    requireSession, renderNav, escapeHtml, renderIcons, formatJstDate, markNewsSeen,
+  } from "./assets/app.js";
+
+  const session = await requireSession();
+  if (!session) throw new Error("unauthenticated");
+  renderNav(null);   // ナビの 6 枠には入らない。ホームと設定から開く
+
+  const KIND = {
+    new: { label: "新機能", className: "news-new" },
+    fix: { label: "修正", className: "news-fix" },
+  };
+
+  const box = document.getElementById("list");
+  let updates = [];
+  try {
+    // 配信のたびに差し替わるので、古い内容が残らないようにする
+    const response = await fetch(`assets/news.json?v=${Date.now()}`, { cache: "no-store" });
+    if (!response.ok) throw new Error(String(response.status));
+    updates = (await response.json()).updates ?? [];
+  } catch {
+    box.innerHTML = `<div class="empty">お知らせを読み込めませんでした。</div>`;
+  }
+
+  if (updates.length) {
+    document.getElementById("count").textContent = `${updates.length} 件`;
+    box.innerHTML = updates.map((update) => `
+      <div class="section-label"><span>${escapeHtml(formatJstDate(update.date))}</span></div>
+      <div class="card news-card">
+        ${update.title ? `<div class="news-title">${escapeHtml(update.title)}</div>` : ""}
+        ${(update.items ?? []).map((item) => {
+          const kind = KIND[item.kind] ?? KIND.new;
+          return `<div class="news-item">
+            <span class="news-badge ${kind.className}">${kind.label}</span>
+            <span class="news-text">${escapeHtml(item.text)}</span>
+          </div>`;
+        }).join("")}
+      </div>`).join("");
+    renderIcons(box);
+    // ここまで読んだ印。ホームの赤い点はこれで消える
+    markNewsSeen(updates[0].date);
+  } else if (!box.querySelector(".empty")) {
+    box.innerHTML = `<div class="empty">お知らせはまだありません。</div>`;
+  }
+</script>
+</body>
+</html>

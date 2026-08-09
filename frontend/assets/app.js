@@ -1957,6 +1957,31 @@ export function googleDirectionsUrl(spot) {
 const GSI_ATTRIBUTION =
   '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院</a>';
 
+/* ---------------- お知らせ（D-074） ----------------
+   どこまで読んだかは端末内にだけ持つ。DB に置くほどのものではないし、
+   端末ごとに違っていて困る種類の情報でもない。 */
+
+const NEWS_SEEN_KEY = "tidebase.newsSeen";
+
+/** ここまで読んだ、という印（お知らせの日付）。 */
+export function markNewsSeen(date) {
+  if (date) localStorage.setItem(NEWS_SEEN_KEY, String(date));
+}
+
+/** 未読のお知らせがあるか。読み込めなければ「無い」ことにする（赤い点を出さない）。 */
+export async function hasUnreadNews() {
+  try {
+    const response = await fetch(`assets/news.json?v=${Date.now()}`, { cache: "no-store" });
+    if (!response.ok) return false;
+    const latest = (await response.json())?.updates?.[0]?.date;
+    if (!latest) return false;
+    // 日付は YYYY-MM-DD なので、文字列のまま比べて大小が合う
+    return latest > (localStorage.getItem(NEWS_SEEN_KEY) ?? "");
+  } catch {
+    return false;
+  }
+}
+
 /** 夜間モード（地図を暗く表示）の設定。端末内にのみ保存する。 */
 export function isNightMap() {
   return localStorage.getItem("tidebase.nightMap") === "1";

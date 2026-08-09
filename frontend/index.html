@@ -11,8 +11,14 @@
 <!-- SCR-001 ホーム（ダッシュボード） -->
 <header class="app-header">
   <h1>TIDEBASE</h1>
-  <a class="btn btn-quiet link-btn" href="settings.html" id="settings-link"
-     aria-label="設定"><span data-icon="settings"></span>設定</a>
+  <span class="head-actions">
+    <!-- お知らせ（D-074）。ナビの 6 枠は埋まっているので、ここから開く。
+         未読があるときだけ点を出す -->
+    <a class="btn btn-quiet link-btn icon-only" href="news.html" id="news-link"
+       aria-label="お知らせ"><span data-icon="bell"></span><i class="dot" hidden></i></a>
+    <a class="btn btn-quiet link-btn" href="settings.html" id="settings-link"
+       aria-label="設定"><span data-icon="settings"></span>設定</a>
+  </span>
 </header>
 
 <main>
@@ -82,6 +88,7 @@
     listSpots, listRecords, tideCorrelation, icon,
     recordFishName, ownerBadge, nowInJst, hoursFromHhmm, addJstDays,
     listTidePoints, fetchTideForPoint, tidePointOfSpot, savedTidePoint, saveTidePoint, formatLag,
+    hasUnreadNews,
     isCoordinateInJapan, tideTimelineSvg, sunStripHtml, levelAxisHtml, tideLevelAt, sunTimes,
   } from "./assets/app.js";
 
@@ -103,6 +110,12 @@
   const session = await requireSession();
   if (session) {
     renderNav("home");
+
+    // 未読のお知らせがあるときだけ点を出す（D-074）。
+    // 読み込めなくてもホームは動かしたいので、失敗は握りつぶす
+    hasUnreadNews().then((unread) => {
+      document.querySelector("#news-link .dot").hidden = !unread;
+    }).catch(() => {});
     const today = todayInJst();
     document.getElementById("today").textContent = formatJstDate(today, { weekday: true });
 

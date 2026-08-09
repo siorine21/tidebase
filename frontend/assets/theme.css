@@ -243,6 +243,36 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .row .val { font-family: 'JetBrains Mono', monospace; color: var(--blue); }
 .row .val .sub-val { color: var(--text-muted); font-size: 11px; }
 
+/* お知らせ（D-074） */
+.head-actions { display: flex; align-items: center; gap: 6px; }
+/* アイコンだけのボタン。文字が無いぶん、押せる大きさを幅で確保する */
+.btn.icon-only { position: relative; padding: 7px 10px; }
+.btn.icon-only .icon { margin: 0; }
+/* 未読の点。数字は出さない（何件あるかより、あるかどうかが分かればいい） */
+.btn.icon-only .dot {
+  position: absolute; top: 4px; right: 6px;
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--mustard); border: 1px solid var(--bg-dark);
+}
+.btn.icon-only .dot[hidden] { display: none; }
+
+.news-card { padding: 4px 16px; }
+.news-title {
+  margin: 12px 0 4px; font-size: 14px; color: var(--text-primary);
+}
+.news-item {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 10px 0; border-bottom: 1px solid var(--border);
+}
+.news-item:last-child { border-bottom: none; }
+.news-text { flex: 1; min-width: 0; font-size: 13px; line-height: 1.7; color: var(--text-secondary); }
+.news-badge {
+  flex-shrink: 0; margin-top: 3px; padding: 1px 7px; border-radius: 999px;
+  font-size: 10px; line-height: 1.6; white-space: nowrap;
+}
+.news-new { background: var(--mustard-bg); border: 1px solid var(--border-strong); color: var(--mustard-lt); }
+.news-fix { background: var(--blue-bg); border: 1px solid var(--blue-deep); color: var(--blue); }
+
 /* 自分のタックル（D-067）。名前ごとに「変える」「消す」が並ぶので、
    チップではなく行にする */
 .tackle-group { margin-bottom: 16px; }
