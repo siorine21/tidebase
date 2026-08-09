@@ -2158,15 +2158,30 @@ export function attachPlaceSearch(container, onPick) {
   const input = container.querySelector(".place-query");
   const hits = container.querySelector(".place-hits");
 
-  const note = (html) => { hits.innerHTML = `<p class="place-note">${html}</p>`; hits.hidden = false; };
+  /** 候補も知らせも、出したら必ず閉じられるようにする（D-071）。 */
+  function closeHits() {
+    hits.hidden = true;
+    hits.innerHTML = "";
+  }
+
+  // 知らせには閉じるボタンを付ける。
+  // 「見つかりませんでした」が出しっぱなしになり、消し方が無かった
+  const note = (html) => {
+    hits.innerHTML = `<div class="place-note">
+        <p>${html}</p>
+        <button type="button" class="icon-btn place-close" aria-label="閉じる"
+          >${icon("close", { size: 14 })}</button>
+      </div>`;
+    hits.hidden = false;
+    hits.querySelector(".place-close").addEventListener("click", closeHits);
+  };
 
   // 貼り付けの案内。地名検索が使えないときはこれだけが頼りになるので、手順まで書く
   const PASTE_HELP = "Google マップで場所を開き、共有 → リンクをコピーして"
     + "ここに貼り付けても登録できます（「34.7108, 137.5972」のような座標でも構いません）。";
 
   function choose(hit) {
-    hits.hidden = true;
-    hits.innerHTML = "";
+    closeHits();
     onPick(hit);
   }
 
@@ -2191,7 +2206,12 @@ export function attachPlaceSearch(container, onPick) {
     try {
       const found = await searchPlace(text);
       if (!found.length) {
-        return note(`「${escapeHtml(text)}」は見つかりませんでした。<br>${PASTE_HELP}`);
+        // 行き止まりにしない。探した言葉のまま Google マップへ送り、
+        // そこで開いた URL を貼り戻してもらう（管理釣り場はここが現実的な唯一の道）
+        return note(`「${escapeHtml(text)}」は見つかりませんでした。<br>${PASTE_HELP}`
+          + `<br><a class="place-external" target="_blank" rel="noopener"
+                 href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(text)}"
+               >${icon("map", { size: 13 })} Google マップでこの名前を探す</a>`);
       }
       hits.innerHTML = found.map((hit, i) => `
         <button type="button" class="place-hit" data-i="${i}" role="option">
@@ -2216,6 +2236,14 @@ export function attachPlaceSearch(container, onPick) {
         : escapeHtml(toJapaneseError(error)));
     }
   }
+
+  // 入力し直したら消える（次に探すつもりなら、前の知らせはもう用済み）
+  input.addEventListener("input", closeHits);
+  input.addEventListener("keydown", (e) => { if (e.key === "Escape") closeHits(); });
+  // 画面の他の場所を触っても消える
+  document.addEventListener("click", (e) => {
+    if (!container.contains(e.target)) closeHits();
+  });
 
   container.querySelector(".place-go").addEventListener("click", run);
   input.addEventListener("keydown", (e) => {

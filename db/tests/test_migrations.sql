@@ -80,9 +80,18 @@ BEGIN
   ------------------------------------------------------------
   INSERT INTO public.fishing_records (user_id, spot_id, fished_at, catch_count)
   VALUES (u, spot_tokyo, '2026-07-10', 2) RETURNING * INTO rec;
-  IF rec.tide_snapshot->>'method' IS DISTINCT FROM 'moon_age_approx'
+  -- 019 で潮回りの決め方を「月齢の四捨五入」から「旧暦日」に変えた（D-062）。
+  -- 月齢と旧暦日は別物で、四捨五入では 2 日ずれることがある
+  IF rec.tide_snapshot->>'method' IS DISTINCT FROM 'lunar_day'
      OR NOT (rec.tide_snapshot->>'tide_type' IN ('大潮','中潮','小潮','長潮','若潮')) THEN
     RAISE EXCEPTION 'TEST FAIL: tide_snapshot 自動付与が不正: %', rec.tide_snapshot;
+  END IF;
+  -- 旧暦日から引いた答えと一致すること。
+  -- ここが月齢の四捨五入に戻ると、この 1 行が落ちる
+  IF rec.tide_snapshot->>'tide_type'
+     IS DISTINCT FROM public.tide_type(rec.fished_at) THEN
+    RAISE EXCEPTION 'TEST FAIL: スナップショットの潮回りが tide_type() と食い違う: % / %',
+      rec.tide_snapshot, public.tide_type(rec.fished_at);
   END IF;
   -- 集計キー（ビューが参照）がスナップショットと一致すること
   IF rec.tide_type IS DISTINCT FROM rec.tide_snapshot->>'tide_type' THEN
