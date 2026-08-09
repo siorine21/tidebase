@@ -33,10 +33,15 @@
       </div>
       <div class="field" style="margin:0">
         <label for="filter-kind">種別</label>
+        <!-- 到達段階ごとに絞る（D-092）。「反応あり」は釣果＋バラシ＋ミスバイト -->
         <select id="filter-kind">
           <option value="">すべて</option>
-          <option value="catch">釣果のみ</option>
-          <option value="skunk">ボウズのみ</option>
+          <option value="landed">釣果のみ</option>
+          <option value="reaction">反応あり（釣果・バラシ・アタリ）</option>
+          <option value="lost">バラシのみ</option>
+          <option value="bite">ミスバイトのみ</option>
+          <option value="sighting">目視のみ</option>
+          <option value="none">何も無しのみ</option>
         </select>
       </div>
     </div>
@@ -65,6 +70,7 @@
   import {
     requireSession, renderNav, escapeHtml, lureCategoryText, ownerBadge, listRecords, listSpots,
     formatJstDate, relativeDays, icon, recordFishName, signedPhotoUrls,
+    recordOutcome,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -123,15 +129,20 @@
     const filtered = records.filter((r) => {
       if (spotId && r.spot_id !== spotId) return false;
       if (recipeId && r.recipe_id !== recipeId) return false;
-      if (kind === "catch" && r.is_skunked) return false;
-      if (kind === "skunk" && !r.is_skunked) return false;
+      if (kind === "reaction" && !recordOutcome(r).reaction) return false;
+      if (kind && kind !== "reaction" && recordOutcome(r).value !== kind) return false;
       if (owner === "mine" && !r.is_mine) return false;
       if (owner === "others" && r.is_mine) return false;
       return true;
     });
 
-    const total = filtered.filter((r) => !r.is_skunked).reduce((sum, r) => sum + (r.catch_count ?? 0), 0);
-    document.getElementById("count").textContent = `${filtered.length} 釣行 / ${total} 匹`;
+    // 「釣れた数」と「魚がいた回数」は別に出す。後者こそ次の判断材料になる（D-092）
+    const landed = filtered.filter((r) => recordOutcome(r).value === "landed")
+      .reduce((sum, r) => sum + (r.catch_count ?? 0), 0);
+    const reactions = filtered.filter((r) => recordOutcome(r).reaction && recordOutcome(r).value !== "landed")
+      .reduce((sum, r) => sum + (r.catch_count ?? 0), 0);
+    document.getElementById("count").textContent =
+      `${filtered.length} 件 / ${landed} 匹${reactions ? ` / 反応 ${reactions}` : ""}`;
 
     const box = document.getElementById("list");
     if (!filtered.length) {
@@ -148,9 +159,11 @@
         : "";
       currentMonth = month;
 
-      const title = r.is_skunked
-        ? `${icon("skunk", { size: 15 })} ボウズ`
-        : `${escapeHtml(recordFishName(r))}${r.length_cm ? ` ${r.length_cm}cm` : ""}`
+      const outcome = recordOutcome(r);
+      const title = outcome.value === "none"
+        ? `${icon(outcome.iconName, { size: 15 })} ${outcome.label}`
+        : `${outcome.value === "landed" ? "" : `<span class="tag ${outcome.tagClass}">${outcome.short}</span> `}`
+          + `${escapeHtml(recordFishName(r))}${r.length_cm ? ` ${r.length_cm}cm` : ""}`
           + (r.catch_count > 1 ? ` ×${r.catch_count}` : "");
       const sub = [
         r.spot_name, r.lure_label ?? lureCategoryText(r), r.water_layer,
@@ -163,7 +176,7 @@
         <a class="list-item${r.is_mine ? "" : " shared"}" href="record.html?id=${r.id}">
           <div class="thumb">${r.photo_thumb_path
             ? `<img class="thumb-photo" data-path="${escapeHtml(r.photo_thumb_path)}" alt="">`
-            : icon(r.is_skunked ? "skunk" : "fish", { size: 20 })}</div>
+            : icon(outcome.iconName, { size: 20 })}</div>
           <div class="list-body">
             <div class="list-title">${owner}${title}</div>
             <div class="list-sub">${escapeHtml(formatJstDate(r.fished_at))}${

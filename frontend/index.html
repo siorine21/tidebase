@@ -101,6 +101,7 @@
     listTidePoints, fetchTideForPoint, tidePointOfSpot, savedTidePoint, saveTidePoint, formatLag,
     hasUnreadNews, WEATHER_SOURCE,
     isCoordinateInJapan, tideTimelineSvg, sunStripHtml, levelAxisHtml, tideLevelAt, sunTimes,
+    recordOutcome,
   } from "./assets/app.js";
 
   // 静岡県特化のため既定は舞阪（浜名湖口・遠州灘西部の基準）
@@ -377,9 +378,11 @@
       return;
     }
     box.innerHTML = records.map((r) => {
-      const title = r.is_skunked
-        ? `${icon("skunk", { size: 15 })} ボウズ`
-        : `${escapeHtml(recordFishName(r))}${r.length_cm ? ` ${r.length_cm}cm` : ""}`
+      const outcome = recordOutcome(r);
+      const title = outcome.value === "none"
+        ? `${icon(outcome.iconName, { size: 15 })} ${outcome.label}`
+        : `${outcome.value === "landed" ? "" : `<span class="tag ${outcome.tagClass}">${outcome.short}</span> `}`
+          + `${escapeHtml(recordFishName(r))}${r.length_cm ? ` ${r.length_cm}cm` : ""}`
           + (r.catch_count > 1 ? ` ×${r.catch_count}` : "");
       const when = formatShortDate(r.fished_at)
         + (r.fished_time ? ` ${r.fished_time.slice(0, 5)}` : "");
@@ -388,7 +391,7 @@
       const owner = ownerBadge(r);
       return `
         <a class="list-item${r.is_mine ? "" : " shared"}" href="record.html?id=${r.id}">
-          <div class="thumb">${icon(r.is_skunked ? "skunk" : "fish", { size: 20 })}</div>
+          <div class="thumb">${icon(outcome.iconName, { size: 20 })}</div>
           <div class="list-body">
             <div class="list-title">${owner}${title}</div>
             <div class="list-sub">${sub}</div>

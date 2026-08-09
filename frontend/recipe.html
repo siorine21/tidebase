@@ -34,6 +34,7 @@
     client, requireSession, renderNav, escapeHtml, toJapaneseError,
     categoryLabel, categoryTagClass, toggleFavorite, formatJstDate, icon, recordFishName,
     navigate,
+    recordOutcome,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -57,7 +58,7 @@
       .select("*, makers(name), recipe_tags(tags(id, name))")
       .eq("id", id).maybeSingle(),
     client.from("fishing_records")
-      .select("id, fished_at, catch_count, is_skunked, fish_name_local, tide_type, spots(name), fish_species(name)")
+      .select("id, fished_at, catch_count, outcome, is_skunked, fish_name_local, tide_type, spots(name), fish_species(name)")
       .eq("recipe_id", id)
       .order("fished_at", { ascending: false })
       .limit(5),
@@ -147,15 +148,17 @@
 
   function renderRecords(records) {
     if (!records.length) {
-      return `<div class="empty">このレシピでの釣果はまだありません。</div>`;
+      return `<div class="empty">このレシピでの記録はまだありません。</div>`;
     }
     return records.map((rec) => {
-      const title = rec.is_skunked
-        ? `${icon("skunk", { size: 15 })} ボウズ`
-        : `${escapeHtml(recordFishName(rec))}${rec.catch_count > 1 ? ` ×${rec.catch_count}` : ""}`;
+      const outcome = recordOutcome(rec);
+      const title = outcome.value === "none"
+        ? `${icon(outcome.iconName, { size: 15 })} ${outcome.label}`
+        : `${outcome.value === "landed" ? "" : `<span class="tag ${outcome.tagClass}">${outcome.short}</span> `}`
+          + `${escapeHtml(recordFishName(rec))}${rec.catch_count > 1 ? ` ×${rec.catch_count}` : ""}`;
       return `
         <a class="list-item" href="record.html?id=${rec.id}">
-          <div class="thumb">${icon(rec.is_skunked ? "skunk" : "fish", { size: 20 })}</div>
+          <div class="thumb">${icon(outcome.iconName, { size: 20 })}</div>
           <div class="list-body">
             <div class="list-title">${title}</div>
             <div class="list-sub">${escapeHtml(formatJstDate(rec.fished_at))}${rec.spots?.name ? " " + escapeHtml(rec.spots.name) : ""}</div>

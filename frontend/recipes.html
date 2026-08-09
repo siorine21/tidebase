@@ -194,9 +194,12 @@
       return;
     }
 
-    const maxCount = Math.max(1, ...Object.values(counts));
+    // 棒の長さは「釣果 + 反応」で決める。反応しかないルアーも、ゼロには見せない
+    const weight = (id) => (counts[id]?.landed ?? 0) + (counts[id]?.reaction ?? 0);
+    const maxCount = Math.max(1, ...visible.map((r) => weight(r.id)));
     box.innerHTML = visible.map((r) => {
-      const n = counts[r.id] ?? 0;
+      const n = counts[r.id]?.landed ?? 0;
+      const reaction = counts[r.id]?.reaction ?? 0;
       const specs = [r.weight_g ? `${r.weight_g}g` : null, r.color].filter(Boolean).join(" / ");
       return `
         <a class="recipe-card" href="recipe.html?id=${r.id}">
@@ -211,9 +214,15 @@
               ${specs ? `<span class="tag tag-gray">${escapeHtml(specs)}</span>` : ""}
             </div>
             ${(r.tags ?? []).length ? `<div style="margin-top:6px">${r.tags.map((t) => `<span class="hash"># ${escapeHtml(t.name)}</span>`).join("")}</div>` : ""}
-            <div class="perf-bar"><div class="perf-fill" style="width:${(n / maxCount) * 100}%"></div></div>
+            <div class="perf-bar"><div class="perf-fill" style="width:${(weight(r.id) / maxCount) * 100}%"></div></div>
           </div>
-          <div class="score"><div class="n">${n}</div><div class="l">実績</div></div>
+          <!-- 実績＝獲れた匹数、反応＝バラシ・ミスバイトの回数（D-092）。
+               以前はボウズも実績に数えていた -->
+          <div class="score">
+            <div class="n">${n}</div><div class="l">実績</div>
+            ${reaction ? `<div class="n" style="font-size:13px;opacity:0.75">${reaction}</div>
+                          <div class="l">反応</div>` : ""}
+          </div>
         </a>`;
     }).join("");
   }

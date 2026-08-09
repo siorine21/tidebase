@@ -39,6 +39,7 @@
     recordFishName, listTidePoints, tidePointOfSpot, formatLag, isCoordinateInJapan,
     attachPlaceSearch,
     navigate,
+    recordOutcome,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -88,8 +89,14 @@
   function render() {
     const type = spotType(spot.spot_type);
     document.getElementById("title").textContent = spot.name ?? "無名スポット";
-    const catches = records.filter((r) => !r.is_skunked);
+    // 「釣れた数」と「魚がいた回数」を分ける（D-092）。
+    // バラシとミスバイトは、そのスポットに魚がいた証拠として数える
+    const catches = records.filter((r) => recordOutcome(r).value === "landed");
     const total = catches.reduce((sum, r) => sum + (r.catch_count ?? 0), 0);
+    const reactions = records.filter((r) => {
+      const o = recordOutcome(r);
+      return o.reaction && o.value !== "landed";
+    }).reduce((sum, r) => sum + (r.catch_count ?? 0), 0);
 
     document.getElementById("content").innerHTML = `
       <div class="map-box" id="mini-map"></div>
@@ -111,6 +118,9 @@
             <span class="val">${records.length} 回</span></div>
           <div class="row"><span class="label">釣果</span>
             <span class="val">${total} 匹</span></div>
+          <!-- バラシ・ミスバイトは「魚がいた」証拠。ここに来るかを決める材料になる（D-092） -->
+          <div class="row"><span class="label">反応（バラシ・アタリ）</span>
+            <span class="val">${reactions} 回</span></div>
         </div>
         ${spot.memo ? `<div style="margin-top:12px;white-space:pre-wrap;font-size:14px">${escapeHtml(spot.memo)}</div>` : ""}
       </div>
@@ -185,15 +195,17 @@
   }
 
   function renderRecords() {
-    if (!records.length) return `<div class="empty">このスポットでの釣果はまだありません。</div>`;
+    if (!records.length) return `<div class="empty">このスポットでの記録はまだありません。</div>`;
     return records.slice(0, 5).map((r) => {
-      const title = r.is_skunked
-        ? `${icon("skunk", { size: 15 })} ボウズ`
-        : `${escapeHtml(recordFishName(r))}${r.catch_count > 1 ? ` ×${r.catch_count}` : ""}`;
+      const outcome = recordOutcome(r);
+      const title = outcome.value === "none"
+        ? `${icon(outcome.iconName, { size: 15 })} ${outcome.label}`
+        : `${outcome.value === "landed" ? "" : `<span class="tag ${outcome.tagClass}">${outcome.short}</span> `}`
+          + `${escapeHtml(recordFishName(r))}${r.catch_count > 1 ? ` ×${r.catch_count}` : ""}`;
       const owner = r.is_mine === false ? `<span class="owner-badge">${escapeHtml(r.owner_name)}</span>` : "";
       return `
         <a class="list-item" href="record.html?id=${r.id}">
-          <div class="thumb">${icon(r.is_skunked ? "skunk" : "fish", { size: 20 })}</div>
+          <div class="thumb">${icon(outcome.iconName, { size: 20 })}</div>
           <div class="list-body">
             <div class="list-title">${owner}${title}</div>
             <div class="list-sub">${escapeHtml(formatJstDate(r.fished_at))}${

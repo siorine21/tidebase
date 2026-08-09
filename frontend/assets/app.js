@@ -1398,6 +1398,38 @@ export async function getSpot(id) {
   return data;
 }
 
+/* ---------------- 到達段階（D-092） ----------------
+   「釣れた / ボウズ」の二択では、バラシもミスバイトもボウズに落ちてしまう。
+   だが**魚がいたこと**こそ、次にどこへ行くかを決める材料になる。
+   釣果より件数が多いので、判断材料としてはむしろ厚い。
+
+   並びは上（獲れた）から下（何も無し）へ。画面でもこの順に出す。
+   reaction は「魚がルアーに反応したか」。レシピの反応数はこれで数える。
+   目視は反応に入れない。ルアーには触れていないので、ルアーの手柄ではない。 */
+export const OUTCOMES = [
+  { value: "landed",   label: "獲れた",      short: "釣果",   iconName: "fish",
+    countLabel: "匹数", reaction: true,  tagClass: "tag-mustard",
+    hint: "取り込めた" },
+  { value: "lost",     label: "バラシ",      short: "バラシ", iconName: "lost",
+    countLabel: "バラした回数", reaction: true, tagClass: "tag-red",
+    hint: "掛けたが獲れなかった" },
+  { value: "bite",     label: "ミスバイト",  short: "アタリ", iconName: "bite",
+    countLabel: "アタリの回数", reaction: true, tagClass: "tag-blue",
+    hint: "アタリはあったが乗らなかった" },
+  { value: "sighting", label: "目視のみ",    short: "目視",   iconName: "sighting",
+    countLabel: "見かけた回数", reaction: false, tagClass: "tag-gray",
+    hint: "ボイル・チェイス・魚影。ルアーには触れていない" },
+  { value: "none",     label: "何も無し",    short: "ボウズ", iconName: "skunk",
+    countLabel: null, reaction: false, tagClass: "tag-gray",
+    hint: "反応が無かった" },
+];
+
+/** 記録から到達段階を取り出す。outcome を知らない古い行にも耐える。 */
+export function recordOutcome(record) {
+  const value = record?.outcome ?? (record?.is_skunked ? "none" : "landed");
+  return OUTCOMES.find((o) => o.value === value) ?? OUTCOMES[0];
+}
+
 /**
  * 釣果一覧。読み取りは record_feed ビューから行う（010）。
  * 自分の釣果 + 同じグループの人の公開釣果が、投稿者名つきで返る。
@@ -1433,7 +1465,12 @@ export function ownerBadge(record) {
  * record_feed（fish_label）と fishing_records（埋め込み）の両方の形に対応する。
  */
 export function recordFishName(record) {
-  return record.fish_label ?? record.fish_name_local ?? record.fish_species?.name ?? "釣果";
+  const name = record.fish_label ?? record.fish_name_local ?? record.fish_species?.name;
+  if (name) return name;
+  // 魚種を入れていないときの言い方は、到達段階で変わる（D-092）。
+  // バラシに「釣果」と出ると、獲れたように読めてしまう
+  const outcome = recordOutcome(record);
+  return outcome.value === "landed" ? "釣果" : "魚";
 }
 
 /* ---------------- 釣果写真（D-045） ----------------
@@ -2066,14 +2103,29 @@ export async function listRecipesDetailed() {
 }
 
 /** レシピごとの釣果件数（実績スコア）。 */
+/**
+ * レシピごとの実績。{ recipeId: { landed, reaction } }。
+ *
+ * **以前はボウズも 1 件として数えていた**（recipe_id の付いた行を無条件に
+ * 数えていた）。「実績」と書いてあるのに釣れなかった釣行が混ざるので、
+ * 到達段階（D-092）を入れるついでに分けた。
+ *   landed   … 獲れた匹数
+ *   reaction … バラシ・ミスバイトの回数。ルアーに反応があったということ
+ * 目視は入れない。ルアーには触れていないので、ルアーの手柄ではない。
+ */
 export async function recipeCatchCounts() {
   const { data, error } = await client
     .from("fishing_records")
-    .select("recipe_id")
+    .select("recipe_id, outcome, is_skunked, catch_count")
     .not("recipe_id", "is", null);
   if (error) throw error;
   const counts = {};
-  for (const row of data) counts[row.recipe_id] = (counts[row.recipe_id] ?? 0) + 1;
+  for (const row of data) {
+    const outcome = recordOutcome(row);
+    const entry = counts[row.recipe_id] ??= { landed: 0, reaction: 0 };
+    if (outcome.value === "landed") entry.landed += row.catch_count ?? 0;
+    else if (outcome.reaction) entry.reaction += row.catch_count ?? 0;
+  }
   return counts;
 }
 

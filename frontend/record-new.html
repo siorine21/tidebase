@@ -37,9 +37,13 @@
 
   <!-- STEP 1: 魚種・サイズ・匹数 -->
   <section class="card step-panel" data-step="1">
-    <div class="actions" style="margin:0 0 14px">
-      <button type="button" class="btn btn-quiet" id="skunk-btn" data-icon="skunk">ボウズで記録</button>
+    <!-- 到達段階（D-092）。二択だとバラシもミスバイトもボウズに落ちてしまう。
+         「魚がいた」ことが次にどこへ行くかを決める材料になるので、先に選ばせる -->
+    <div class="field">
+      <label>この釣行の結果</label>
+      <div class="outcome-choices" id="outcome-choices"></div>
     </div>
+    <div id="fish-fields">
     <div class="field">
       <label for="species">魚種（任意）</label>
       <select id="species"><option value="">選択しない</option></select>
@@ -56,13 +60,14 @@
     </div>
     <div id="name-suggest"></div>
     <div class="field">
-      <label for="count">匹数</label>
+      <label for="count" id="count-label">匹数</label>
       <input type="number" id="count" inputmode="numeric" step="1" min="1" value="1">
     </div>
     <div class="field">
       <label for="quantity-note">数量メモ（任意）</label>
       <input type="text" id="quantity-note" placeholder="例: トラウト ×12 / 多数" maxlength="200">
     </div>
+    </div><!-- /fish-fields -->
   </section>
 
   <!-- STEP 2: タックル・ルアー -->
@@ -112,8 +117,8 @@
   <!-- STEP 3: スポット -->
   <section class="card step-panel" data-step="3" hidden>
     <div class="draft-notice" id="skunk-notice" hidden>
-      <span>ボウズとして記録します。</span>
-      <button type="button" class="chip" id="unskunk">釣果を入力する</button>
+      <span>何も無しとして記録します。</span>
+      <button type="button" class="chip" id="unskunk">結果を選び直す</button>
     </div>
     <div class="row-2">
       <div class="field">
@@ -216,13 +221,16 @@
     SPOT_TYPES, WATER_TYPES,
     listTackle, TACKLE_KINDS,
     listRecordPhotos, preparePhoto, uploadPreparedPhoto, looksLikeImage,
+    OUTCOMES, recordOutcome, renderIcons,
     deleteRecordPhotos, signedPhotoUrls, PHOTO_MAX_COUNT,
     navigate,
   } from "./assets/app.js";
 
   const STEPS = ["魚種", "タックル", "スポット", "写真", "メモ"];
   const state = {
-    step: 1, isSkunked: false, spotId: null, layer: null, visibility: "group",
+    // outcome が正。isSkunked は「STEP1・2 を飛ばすか」の意味で残してある（D-092）
+    step: 1, outcome: "landed", isSkunked: false,
+    spotId: null, layer: null, visibility: "group",
     lureLarge: null, lureSmall: null,
   };
 
@@ -459,22 +467,45 @@
     saveDraft();
   });
 
-  function setSkunked(on) {
-    state.isSkunked = on;
-    const base = recordId ? "EDIT CATCH" : "NEW CATCH";
-    document.getElementById("mode-title").textContent = on ? `${base} — SKUNK` : base;
-    document.getElementById("skunk-notice").hidden = !on;
+  /* 到達段階（D-092）。
+     「何も無し」だけが STEP1・2 を飛ばす。バラシとミスバイトは
+     魚種の推定もルアーも残したいので、通常どおり全部通る。 */
+  function renderOutcomes() {
+    document.getElementById("outcome-choices").innerHTML = OUTCOMES.map((o) => `
+      <button type="button" class="outcome-choice" data-value="${o.value}"
+              aria-pressed="${o.value === state.outcome}">
+        ${icon(o.iconName, { size: 18 })}
+        <span class="label">${o.label}</span>
+        <span class="hint">${o.hint}</span>
+      </button>`).join("");
+    renderIcons(document.getElementById("outcome-choices"));
   }
 
-  document.getElementById("skunk-btn").addEventListener("click", () => {
-    setSkunked(true);
-    show(3);
+  function setOutcome(value) {
+    const chosen = OUTCOMES.find((o) => o.value === value) ?? OUTCOMES[0];
+    state.outcome = chosen.value;
+    state.isSkunked = chosen.value === "none";        // STEP1・2 を飛ばすか
+
+    const base = recordId ? "EDIT CATCH" : "NEW CATCH";
+    document.getElementById("mode-title").textContent =
+      chosen.value === "landed" ? base : `${base} — ${chosen.short}`;
+    document.getElementById("skunk-notice").hidden = !state.isSkunked;
+    document.getElementById("fish-fields").hidden = state.isSkunked;
+    if (chosen.countLabel) document.getElementById("count-label").textContent = chosen.countLabel;
+    renderOutcomes();
+  }
+
+  document.getElementById("outcome-choices").addEventListener("click", (e) => {
+    const button = e.target.closest(".outcome-choice");
+    if (!button) return;
+    setOutcome(button.dataset.value);
+    if (state.isSkunked) show(3);        // 入れる項目が無いので、そのままスポットへ
     saveDraft();
   });
 
-  // ボウズだと STEP1・2 が押せなくなるため、解除の導線を STEP3 に置く
+  // 「何も無し」だと STEP1・2 が押せなくなるため、選び直す導線を STEP3 に置く
   document.getElementById("unskunk").addEventListener("click", () => {
-    setSkunked(false);
+    setOutcome("landed");
     show(1);
     saveDraft();
   });
@@ -810,12 +841,14 @@
   function renderSummary() {
     const spot = document.querySelector(`.spot-option[data-id="${state.spotId}"] .list-title`)?.textContent;
     const speciesName = document.getElementById("species").selectedOptions[0]?.textContent;
+    const outcome = recordOutcome(state);
     const rows = state.isSkunked
-      ? [["記録", "ボウズ"], ["釣行日", fishedAtLabel()], ["スポット", spot]]
+      ? [["結果", outcome.label], ["釣行日", fishedAtLabel()], ["スポット", spot]]
       : [
+          ["結果", outcome.label],
           ["魚種", state.displayName ?? (speciesName === "選択しない" ? "—" : speciesName)],
           ["サイズ", document.getElementById("length").value ? `${document.getElementById("length").value} cm` : "—"],
-          ["匹数", document.getElementById("count").value],
+          [outcome.countLabel ?? "匹数", document.getElementById("count").value],
           ["釣行日", fishedAtLabel()],
           ["スポット", spot],
           ["レンジ", state.layer ?? "—"],
@@ -838,7 +871,8 @@
     if (!state.isSkunked && (num("count") ?? 1) < 1) {
       button.disabled = false;
       button.textContent = recordId ? "変更を保存する" : "この内容で記録する";
-      message("匹数は 1 以上で入力してください。ボウズは STEP1 の「ボウズで記録」から登録できます。", "error");
+      message(`${recordOutcome(state).countLabel}は 1 以上で入力してください。`
+        + "反応が無かったときは STEP1 で「何も無し」を選んでください。", "error");
       show(1);
       return;
     }
@@ -855,6 +889,8 @@
       spot_id: state.spotId,
       fished_at: document.getElementById("fished-at").value,
       fished_time: document.getElementById("fished-time").value || null,
+      outcome: state.outcome,
+      // 到達段階から決まる値だが、古い画面と混ざっても壊れないよう明示して送る（D-092）
       is_skunked: state.isSkunked,
       memo: text("memo"),
       visibility: state.visibility,
@@ -921,7 +957,7 @@
   function collectDraft() {
     const value = (id) => document.getElementById(id).value;
     return {
-      step: state.step, isSkunked: state.isSkunked, spotId: state.spotId,
+      step: state.step, outcome: state.outcome, spotId: state.spotId,
       layer: state.layer, visibility: state.visibility, displayName: state.displayName ?? null,
       species: value("species"), length: value("length"), weight: value("weight"),
       count: value("count"), quantityNote: value("quantity-note"),
@@ -935,7 +971,7 @@
 
   // 釣行日は初期値が入るので、それ以外に入力があるときだけ「入力途中」とみなす
   function hasInput(d) {
-    return Boolean(d.isSkunked || d.spotId || d.layer || d.displayName || d.memo
+    return Boolean((d.outcome && d.outcome !== "landed") || d.spotId || d.layer || d.displayName || d.memo
       || d.species || d.length || d.weight || d.quantityNote
       || d.recipe || d.lureLarge || d.rod || d.reel || d.line || d.leader || d.fishedTime);
   }
@@ -964,7 +1000,7 @@
     set("fished-at", data.fishedAt); set("fished-time", data.fishedTime);
     set("memo", data.memo);
 
-    setSkunked(Boolean(data.isSkunked));
+    setOutcome(data.outcome ?? (data.isSkunked ? "none" : "landed"));
     state.spotId = data.spotId ?? null;
     state.layer = data.layer ?? null;
     state.visibility = data.visibility ?? "group";
@@ -993,11 +1029,13 @@
   /** 既存レコードを下書きと同じ形にそろえる。 */
   function draftFromRecord(r) {
     return {
-      step: 1, isSkunked: r.is_skunked, spotId: r.spot_id,
+      step: 1, outcome: r.outcome ?? (r.is_skunked ? "none" : "landed"), spotId: r.spot_id,
       layer: r.water_layer, visibility: r.visibility, displayName: r.fish_name_local,
       species: r.fish_species_id ?? "", length: r.length_cm ?? "", weight: r.weight_g ?? "",
-      // ボウズは catch_count = 0 で保存されるが、解除したときの初期値は 1 が自然
-      count: r.is_skunked ? 1 : r.catch_count ?? 1, quantityNote: r.quantity_note ?? "",
+      // 何も無しは catch_count = 0 で保存されるが、選び直したときの初期値は 1 が自然。
+      // バラシ・ミスバイトは回数が入っているので、そのまま持ってくる（D-092）
+      count: (r.outcome ?? (r.is_skunked ? "none" : "landed")) === "none" ? 1 : r.catch_count ?? 1,
+      quantityNote: r.quantity_note ?? "",
       recipe: r.recipe_id ?? "", lureName: r.lure_name ?? "", lureFree: Boolean(r.lure_name),
       lureLarge: r.lure_category_large ?? null, lureSmall: r.lure_category_small ?? null,
       rod: r.rod ?? "", reel: r.reel ?? "",
@@ -1031,7 +1069,7 @@
     if (!userMovedStep) show(openStep(Math.min(5, Math.max(1, Number(saved.step) || 1))));
   }
 
-  // ボウズは STEP1・2 が無効なので、そこへは開かない
+  // 「何も無し」は STEP1・2 が無効なので、そこへは開かない
   const openStep = (step) => (state.isSkunked && step < 3 ? 3 : step);
 
   // 入力のたびに保存する（チップ・スポット選択は各ハンドラから呼ぶ）
@@ -1043,6 +1081,7 @@
     navigate("record-new.html", { replace: true });
   });
 
+  setOutcome(state.outcome);      // 選択肢を先に描く。復元があれば上書きされる
   await restore();
 
   function message(text, kind) {

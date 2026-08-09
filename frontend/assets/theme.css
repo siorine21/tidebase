@@ -393,6 +393,23 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .tag-blue   { background: var(--blue-bg);   color: var(--blue); border-color: var(--blue-deep); }
 .tag-green  { background: var(--green-light); color: #A5D6A7; border-color: var(--green); }
 .tag-gray   { background: var(--bg-raised); color: var(--text-secondary); border-color: var(--border); }
+/* バラシ用（D-092）。惜しかった、という色。赤系はここだけ */
+.tag-red    { background: rgba(198, 91, 76, 0.14); color: #E2907F; border-color: #8E4437; }
+
+/* 到達段階の選択（D-092）。1 行 1 つで、説明を右に添える */
+.outcome-choices { display: flex; flex-direction: column; gap: 6px; }
+.outcome-choice {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  padding: 10px 12px; border-radius: 10px; cursor: pointer;
+  background: var(--bg-raised); border: 1px solid var(--border); color: var(--text-primary);
+}
+.outcome-choice[aria-pressed="true"] {
+  border-color: var(--mustard); background: var(--mustard-bg); color: var(--mustard-lt);
+}
+.outcome-choice .icon { flex-shrink: 0; }
+.outcome-choice .label { font-size: 14px; }
+.outcome-choice .hint { font-size: 11px; color: var(--text-muted); margin-left: auto;
+                        text-align: right; }
 
 /* ---------- セクション ---------- */
 .section-label {

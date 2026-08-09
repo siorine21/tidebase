@@ -39,6 +39,7 @@
     sunTimes, tideFlowAt, TIDE_FLOW_LABELS, nearestMazume, mazumeLabel,
     listRecordPhotos, deleteRecordPhotos, signedPhotoUrls, lureCategoryText, ownerBadge,
     navigate,
+    recordOutcome,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -174,8 +175,10 @@
 
   function render(r) {
     // アイコンは SVG 文字列なので innerHTML（textContent だとタグがそのまま出る）
-    document.getElementById("title").innerHTML =
-      r.is_skunked ? `${icon("skunk", { size: 15 })} ボウズ` : "CATCH DETAIL";
+    const outcome = recordOutcome(r);
+    document.getElementById("title").innerHTML = outcome.value === "landed"
+      ? "CATCH DETAIL"
+      : `${icon(outcome.iconName, { size: 15 })} ${outcome.label}`;
     const WATER = { saltwater: "海水", brackish: "汽水", freshwater: "淡水" };
     const rows = [
       // 他人の釣果は投稿者を最初に出す（誰の記録かを見間違えないように）
@@ -189,7 +192,8 @@
       ["呼称", r.fish_name_local],
       ["サイズ", r.length_cm ? `${r.length_cm} cm` : null],
       ["重量", r.weight_g ? (r.weight_g >= 1000 ? `${(r.weight_g / 1000).toFixed(1)} kg` : `${r.weight_g} g`) : null],
-      ["匹数", r.is_skunked ? "0（ボウズ）" : r.catch_count],
+      ["結果", outcome.label],
+      [outcome.countLabel ?? "匹数", outcome.value === "none" ? "—" : r.catch_count],
       ["数量メモ", r.quantity_note],
       // レシピを選んだときはその名前、自由入力ならその文字列（D-075）
       ["ルアー", r.lure_label],
