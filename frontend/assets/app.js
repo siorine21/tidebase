@@ -866,6 +866,40 @@ function mapHourly(h, waves = null) {
 }
 
 /**
+ * **複数地点**の当日ぶんの時間別予報を 1 リクエストでまとめて取る（D-077）。
+ * スポットごとにスコアを出すのに使う。地点ごとに叩くとスポットの数だけ往復する。
+ *
+ * Open-Meteo は latitude / longitude をカンマ区切りで並べると、
+ * 地点ごとの配列を返してくる（実際に 3 地点で確かめた）。
+ *
+ * 注意: MSM の格子は約 5km なので、**近いスポットどうしは同じ格子に落ちる**。
+ * 浜名湖の中の 2 か所で天気に差は出ない。差が出るのは離れた場所どうし。
+ *
+ * @param {Array<{lat:number, lng:number}>} points
+ * @returns {Promise<Array<object[]|null>>} points と同じ並びの時間別予報
+ */
+export async function fetchWeatherMulti(points, date) {
+  if (!points.length) return [];
+  const nextDay = new Date(Date.parse(`${date}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
+  const query = `latitude=${points.map((p) => p.lat).join(",")}`
+    + `&longitude=${points.map((p) => p.lng).join(",")}`
+    + `&timezone=Asia%2FTokyo&start_date=${date}&end_date=${nextDay}`
+    + `&hourly=${WEATHER_HOURLY}&wind_speed_unit=ms`;
+
+  let body;
+  try {
+    const response = await fetchForecast(query);
+    if (!response.ok) return points.map(() => null);
+    body = await response.json();
+  } catch {
+    return points.map(() => null);   // 天気が出なくても一覧は出す
+  }
+  // 1 地点だけのときは配列ではなくオブジェクトで返ってくる
+  const list = Array.isArray(body) ? body : [body];
+  return points.map((_, i) => (list[i]?.hourly?.time ? mapHourly(list[i].hourly) : null));
+}
+
+/**
  * 複数日ぶんの時間別予報と日の出・日没を **1 リクエストで**まとめて取る（D-055）。
  * 週間カレンダーに釣行スコアを出すのに使う。日ごとに叩くと 7 往復になってしまう。
  *
@@ -953,12 +987,37 @@ export const FISHING_SCORE_RULES = [
   { score: 3, label: "上のどれにも当てはまらない", match: () => true },
 ];
 
-/** スコアと、その根拠になった規則。画面で「なぜこの点か」を出すのに使う。 */
-export function fishingScoreDetail(tideType, weatherCode, windMs) {
+/**
+ * 潮の効かない場所（管理釣り場・河川・湖沼など）の規則（D-077）。
+ *
+ * 上の規則をそのまま使うと、潮の条件に永久に当たらないので **最高でも 3 点**になる。
+ * 管理釣り場は天気の影響しか受けないのに、晴れて無風でも 3 点では意味がない。
+ * 潮の項を落として、天気と風だけで同じ 1〜5 の幅を使う。
+ */
+export const FISHING_SCORE_RULES_NO_TIDE = [
+  { score: 1, label: "雷雨、または風速 15m/s 以上",
+    match: (t, w, wind) => w === "storm" || wind >= 15 },
+  { score: 2, label: "雨・雪、または風速 10m/s 超",
+    match: (t, w, wind) => w === "rain" || wind > 10 },
+  { score: 5, label: "晴れか曇り + 風速 5m/s 以下",
+    match: (t, w, wind) => (w === "sunny" || w === "cloudy") && wind <= 5 },
+  { score: 4, label: "晴れか曇り + 風速 7m/s 以下",
+    match: (t, w, wind) => (w === "sunny" || w === "cloudy") && wind <= 7 },
+  { score: 3, label: "上のどれにも当てはまらない", match: () => true },
+];
+
+/**
+ * スコアと、その根拠になった規則。画面で「なぜこの点か」を出すのに使う。
+ * @param {boolean} tideMatters 潮の効く場所か。**渡す側が決める**（D-077）。
+ *   tideType が null かどうかで判断しない。海のスポットで潮汐が取れなかっただけ、
+ *   という場合まで「潮は関係ない」と扱ってしまい、点を甘く出してしまう。
+ */
+export function fishingScoreDetail(tideType, weatherCode, windMs, { tideMatters = true } = {}) {
+  const rules = tideMatters ? FISHING_SCORE_RULES : FISHING_SCORE_RULES_NO_TIDE;
   const weather = weatherCategory(weatherCode);
   const wind = Number(windMs) || 0;
-  const index = FISHING_SCORE_RULES.findIndex((r) => r.match(tideType, weather, wind));
-  return { score: FISHING_SCORE_RULES[index].score, ruleIndex: index, weather, wind };
+  const index = rules.findIndex((r) => r.match(tideType, weather, wind));
+  return { score: rules[index].score, ruleIndex: index, weather, wind, rules, tideMatters };
 }
 
 export function fishingScore(tideType, weatherCode, windMs) {
@@ -1145,11 +1204,12 @@ export function tideFlowAt(tide, hhmm) {
  * @param {{tideType:string, hours:object[], sun:object|null, tide:object|null}} input
  * @returns {{score:number, best:object, windows:object[], tideType:string, fallback:boolean}|null}
  */
-export function fishingScoreOfDay({ tideType, hours, sun, tide = null }) {
+export function fishingScoreOfDay({ tideType, hours, sun, tide = null, tideMatters = true }) {
   const evaluate = (label, at, row) => {
     if (!row) return null;
-    const detail = fishingScoreDetail(tideType, row.weather_code, row.wind_speed_ms);
-    const flow = tideFlowAt(tide, at);
+    const detail = fishingScoreDetail(tideType, row.weather_code, row.wind_speed_ms, { tideMatters });
+    // 潮の効かない場所では、潮の動きによる加減もしない
+    const flow = tideMatters ? tideFlowAt(tide, at) : null;
     // 雷雨・雨・強風は潮より優先する。荒れている日を潮の動きで持ち上げない
     const weatherGate = detail.ruleIndex <= 1;
     const rule = flow && !weatherGate
@@ -1170,13 +1230,13 @@ export function fishingScoreOfDay({ tideType, hours, sun, tide = null }) {
 
   if (windows.length) {
     const best = windows.reduce((a, b) => (b.score > a.score ? b : a));
-    return { score: best.score, best, windows, tideType, fallback: false };
+    return { score: best.score, best, windows, tideType, tideMatters, fallback: false };
   }
 
   // 日の出・日没が無いときの逃げ道。基準がある方が「出ない」よりましなので残す
   const noon = evaluate("昼", "12:00", hours?.find((h) => h.hour === 12) ?? hours?.[0]);
   if (!noon) return null;
-  return { score: noon.score, best: noon, windows: [noon], tideType, fallback: true };
+  return { score: noon.score, best: noon, windows: [noon], tideType, tideMatters, fallback: true };
 }
 
 export function stars(score) {
@@ -1190,7 +1250,7 @@ export function stars(score) {
  */
 export function showFishingScoreHelp(day) {
   if (!day) return null;
-  const { score, best, windows, tideType, fallback } = day;
+  const { score, best, windows, tideType, fallback, tideMatters = true } = day;
 
   const flowText = (w) => {
     if (w.weatherGate) return "潮は見ない（荒天が優先）";
@@ -1228,31 +1288,35 @@ export function showFishingScoreHelp(day) {
 
     <div class="list-sub" style="margin:12px 0 6px">${escapeHtml(best.label)}の内訳</div>
     <div class="rows">
-      <div class="row"><span class="label">天候・潮回りから</span>
+      <div class="row"><span class="label">${tideMatters ? "天候・潮回りから" : "天候から"}</span>
         <span class="val">${best.base}</span></div>
-      <div class="row"><span class="label">潮の動き</span>
-        <span class="val">${signed(best.adjust)}</span></div>
+      ${tideMatters ? `<div class="row"><span class="label">潮の動き</span>
+        <span class="val">${signed(best.adjust)}</span></div>` : ""}
       <div class="row"><span class="label">釣行スコア</span>
         <span class="val">${score}</span></div>
     </div>
 
-    <div class="list-sub" style="margin:12px 0 6px">天候・潮回りの判定（上から順に当てはめる）</div>
+    ${tideMatters ? "" : `<div class="list-sub" style="margin:12px 0 0">
+      ここは潮の影響を受けない場所なので、天気と風だけで判定しています。</div>`}
+
+    <div class="list-sub" style="margin:12px 0 6px">${
+      tideMatters ? "天候・潮回りの判定" : "天候の判定"}（上から順に当てはめる）</div>
     <ol class="score-rules">
-      ${FISHING_SCORE_RULES.map((rule, i) => `
+      ${(best.rules ?? FISHING_SCORE_RULES).map((rule, i) => `
         <li class="${i === best.ruleIndex ? "hit" : ""}">
           <span class="rule-star">${stars(rule.score)}</span>
           <span>${escapeHtml(rule.label)}</span>
         </li>`).join("")}
     </ol>
 
-    <div class="list-sub" style="margin:12px 0 6px">潮の動きによる加減点</div>
+    ${!tideMatters ? "" : `<div class="list-sub" style="margin:12px 0 6px">潮の動きによる加減点</div>
     <ol class="score-rules">
       ${TIDE_FLOW_RULES.map((rule) => `
         <li class="${!best.weatherGate && best.flow?.key === rule.key ? "hit" : ""}">
           <span class="rule-adjust">${signed(rule.adjust)}</span>
           <span>${escapeHtml(rule.label)}</span>
         </li>`).join("")}
-    </ol>
+    </ol>`}
 
     <div class="list-sub" style="margin-top:12px;line-height:1.6">
       天気と風は${fallback ? "" : "日の出・日没に"}いちばん近い時刻の予報を代表値にしています。

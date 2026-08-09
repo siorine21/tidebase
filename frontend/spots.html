@@ -77,7 +77,9 @@
     listSpots, createMap, spotMarker, spotType, waterLabel,
     SPOT_TYPES, WATER_TYPES, googleMapsUrl, googleDirectionsUrl, isNightMap, setNightMap, icon,
     isCoordinateInJapan,
-    attachPlaceSearch,
+    attachPlaceSearch, renderIcons,
+    todayInJst, tideType, sunTimes, fishingScoreOfDay, stars,
+    listTidePoints, tidePointOfSpot, fetchTideForPoint, fetchWeatherMulti,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -95,9 +97,26 @@
     : {});   // 位置つきスポットがなければ静岡県（浜名湖〜遠州灘）を初期表示
   let markerLayer = L.layerGroup().addTo(map);
   let draftMarker = null;
+  /* ここから 3 つは **renderAll より前に置くこと**（D-077）。
+     const は巻き上がらないので、あとに置くと一覧の描画が参照した時点で落ちる。
+     この取り違えはこの画面で 2 回やっている（scores と TYPE_ORDER）。 */
+
+  // スポット ID → 今日のスコア
+  const scores = new Map();
+
+  // 種別の並びは SPOT_TYPES のとおり（海 → 汽水 → 淡水）。
+  // 管理釣り場だけは、SPOT_TYPES の並びが変わっても最後に来るよう明示的に外して足す
+  const PINNED_LAST = "managed";
+  const TYPE_ORDER = [
+    ...SPOT_TYPES.map((t) => t.value).filter((v) => v !== PINNED_LAST),
+    null,             // 種別未設定
+    PINNED_LAST,
+  ];
 
   renderChips();
   renderAll();
+  // 一覧は先に出す。スコアは通信が要るので、揃った時点で描き直す
+  loadScores().catch(() => {});
 
   /* ---------- 表示 ---------- */
   function renderLegend() {
@@ -134,6 +153,12 @@
 
   map.on("zoomend", () => renderAll());
 
+  /* ---------- 今日のスコアつき一覧（D-077） ----------
+     種別ごとにまとめる。「今日はサーフか、河口か」で考えるので、
+     ばらばらに並んでいると見比べられない。
+     管理釣り場は最後に固定する。潮の影響を受けないので他と同じ土俵で
+     順位を争わせても意味がなく、毎日いちばん上に来られても困る。 */
+
   function renderList() {
     const box = document.getElementById("list");
     if (!spots.length) {
@@ -141,21 +166,91 @@
         上の欄で地名を探すか、「＋ 追加」を押して地図をタップすると登録できます。</div>`;
       return;
     }
-    box.innerHTML = spots.map((s) => {
-      const type = spotType(s.spot_type);
+
+    const byType = new Map(TYPE_ORDER.map((v) => [v, []]));
+    for (const spot of spots) {
+      const key = byType.has(spot.spot_type ?? null) ? (spot.spot_type ?? null) : null;
+      byType.get(key).push(spot);
+    }
+
+    box.innerHTML = TYPE_ORDER.map((value) => {
+      const group = byType.get(value) ?? [];
+      if (!group.length) return "";
+      const type = spotType(value);
+      // 群の中は今日のスコアが高い順。まだ出ていないものは後ろへ
+      const sorted = [...group].sort((a, b) =>
+        (scores.get(b.id)?.score ?? -1) - (scores.get(a.id)?.score ?? -1));
       return `
-        <a class="list-item" href="spot.html?id=${s.id}">
-          <div class="thumb" style="background:${type.color}22;color:${type.color}">${icon(type.iconName, { size: 19 })}</div>
-          <div class="list-body">
-            <div class="list-title">${escapeHtml(s.name ?? "無名スポット")}${s.low_tide_only ? ` ${icon("warning", { size: 13 })}` : ""}</div>
-            <div class="list-sub">${type.label} · ${waterLabel(s.water_type)}${
-              s.tide_station_code ? ` · 潮汐 ${s.tide_station_code}` : ""}${
-              isCoordinateInJapan(s.latitude, s.longitude)
-                ? "" : ` · ${icon("warning", { size: 12 })} 位置未設定`}</div>
-          </div>
-          <div class="list-aside">→</div>
-        </a>`;
+        <div class="section-label spot-group">
+          <span>${icon(type.iconName, { size: 13 })} ${escapeHtml(type.label)}</span>
+          <span class="note">${group.length}</span>
+        </div>
+        ${sorted.map(spotRow).join("")}`;
     }).join("");
+    renderIcons(box);
+  }
+
+  function spotRow(s) {
+    const type = spotType(s.spot_type);
+    const day = scores.get(s.id) ?? null;
+    return `
+      <a class="list-item" href="spot.html?id=${s.id}">
+        <div class="thumb" style="background:${type.color}22;color:${type.color}">${icon(type.iconName, { size: 19 })}</div>
+        <div class="list-body">
+          <div class="list-title">${escapeHtml(s.name ?? "無名スポット")}${s.low_tide_only ? ` ${icon("warning", { size: 13 })}` : ""}</div>
+          <div class="list-sub">${waterLabel(s.water_type)}${
+            s.tide_station_code ? ` · 潮汐 ${s.tide_station_code}` : ""}${
+            isCoordinateInJapan(s.latitude, s.longitude)
+              ? "" : ` · ${icon("warning", { size: 12 })} 位置未設定`}${
+            day ? ` · ${escapeHtml(day.best.label)} ${day.best.hour}時` : ""}</div>
+        </div>
+        <div class="list-aside">${day
+          ? `<span class="spot-score" title="今日の釣行スコア">${stars(day.score)}</span>`
+          : "→"}</div>
+      </a>`;
+  }
+
+  /* 今日のスコアをスポットごとに出す。
+     天気は 1 リクエストにまとめ、潮汐は観測点の種類ぶんだけ取る
+     （同じ観測点を使うスポットが多いので、実際の往復は数回で済む）。 */
+  async function loadScores() {
+    const usable = positioned();
+    if (!usable.length) return;
+    const today = todayInJst();
+    const type = tideType(today);
+
+    const points = await listTidePoints().catch(() => []);
+    const pointOf = (spot) => points.find((p) => p.value === tidePointOfSpot(spot)) ?? null;
+
+    // 潮汐は地点ごとに 1 回だけ取る
+    const needed = [...new Set(usable.map((s) => tidePointOfSpot(s)).filter(Boolean))];
+    const tides = new Map();
+    await Promise.all(needed.map(async (value) => {
+      const point = points.find((p) => p.value === value);
+      if (!point) return;
+      const tide = await fetchTideForPoint(point, today).catch(() => null);
+      if (tide) tides.set(value, tide);
+    }));
+
+    const weather = await fetchWeatherMulti(
+      usable.map((s) => ({ lat: Number(s.latitude), lng: Number(s.longitude) })), today);
+
+    usable.forEach((spot, i) => {
+      const hours = weather[i];
+      if (!hours) return;
+      // 潮の効く場所かは、潮汐地点が割り当たっているかで決める。
+      // 管理釣り場や河川は淡水なので、登録時に地点が付かない
+      const tideMatters = Boolean(pointOf(spot));
+      const day = fishingScoreOfDay({
+        tideType: tideMatters ? type : null,
+        hours,
+        sun: sunTimes(spot.latitude, spot.longitude, today),
+        tide: tideMatters ? (tides.get(tidePointOfSpot(spot)) ?? null) : null,
+        tideMatters,
+      });
+      if (day) scores.set(spot.id, day);
+    });
+    renderList();
   }
 
   /* ---------- ピンタップ ---------- */

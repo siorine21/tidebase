@@ -243,6 +243,15 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .row .val { font-family: 'JetBrains Mono', monospace; color: var(--blue); }
 .row .val .sub-val { color: var(--text-muted); font-size: 11px; }
 
+/* スポット一覧の種別ごとの見出しと、今日のスコア（D-077） */
+.section-label.spot-group { margin-top: 18px; }
+.section-label.spot-group .icon { vertical-align: -2px; margin-right: 3px; }
+.section-label.spot-group:first-child { margin-top: 0; }
+.spot-score {
+  font-size: 12px; letter-spacing: -1px; color: var(--mustard);
+  white-space: nowrap;
+}
+
 /* お知らせ（D-074） */
 .head-actions { display: flex; align-items: center; gap: 6px; }
 /* アイコンだけのボタン。文字が無いぶん、押せる大きさを幅で確保する */
