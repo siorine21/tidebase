@@ -136,13 +136,19 @@
           <div class="map-box" id="spot-map" style="margin-bottom:6px"></div>
           <div class="page-sub" id="spot-coords">地図をタップすると、その場所にピンが立ちます。</div>
         </div>
+        <!-- スポットマップ側の登録と同じ項目にする（D-078）。
+             ここで種別を入れられないと、一覧の種別ごとの並びで「未設定」に落ちる -->
         <div class="field">
           <label>水域区分</label>
-          <div class="chips" id="water-chips">
-            <span class="chip selected" data-value="saltwater">海水</span>
-            <span class="chip" data-value="brackish">汽水</span>
-            <span class="chip" data-value="freshwater">淡水</span>
-          </div>
+          <div class="chips" id="water-chips"></div>
+        </div>
+        <div class="field">
+          <label>スポット種別</label>
+          <div class="chips" id="spot-type-chips"></div>
+        </div>
+        <div class="field toggle-row">
+          <label for="spot-lowtide" style="margin:0">干潮時のみアクセス可</label>
+          <input type="checkbox" id="spot-lowtide" style="width:auto">
         </div>
         <div class="actions" style="margin-top:12px">
           <button type="button" class="btn btn-quiet" id="use-gps" data-icon="locate">現在地にピン</button>
@@ -199,6 +205,7 @@
     client, requireSession, renderNav, escapeHtml, toJapaneseError, requireUserId,
     todayInJst, nowInJst, listSpots, listSpecies, listRecipes, suggestFishName, icon,
     groupSpeciesByCategory, createMap, spotMarker, LURE_CATEGORIES, attachPlaceSearch,
+    SPOT_TYPES, WATER_TYPES,
     listTackle, TACKLE_KINDS,
     listRecordPhotos, uploadRecordPhoto, deleteRecordPhotos, signedPhotoUrls, PHOTO_MAX_COUNT,
   } from "./assets/app.js";
@@ -474,9 +481,20 @@
       saveDraft();
     });
   }
+  /* 新しいスポットの入力（D-078）。スポットマップ側と同じ項目・同じマスタを使う。
+     ここだけ選択肢を手書きすると、種別が増えたときに片方だけ古くなる */
+  const newSpot = { water: "saltwater", type: null };
+  document.getElementById("water-chips").innerHTML = WATER_TYPES
+    .map((w) => `<span class="chip${w.value === newSpot.water ? " selected" : ""}"
+                       data-value="${w.value}">${escapeHtml(w.label)}</span>`).join("");
+  document.getElementById("spot-type-chips").innerHTML = SPOT_TYPES
+    .map((t) => `<span class="chip" data-value="${t.value}"
+                   >${icon(t.iconName, { size: 13 })} ${escapeHtml(t.label)}</span>`).join("");
+
   bindChips("layer-chips", (v) => { state.layer = v; }, { toggle: true });
+  bindChips("spot-type-chips", (v) => { newSpot.type = v; }, { toggle: true });
   bindChips("visibility-chips", (v) => { state.visibility = v ?? "group"; });
-  bindChips("water-chips", () => {});
+  bindChips("water-chips", (v) => { newSpot.water = v ?? "saltwater"; });
 
   /* ---------- 出世魚の呼称提案（設計補完書 5 章） ---------- */
   const suggestBox = document.getElementById("name-suggest");
@@ -629,7 +647,6 @@
 
   document.getElementById("save-spot").addEventListener("click", async (e) => {
     const name = document.getElementById("spot-name").value.trim();
-    const waterType = document.querySelector("#water-chips .chip.selected")?.dataset.value ?? "saltwater";
     if (!name) return message("スポット名を入力してください。", "error");
     if (draft.lat == null) return message("地図をタップしてピンを立ててください。", "error");
 
@@ -644,7 +661,10 @@
     const { data, error } = await client.from("spots")
       .insert({
         user_id: userId, name,
-        latitude: draft.lat, longitude: draft.lng, water_type: waterType,
+        latitude: draft.lat, longitude: draft.lng,
+        water_type: newSpot.water,
+        spot_type: newSpot.type,
+        low_tide_only: document.getElementById("spot-lowtide").checked,
       })
       .select().single();
     button.disabled = false; button.textContent = "スポットを登録";
@@ -655,6 +675,9 @@
     state.spotId = data.id;
     document.querySelector(`.spot-option[data-id="${data.id}"]`)?.click();
     document.getElementById("spot-name").value = "";
+    document.getElementById("spot-lowtide").checked = false;
+    newSpot.type = null;
+    document.querySelectorAll("#spot-type-chips .chip").forEach((c) => c.classList.remove("selected"));
     clearPin();
     // 登録済みとして地図に残す（次に開いたときも見える）
     L.marker([data.latitude, data.longitude], { icon: spotMarker(data, { label: false }) }).addTo(spotMap);
