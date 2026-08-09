@@ -2049,7 +2049,7 @@ const GSI_ATTRIBUTION =
 
 const NEWS_SEEN_KEY = "tidebase.newsSeen";
 
-/** ここまで読んだ、という印（お知らせの日付）。 */
+/** ここまで読んだ、という印（お知らせの日時 "YYYY-MM-DD HH:MM"）。 */
 export function markNewsSeen(date) {
   if (date) localStorage.setItem(NEWS_SEEN_KEY, String(date));
 }
@@ -2059,9 +2059,9 @@ export async function hasUnreadNews() {
   try {
     const response = await fetch(`assets/news.json?v=${Date.now()}`, { cache: "no-store" });
     if (!response.ok) return false;
-    const latest = (await response.json())?.updates?.[0]?.date;
+    const latest = (await response.json())?.updates?.[0]?.at;
     if (!latest) return false;
-    // 日付は YYYY-MM-DD なので、文字列のまま比べて大小が合う
+    // "YYYY-MM-DD HH:MM" なので、文字列のまま比べて新旧が合う（桁が揃っているため）
     return latest > (localStorage.getItem(NEWS_SEEN_KEY) ?? "");
   } catch {
     return false;
