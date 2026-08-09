@@ -928,7 +928,10 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .icon {
   display: inline-block; vertical-align: -0.18em; flex-shrink: 0;
 }
-.icon.filled { fill: currentColor; fill-opacity: 0.22; }
+/* 点いている印は **塗りつぶし** で出す（D-095）。
+   fill-opacity 0.22 では中がほとんど透けていて、輪郭だけの☆と見分けがつかず、
+   on なのか off なのか読み取れなかった。色だけの違いに頼らない。 */
+.icon.filled { fill: currentColor; fill-opacity: 1; }
 
 /* ラベルとアイコンの間隔 */
 .btn .icon, .chip .icon, .tag .icon, .filter-btn .icon { margin-right: 5px; }
@@ -945,10 +948,20 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 
 .fab .icon { width: 26px; height: 26px; stroke-width: 2; }
 
-/* お気に入りボタン */
-#fav { display: flex; align-items: center; justify-content: center; padding: 4px; }
+/* お気に入りボタン。付いていれば黄色の塗りつぶし、外していれば灰色の輪郭（D-095）。
+   background と border を落としているのは、`.back` を付けてあっても
+   `.page-head .back` にしか当たらず、カードの中では**既定の白いボタン**のまま
+   出ていたため。暗い画面に白い箱が浮いていた。 */
+#fav {
+  display: flex; align-items: center; justify-content: center; padding: 4px;
+  background: none; border: none; cursor: pointer;
+}
 #fav .icon { color: var(--mustard); }
 #fav .icon:not(.filled) { color: var(--text-muted); }
+
+/* 一覧の名前の横に出る★も同じ黄色にする。
+   ここは付いているときしか出さないので、必ず塗りつぶし */
+.recipe-card .name .icon.filled { color: var(--mustard); }
 
 /* 天気カードのアイコン */
 .hour-card .icon-wrap { line-height: 1; margin: 3px 0; }
