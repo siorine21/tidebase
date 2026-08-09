@@ -159,8 +159,14 @@ def pacman(cx, cy, r, mouth=55.0, facing=180.0, precision=2):
 
 
 def build_path(src=DEFAULT_SRC, tol=2.2, dilate=41, box=24.0, precision=2,
-               mouth=55.0, pupil_ratio=0.75, eye_scale=1.35, eye_shift=(35, 0)):
-    """24x24 の箱に中央寄せで収めたパスと、縦横比を返す。"""
+               mouth=55.0, pupil_ratio=0.75, eye_scale=1.35, eye_shift=(35, 0),
+               rotate=0.0, margin=0.0):
+    """24x24 の箱に中央寄せで収めたパスと、縦横比を返す。
+
+    rotate を与えると、箱に収める前に傾ける。ルアーは 4.5:1 と平べったいので、
+    正方形の箱にそのまま入れると縦が 1/4 しか埋まらない。
+    少し前傾させると箱の対角に沿い、同じ絵のまま縦が倍近く使える（D-090）。
+    """
     ink, w, h = load_mask(src, dilate)
     loops = sorted(trace_loops(ink, w, h), key=area, reverse=True)
     loops = [lp for lp in loops if area(lp) >= 200]
@@ -178,10 +184,18 @@ def build_path(src=DEFAULT_SRC, tol=2.2, dilate=41, box=24.0, precision=2,
     er *= eye_scale
     pr = er * pupil_ratio
 
+    if rotate:
+        th = math.radians(rotate)
+        c, s = math.cos(th), math.sin(th)
+        rot = lambda p: (p[0] * c - p[1] * s, p[0] * s + p[1] * c)
+        shapes = [[rot(p) for p in shape] for shape in shapes]
+        ecx, ecy = rot((ecx, ecy))
+
     xs = [p[0] for s in shapes for p in s]
     ys = [p[1] for s in shapes for p in s]
     x0, y0, x1, y1 = min(xs), min(ys), max(xs), max(ys)
-    k = min(box / (x1 - x0), box / (y1 - y0))
+    span = box - margin * 2
+    k = min(span / (x1 - x0), span / (y1 - y0))
     ox = (box - (x1 - x0) * k) / 2 - x0 * k
     oy = (box - (y1 - y0) * k) / 2 - y0 * k
 
@@ -200,7 +214,8 @@ def build_path(src=DEFAULT_SRC, tol=2.2, dilate=41, box=24.0, precision=2,
     parts.append(f"M{f(cx - er * k)} {f(cy)}"
                  f"a{f(er * k)} {f(er * k)} 0 1 0 {f(er * k * 2)} 0"
                  f"a{f(er * k)} {f(er * k)} 0 1 0 {f(-er * k * 2)} 0Z")
-    parts.append(pacman(cx, cy, pr * k, mouth, precision=precision))
+    # 口はルアーの軸に合わせる。傾けたのに口だけ水平のままだと、目だけ横を向く
+    parts.append(pacman(cx, cy, pr * k, mouth, facing=180.0 + rotate, precision=precision))
     return "".join(parts), (x1 - x0) / (y1 - y0)
 
 
@@ -210,11 +225,14 @@ if __name__ == "__main__":
     ap.add_argument("--src", default=DEFAULT_SRC)
     ap.add_argument("--tol", type=float, default=2.2, help="間引きの許容誤差（元画像の画素）")
     ap.add_argument("--dilate", type=int, default=41, help="墨を太らせる幅（元画像の画素）")
+    ap.add_argument("--rotate", type=float, default=0.0, help="前傾させる角度（度）")
+    ap.add_argument("--margin", type=float, default=0.0, help="24 の箱の内側に空ける余白")
     ap.add_argument("--mouth", type=float, default=55.0, help="パックマンの口の開き角（度）")
     ap.add_argument("--pupil", type=float, default=0.75, help="黒目の大きさ（輪の半径に対する比）")
     ap.add_argument("--eye-scale", type=float, default=1.35, help="目全体の倍率（元絵に対して）")
     args = ap.parse_args()
     d, ratio = build_path(args.src, args.tol, args.dilate, mouth=args.mouth,
-                           pupil_ratio=args.pupil, eye_scale=args.eye_scale)
+                          pupil_ratio=args.pupil, eye_scale=args.eye_scale,
+                          rotate=args.rotate, margin=args.margin)
     print(d)
     print(f"<!-- 縦横比 {ratio:.3f}:1 / {len(d)} 文字 -->")
