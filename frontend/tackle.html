@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MY TACKLE | TIDEBASE</title>
+<link rel="stylesheet" href="vendor/fonts/fonts.css">
+<link rel="stylesheet" href="assets/theme.css">
+</head>
+<body class="app-body">
+<!-- SCR-018 マイタックル（ロッド・リール・ライン・リーダー・D-068）
+     ※ SCR-009 はワイヤーフレーム v7.2 でルアーレシピ詳細に使われているので採らない。
+     ルアーレシピとは別ページ。絞り込みはここには要らないし、
+     1 画面に両方を積むと、増えたときに下までスクロールしないと見えなくなる。 -->
+<header class="app-header">
+  <h1>MY TACKLE</h1>
+  <span class="page-sub" id="count">—</span>
+</header>
+
+<!-- ルアーレシピと道具立ての行き来。絞り込みはレシピ側にしか要らない -->
+<div class="seg">
+  <a class="seg-item" href="recipes.html">ルアーレシピ</a>
+  <a class="seg-item on" href="tackle.html">マイタックル</a>
+</div>
+
+<main>
+  <div id="message" class="message" hidden role="alert"></div>
+  <div class="card" id="tackle-card"><div class="empty">読み込み中…</div></div>
+</main>
+
+<script src="vendor/supabase.js"></script>
+<script src="assets/config.js"></script>
+<script type="module">
+  import {
+    requireSession, renderNav, escapeHtml, icon, renderIcons, toJapaneseError,
+    listTackle, addTackle, renameTackle, removeTackle, TACKLE_KINDS,
+  } from "./assets/app.js";
+
+  const session = await requireSession();
+  if (!session) throw new Error("unauthenticated");
+  renderNav("recipes");
+
+  function message(text, kind) {
+    const box = document.getElementById("message");
+    box.textContent = text;
+    box.className = `message ${kind}`;
+    box.hidden = false;
+    window.scrollTo(0, 0);
+  }
+
+  const PLACEHOLDER = {
+    rod: "例: ソアレXR S76UL-S",
+    reel: "例: アルテグラ C2000S",
+    line: "例: エステル 0.3号",
+    leader: "例: フロロ 1.5号",
+  };
+
+  /* ---------- 自分のタックル（D-067） ----------
+     名前を変えたら、釣果に残っている名前も一緒に付け替える（DB 側の rename_tackle）。
+     消して付け直すと、それまでの釣果との紐付けが切れてしまうため。 */
+  const tackleCard = document.getElementById("tackle-card");
+  let tackle = {};
+  let editing = null;          // { kind, name } 編集中の 1 件
+
+  function renderTackle() {
+    tackleCard.innerHTML = TACKLE_KINDS.map(({ kind, label }) => `
+      <div class="tackle-group">
+        <div class="list-sub">${label}</div>
+        ${(tackle[kind] ?? []).length
+          ? (tackle[kind]).map((name) => editing && editing.kind === kind && editing.name === name
+            ? `<div class="tackle-row editing">
+                 <input type="text" class="tackle-input" value="${escapeHtml(name)}" maxlength="60"
+                        aria-label="${escapeHtml(name)} の新しい名前">
+                 <button type="button" class="chip" data-save="${kind}">保存</button>
+                 <button type="button" class="chip" data-cancel="1">取消</button>
+               </div>`
+            : `<div class="tackle-row">
+                 <span class="tackle-name">${escapeHtml(name)}</span>
+                 <button type="button" class="icon-btn" data-edit="${kind}"
+                         data-name="${escapeHtml(name)}" aria-label="${escapeHtml(name)} の名前を変える"
+                   >${icon("edit", { size: 14 })}</button>
+                 <button type="button" class="icon-btn" data-remove="${kind}"
+                         data-name="${escapeHtml(name)}" aria-label="${escapeHtml(name)} を削除"
+                   >${icon("trash", { size: 14 })}</button>
+               </div>`).join("")
+          : `<div class="tackle-row"><span class="list-sub">まだ登録がありません</span></div>`}
+        <div class="tackle-row">
+          <input type="text" id="add-${kind}" class="tackle-input" maxlength="60"
+                 placeholder="${PLACEHOLDER[kind]}">
+          <button type="button" class="chip" data-add="${kind}">追加</button>
+        </div>
+      </div>`).join("")
+      + `<div class="list-sub" style="margin-top:12px">
+           ここに登録したものが、釣果入力のロッド・リール・ライン・リーダーの候補になります。
+           名前を変えると、過去の釣果に入っている名前も一緒に変わります。
+         </div>`;
+    renderIcons(tackleCard);
+
+    const total = TACKLE_KINDS.reduce((sum, { kind }) => sum + (tackle[kind]?.length ?? 0), 0);
+    document.getElementById("count").textContent = `${total} 件`;
+  }
+
+  async function reloadTackle() {
+    tackle = await listTackle();
+    renderTackle();
+  }
+
+  tackleCard.addEventListener("click", async (e) => {
+    const edit = e.target.closest("[data-edit]");
+    if (edit) { editing = { kind: edit.dataset.edit, name: edit.dataset.name }; renderTackle(); return; }
+    if (e.target.closest("[data-cancel]")) { editing = null; renderTackle(); return; }
+
+    const save = e.target.closest("[data-save]");
+    if (save) {
+      const value = save.closest(".tackle-row").querySelector(".tackle-input").value.trim();
+      if (!value) return;
+      try {
+        const moved = await renameTackle(editing.kind, editing.name, value);
+        editing = null;
+        await reloadTackle();
+        message(moved
+          ? `名前を変更し、釣果 ${moved} 件の表記も揃えました。`
+          : "名前を変更しました。", "success");
+      } catch (error) { message(toJapaneseError(error), "error"); }
+      return;
+    }
+
+    const remove = e.target.closest("[data-remove]");
+    if (remove) {
+      if (!confirm(`「${remove.dataset.name}」を一覧から削除しますか？\n`
+        + "過去の釣果に入っている名前はそのまま残ります。")) return;
+      try {
+        await removeTackle(remove.dataset.remove, remove.dataset.name);
+        await reloadTackle();
+      } catch (error) { message(toJapaneseError(error), "error"); }
+      return;
+    }
+
+    const add = e.target.closest("[data-add]");
+    if (!add) return;
+    const input = document.getElementById(`add-${add.dataset.add}`);
+    const name = input.value.trim();
+    if (!name) return;
+    try {
+      await addTackle(add.dataset.add, name);
+      input.value = "";
+      await reloadTackle();
+    } catch (error) {
+      message(/duplicate|23505/.test(String(error?.code ?? error?.message ?? ""))
+        ? "その名前はすでに登録されています。" : toJapaneseError(error), "error");
+    }
+  });
+
+  reloadTackle().catch(() => {
+    tackleCard.innerHTML = `<div class="empty">タックルを読み込めませんでした。</div>`;
+  });
+</script>
+</body>
+</html>

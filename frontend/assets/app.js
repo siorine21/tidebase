@@ -1734,8 +1734,8 @@ export function renderNav(current) {
     ["tide", "tide.html", "tide", "潮汐"],
     ["map", "spots.html", "map", "マップ"],
     ["records", "records.html", "records", "釣果"],
-    // ルアーレシピと自分のタックルを 1 画面にまとめた（D-067）
-    ["recipes", "recipes.html", "recipes", "タックル"],
+    // レシピとマイタックルは別ページ。ナビはよく開くレシピ側を指す（D-068）
+    ["recipes", "recipes.html", "recipes", "レシピ"],
   ];
   document.body.insertAdjacentHTML("beforeend", `
     <nav class="bottom-nav">
