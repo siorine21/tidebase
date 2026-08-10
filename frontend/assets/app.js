@@ -1464,12 +1464,16 @@ export async function listRecords({ limit = 50, spotId = null } = {}) {
  * 「誰の記録か」と「その釣行の結果」が同じ重さに見えていた。
  * 枠を外して色付きの語にすると、タイトルに掛かる修飾として読める。
  *
- * キャッチのときは何も出さない。ほとんどの行がキャッチなので、
- * 出すと画面が印だらけになる。**例外だけに印を付ける。**
+ * **キャッチにも出す**（D-098）。はじめは「例外だけに印を付ける」つもりで
+ * 何も出していなかったが、それだと読む側が「印が無い＝キャッチ」という規則を
+ * 知っている必要がある。全部の行が自分の結果を名乗るほうが迷わない。
+ * ただしキャッチは灰色に沈めて、目立つのは例外のほうにする。
+ *
+ * 語は `short`（釣果・バラシ・アタリ・目視）を使う。`label`（キャッチ）だと
+ * 幅を食って、「マルスズキ 70cm」が折り返す。
  */
 export function outcomeLead(record) {
   const outcome = recordOutcome(record);
-  if (outcome.value === "landed") return "";
   return `<span class="outcome-lead ${outcome.value}">`
     + `${icon(outcome.iconName, { size: 13 })}${outcome.short}</span>`;
 }

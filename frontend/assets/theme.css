@@ -563,12 +563,14 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 
 /* 到達段階の見出し（D-097）。**ピルにしない。**
    タイトルに掛かる修飾として読めるよう、枠も背景も付けず、色と印だけで示す。
-   キャッチのときは出さない（ほとんどの行がキャッチなので、出すと印だらけになる）。 */
+   キャッチにも出すが、灰色に沈めて例外のほうを目立たせる（D-098）。 */
 .outcome-lead {
   display: inline-flex; align-items: center; gap: 3px;
   margin-right: 6px; font-size: 12px; vertical-align: 1px;
 }
 .outcome-lead .icon { margin: 0; }
+/* キャッチは沈める。いちばん多いので、ここが目立つと例外が埋もれる（D-098） */
+.outcome-lead.landed   { color: var(--text-muted); }
 .outcome-lead.lost     { color: #E2907F; }
 .outcome-lead.bite     { color: #7FC6E8; }
 .outcome-lead.sighting { color: var(--text-muted); }
