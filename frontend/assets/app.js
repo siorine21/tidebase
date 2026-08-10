@@ -2258,14 +2258,15 @@ export const SPOT_TYPES = [
   { value: "managed",       label: "管理釣り場", color: "#4CAF50", iconName: "managed" },
 ];
 
-/* 立ち位置（D-099）。**種別（SPOT_TYPES）とは別の軸。**
-   おかっぱりかウェーディングかで、同じ場所でもまったく別の釣りになる。
+/* 立ち位置（D-099 / D-100）。**種別（SPOT_TYPES）とは別の軸。**
+   同じ場所でも、岸から投げるのか、立ち込むのか、船で出るのかで別の釣りになる。
    種別の値にすると「河川でなくなる」ので、掛け合わせられる形で持つ。
-   未設定（null）を残してあるのは、既存の大半がそれで、
-   漁港や管理釣り場に「おかっぱり」と付けても意味が無いため。 */
+   軸の中身は「どこに身を置くか」なので、船の上もここに入る。
+   未設定（null）は残す。以後の登録で決めたくないときのため。 */
 export const ENTRY_STYLES = [
   { value: "bank",   label: "おかっぱり",   short: "おかっぱり", iconName: "boot-dry" },
   { value: "wading", label: "ウェーディング", short: "ウェーディング", iconName: "wading" },
+  { value: "boat",   label: "ボート",       short: "ボート",     iconName: "boat" },
 ];
 
 export function entryStyle(value) {

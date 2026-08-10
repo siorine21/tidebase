@@ -794,10 +794,20 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .toggle-row { display: flex; align-items: center; justify-content: space-between; }
 
 /* ---------- 地図（SCR-004 / 005） ---------- */
-.map-wrap { position: relative; }
+.map-wrap { position: relative; isolation: isolate; }
 #map, .map-box {
   width: 100%; background: var(--bg-dark);
   border: 1px solid var(--border); border-radius: var(--radius);
+  /* **地図の中の重なりを地図の中で閉じる**（D-100）。
+     Leaflet は自前で大きな z-index を振る（枠 .leaflet-top が 1000、
+     操作ボタン .leaflet-control が 800、ピンの層が 600）。
+     .leaflet-container は position: relative だが z-index を持たないので、
+     このままでは**重なりの基準が画面いちばん外側になる**。
+     結果、ページに埋め込んだ 150px の地図の中のボタンが、
+     ボトムナビ（20）や編集パネルの「変更を保存」（10）より前に出ていた。
+     スポット編集画面で、地図がナビと保存ボタンに重なって見えていたのがこれ。
+     isolation で自前の基準を作れば、中の数字がいくつでも外へ出てこない。 */
+  isolation: isolate;
 }
 /* 地図の高さ。
    - dvh を使う。スマホの 100vh は URL バーを隠した状態の高さなので、
@@ -887,9 +897,9 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .place-hits {
   position: absolute; left: 0; right: 0; top: calc(100% + 6px);
   /* 候補リストは何より前に出す。下をくぐられると読めないし押せない。
-     競合するのは Leaflet のズーム操作（.leaflet-top が 1000）と、
-     「タップして地図を操作」の覆い（.map-unlock が 500）。
-     同じ値で並べると、あとに描かれる地図側が勝ってしまう */
+     地図の中身とは D-100 以降ぶつからない（地図が自前の基準を持つようになった）。
+     いま競合するのはスポットのシート（.sheet が 600）。スポットマップでは
+     地名検索がシートより先に置いてあるので、値で前に出しておく必要がある */
   z-index: 1100;
   background: var(--bg-card); box-shadow: 0 6px 16px rgba(0,0,0,0.5);
   border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
@@ -931,7 +941,9 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
   /* 地図の操作ボタン（.map-tools・500）より前に出すこと（D-070）。
      .map-tools は地図の右上から下へ伸びるが、地図の高さで切られないので
      シートの上まで降りてくる。22 のままだと、シートの「スポット名」の欄に
-     「やめる」ボタンが重なり、名前を入れようとして触ると登録が取り消されていた。 */
+     「やめる」ボタンが重なり、名前を入れようとして触ると登録が取り消されていた。
+     D-100 で .map-wrap が自前の基準を持ったので、いまは値を下げても
+     重ならない。ただし下げる理由も無いので、この値のまま残す。 */
   position: fixed; left: 0; right: 0; bottom: 62px; z-index: 600;
   background: var(--bg-card); border-top: 1px solid var(--border-strong);
   border-radius: 14px 14px 0 0; padding: 14px 16px 18px;
