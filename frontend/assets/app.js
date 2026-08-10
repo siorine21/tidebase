@@ -2737,3 +2737,90 @@ export function spotMarker(spot, { label = true } = {}) {
     iconAnchor: [13, 26],
   });
 }
+
+/* ================================================================
+   傾向（SCR-018・D-102）
+
+   **この画面で出せるのは「釣れたときに何が揃っていたか」だけ。**
+   「この条件だと釣れる」は言えない。釣れなかった釣行が記録されていないので、
+   比べる相手（分母）が無い。ここを混同すると、いちばん記録の多い条件を
+   「いちばん良い条件」と読んでしまう。
+
+   ひとつだけ補正できるのが潮回りで、暦のほうの日数が偏っている
+   （中潮は月に 11 日あるが、長潮は 2 日しかない）。日数で割れば
+   「機会に対してどれだけ出ているか」に近づく。ほかの軸にこの補正は無い。
+   ================================================================ */
+
+/** 時間帯。マヅメの幅は釣果詳細と同じ（MAZUME_WINDOW_MINUTES）。 */
+export const TIME_BANDS = [
+  { key: "morning", label: "朝マヅメ" },
+  { key: "day",     label: "日中" },
+  { key: "evening", label: "夕マヅメ" },
+  { key: "night",   label: "夜" },
+];
+
+/**
+ * その釣行がどの時間帯か。
+ * 日の出・日没は呼ぶ側で計算して渡す（sunTimes）。ここを純粋にしておくと
+ * 天文計算ぬきで境目を試せる。
+ * @param {{rise:string,set:string}|null} sun
+ * @param {string|null} hhmm  "HH:MM"（"HH:MM:SS" でも読む）
+ * @returns {string|null} TIME_BANDS の key。時刻か日の出が無ければ null
+ */
+export function timeBandOf(sun, hhmm) {
+  const at = hoursFromHhmm(hhmm);
+  const rise = hoursFromHhmm(sun?.rise);
+  const set = hoursFromHhmm(sun?.set);
+  if (at == null || rise == null || set == null) return null;
+
+  const width = MAZUME_WINDOW_MINUTES / 60;
+  // マヅメを先に見る。日の出の直後は「日中」でもあるが、釣りとしてはマヅメ
+  if (Math.abs(at - rise) <= width) return "morning";
+  if (Math.abs(at - set) <= width) return "evening";
+  return at > rise && at < set ? "day" : "night";
+}
+
+/**
+ * 件数を数える。**null は数えない**（「未入力」と「その値だった」は別物）。
+ * 未入力の数は分母と比べれば分かるので、呼ぶ側で出す。
+ * @param {object[]} rows
+ * @param {(row:object)=>string|null|undefined} keyOf
+ * @returns {{key:string, n:number}[]} 多い順。同数なら key の順で安定させる
+ */
+export function tally(rows, keyOf) {
+  const counts = new Map();
+  for (const row of rows ?? []) {
+    const key = keyOf(row);
+    if (key == null || key === "") continue;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([key, n]) => ({ key, n }))
+    .sort((a, b) => (b.n - a.n) || String(a.key).localeCompare(String(b.key), "ja"));
+}
+
+/**
+ * 期間内に各潮回りが何日あったか。**釣行の偏りと暦の偏りを分けるため**に使う。
+ * 中潮の記録が多いのは、中潮の日が多いだけかもしれない。
+ * @param {string} fromIso  "YYYY-MM-DD"（含む）
+ * @param {string} toIso    "YYYY-MM-DD"（含む）
+ * @param {(iso:string)=>string} typeOf  日付 → 潮回り（tideType を渡す）
+ * @returns {Record<string, number>}
+ */
+export function tideTypeDays(fromIso, toIso, typeOf) {
+  const out = {};
+  if (!fromIso || !toIso || fromIso > toIso) return out;
+  // 日付は UTC 正午で進める。JST の日付文字列をそのまま扱いたいので、
+  // 夏時間もタイムゾーンも挟まない形にする
+  const day = 86400000;
+  let t = Date.parse(`${fromIso}T12:00:00Z`);
+  const end = Date.parse(`${toIso}T12:00:00Z`);
+  if (!Number.isFinite(t) || !Number.isFinite(end)) return out;
+  while (t <= end) {
+    const iso = new Date(t).toISOString().slice(0, 10);
+    const type = typeOf(iso);
+    if (type) out[type] = (out[type] ?? 0) + 1;
+    t += day;
+  }
+  return out;
+}

@@ -1187,3 +1187,63 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .card h2 { display: flex; align-items: center; gap: 6px; }
 .card h2 .icon { color: var(--mustard); }
 #settings-link .icon { width: 15px; height: 15px; }
+
+/* ---------- 釣果の傾向（SCR-018・D-102） ---------- */
+
+/* この画面をどう読むかの説明。**下に小さく置かない。**
+   棒の長さだけ見ると、記録の多い条件を「良い条件」と読んでしまう */
+.note-card { background: var(--blue-bg); border-color: var(--blue-deep); }
+.note-title {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 13px; color: var(--blue); margin-bottom: 8px;
+}
+.note-card p { margin: 0 0 8px; font-size: 13px; line-height: 1.7; color: var(--text-secondary); }
+.note-card p:last-child { margin-bottom: 0; }
+.note-card b { color: var(--text-primary); }
+.thin-warn { color: var(--mustard-lt) !important; }
+.thin-warn b { color: var(--mustard-lt); }
+.note-period {
+  font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-muted) !important;
+}
+
+.trend-rows { display: grid; gap: 7px; }
+.trend-row { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+/* 名前の幅は固定する。棒の左端が揃っていないと長さを比べられない */
+.trend-label {
+  width: 96px; flex-shrink: 0; color: var(--text-secondary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* スポット名は「太田川ワンド(ウェーディング)」のように長い。
+   96px だと全部「太田川ワン…」になって、どれがどれか分からなくなる */
+.trend-rows.wide .trend-label { width: 148px; }
+.trend-track {
+  flex: 1; min-width: 0; height: 10px; border-radius: 5px;
+  background: var(--bg-deep); overflow: hidden;
+}
+.trend-fill { display: block; height: 100%; background: var(--mustard); border-radius: 5px; }
+/* 件数は必ず出す。割合だけだと 1 件と 10 件が同じ「100%」に見える */
+.trend-n {
+  width: 42px; flex-shrink: 0; text-align: right;
+  font-family: 'JetBrains Mono', monospace; color: var(--text-primary);
+}
+.trend-unit { font-size: 10px; color: var(--text-muted); margin-left: 1px; }
+.trend-side {
+  width: 46px; flex-shrink: 0; text-align: right;
+  font-size: 11px; color: var(--text-muted);
+}
+/* 3 件未満は薄くする。読み取れる数ではないことを、色でも言う */
+.trend-row.thin .trend-fill { opacity: 0.42; }
+.trend-row.thin .trend-n { color: var(--text-secondary); }
+.trend-row.zero .trend-label, .trend-row.zero .trend-n { color: var(--text-muted); }
+/* 割る日数が無くて棒を引けない行。空の溝ではなく、破線で「出せない」と言う */
+.trend-row.nodata .trend-track {
+  background: none; border-top: 1px dashed var(--border-strong); height: 0;
+}
+
+.trend-note {
+  margin: 10px 0 0; font-size: 11px; line-height: 1.7; color: var(--text-muted);
+}
+.trend-note b { color: var(--text-secondary); }
+.trend-sub {
+  margin: 14px 0 8px; font-size: 11px; letter-spacing: 1px; color: var(--text-secondary);
+}

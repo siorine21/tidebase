@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TRENDS | TIDEBASE</title>
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" href="assets/icons/app-icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0F1E2E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="TIDEBASE">
+<link rel="stylesheet" href="vendor/fonts/fonts.css">
+<link rel="stylesheet" href="assets/theme.css">
+</head>
+<body class="app-body">
+<!-- SCR-018 釣果の傾向（D-102） -->
+<header class="page-head">
+  <button type="button" class="back" id="back" aria-label="戻る">←</button>
+  <div class="page-title">TRENDS</div>
+  <span class="page-sub" id="period">—</span>
+</header>
+
+<main>
+  <div id="message" class="message" hidden role="alert"></div>
+  <div id="content"><div class="empty">読み込み中…</div></div>
+</main>
+
+<script src="vendor/supabase.js"></script>
+<script src="assets/config.js"></script>
+<script type="module">
+  import {
+    requireSession, renderNav, escapeHtml, toJapaneseError, icon, renderIcons,
+    listRecords, navigate,
+    tideType, TIDE_TYPE_COLORS, sunTimes, isCoordinateInJapan,
+    TIME_BANDS, timeBandOf, tally, tideTypeDays,
+    spotType, entryStyle, categoryLabel, recordOutcome, OUTCOMES,
+  } from "./assets/app.js";
+
+  const session = await requireSession();
+  if (!session) throw new Error("unauthenticated");
+  renderNav("records");
+  document.getElementById("back").addEventListener("click", () => navigate("records.html"));
+
+  /* 潮回りは順序のある目盛りなので、多い順ではなく決まった並びで出す。
+     多い順にすると、開くたびに並びが変わって前回と比べられない */
+  const TIDE_ORDER = ["大潮", "中潮", "小潮", "長潮", "若潮"];
+
+  /* 数えるのは **自分の記録だけ**。グループで共有された他人の釣果が混ざると、
+     「自分がどこで出しているか」を見る画面ではなくなる */
+  let records = null;
+  try {
+    records = (await listRecords({ limit: 1000 })).filter((r) => r.is_mine);
+  } catch (error) {
+    document.getElementById("content").innerHTML = "";
+    message(toJapaneseError(error), "error");
+  }
+
+  if (records) render();
+
+  function message(text, kind) {
+    const box = document.getElementById("message");
+    box.textContent = text; box.className = `message ${kind ?? ""}`;
+    box.hidden = !text;
+  }
+
+  /* ---------- 集計 ---------- */
+
+  // 時間帯はスポットの座標と日付から日の出・日没を出して決める。
+  // 通信は要らない（Meeus の式・D-018）ので、圏外でも出る
+  function bandOf(record) {
+    const sun = isCoordinateInJapan(record.spot_latitude, record.spot_longitude)
+      ? sunTimes(record.spot_latitude, record.spot_longitude, record.fished_at)
+      : null;
+    return timeBandOf(sun, record.fished_time);
+  }
+
+  function render() {
+    const box = document.getElementById("content");
+    if (!records.length) {
+      box.innerHTML = `<div class="empty">まだ記録がありません。
+        釣行を何回か記録すると、ここに傾向が出ます。</div>`;
+      document.getElementById("period").textContent = "0 件";
+      return;
+    }
+
+    const dates = records.map((r) => r.fished_at).sort();
+    const from = dates[0], to = dates[dates.length - 1];
+    document.getElementById("period").textContent = `${records.length} 件`;
+
+    const skunked = records.filter((r) => recordOutcome(r).value === "none").length;
+    const days = tideTypeDays(from, to, tideType);
+
+    box.innerHTML = [
+      readingNote(from, to, skunked),
+      tideSection(days),
+      bandSection(),
+      simpleSection("レンジ", "layer-range", tally(records, (r) => r.water_layer),
+        (k) => k, "レンジを入れていない記録"),
+      simpleSection("ルアー種別", "recipes",
+        tally(records, (r) => r.lure_category_large),
+        (k) => categoryLabel(k) || k, "ルアー種別を入れていない記録"),
+      spotSection(),
+      simpleSection("立ち位置", "wading",
+        tally(records, (r) => r.spot_entry_style),
+        (k) => entryStyle(k)?.label ?? k, "立ち位置が未設定のスポットでの記録"),
+      outcomeSection(),
+    ].join("");
+    renderIcons(box);
+  }
+
+  /* この画面をどう読むか。**下に小さく置かない。**
+     ここを読まずに棒の長さだけ見ると、いちばん記録の多い条件を
+     「いちばん良い条件」と読んでしまう */
+  function readingNote(from, to, skunked) {
+    const thin = records.length < 20;
+    return `
+      <div class="card note-card">
+        <div class="note-title">${icon("help", { size: 15 })} この画面の読み方</div>
+        <p>出しているのは <b>釣れたときに何が揃っていたか</b> です。
+          「この条件なら釣れる」は、この数字からは言えません。</p>
+        ${skunked === 0 ? `
+          <p><b>ボウズの釣行が 1 件も記録されていません。</b>
+            釣れなかったときも記録すると、「同じ条件で行って釣れなかった回数」と
+            比べられるようになり、はじめて条件の良し悪しが言えます。</p>` : `
+          <p>ボウズは ${skunked} 件です。釣行 ${records.length} 件のうち、
+            釣れなかった回もこの数字に入っています。</p>`}
+        ${thin ? `<p class="thin-warn">まだ ${records.length} 件です。
+          1 件増えるだけで棒の長さが変わる段階なので、
+          <b>傾向というより「これまでの内訳」</b>として見てください。</p>` : ""}
+        <p class="note-period">${escapeHtml(from)} 〜 ${escapeHtml(to)} の記録を数えています。</p>
+      </div>`;
+  }
+
+  /* 潮回りだけは暦の偏りを打ち消せる。
+     中潮の記録が多いのは、中潮の日が多いだけかもしれない */
+  function tideSection(days) {
+    const counts = Object.fromEntries(tally(records, (r) => r.tide_type).map((t) => [t.key, t.n]));
+    const rows = TIDE_ORDER.map((key) => ({
+      key, n: counts[key] ?? 0, days: days[key] ?? 0,
+      // 「その潮回りの 1 日あたり何件」。暦の日数で割る
+      rate: days[key] ? (counts[key] ?? 0) / days[key] : null,
+    }));
+    const maxRate = Math.max(...rows.map((r) => r.rate ?? 0), 0);
+    const unknown = records.length - Object.values(counts).reduce((a, b) => a + b, 0);
+    /* 記録があるのに暦の日数が 0 になる組み合わせ。
+       釣行した日の潮回りは必ず期間に入るので、本来は起きない。
+       起きるとしたら **記録の潮回りが暦と食い違っている**とき（あとから
+       手で直した等）。**割り算ができないので棒は引かない。**
+       0% の棒と「1 件」が並ぶと、数え落としたようにしか見えない */
+    const odd = rows.filter((r) => r.n > 0 && !r.days).reduce((a, b) => a + b.n, 0);
+
+    return section("潮回り", "tide", `
+      <div class="trend-rows">
+        ${rows.map((r) => bar({
+          label: r.key, n: r.n,
+          ratio: maxRate > 0 && r.rate != null ? r.rate / maxRate : 0,
+          color: TIDE_TYPE_COLORS[r.key],
+          side: r.days ? `${r.days} 日中` : (r.n ? "暦に無し" : "—"),
+          nodata: r.n > 0 && !r.days,
+        })).join("")}
+      </div>
+      <p class="trend-note">棒の長さは <b>その潮回りの 1 日あたりの件数</b>です。
+        暦の上で中潮は多く、長潮は少ないので、件数のまま並べると
+        日数の多い潮回りが必ず長くなります。右の「◯日中」がその日数です。</p>
+      ${odd > 0 ? `<p class="trend-note">${odd} 件は、記録に入っている潮回りが
+        その日の暦と合いません。割る日数が無いので棒は引いていません。</p>` : ""}
+      ${missing(unknown, "潮回りが入っていない記録")}`);
+  }
+
+  function bandSection() {
+    const counts = Object.fromEntries(tally(records, bandOf).map((t) => [t.key, t.n]));
+    const known = Object.values(counts).reduce((a, b) => a + b, 0);
+    const max = Math.max(...Object.values(counts), 0);
+    return section("時間帯", "clock", `
+      <div class="trend-rows">
+        ${TIME_BANDS.map((b) => bar({
+          label: b.label, n: counts[b.key] ?? 0,
+          ratio: max > 0 ? (counts[b.key] ?? 0) / max : 0,
+        })).join("")}
+      </div>
+      <p class="trend-note">マヅメは日の出・日没の前後 1 時間です。
+        その日・その場所の日の出から計算しています。</p>
+      ${missing(records.length - known, "時刻かスポットの位置が無くて分けられない記録")}`);
+  }
+
+  function spotSection() {
+    const spots = tally(records, (r) => r.spot_name);
+    const types = tally(records, (r) => r.spot_spot_type);
+    const maxSpot = spots[0]?.n ?? 0;
+    const maxType = types[0]?.n ?? 0;
+    return section("場所", "map-pin", `
+      <div class="trend-rows wide">
+        ${spots.slice(0, 8).map((s) => bar({
+          label: s.key, n: s.n, ratio: maxSpot > 0 ? s.n / maxSpot : 0,
+        })).join("")}
+      </div>
+      ${spots.length > 8 ? `<p class="trend-note">上位 8 か所を出しています（全 ${spots.length} か所）。</p>` : ""}
+      <div class="trend-sub">場所の種類</div>
+      <div class="trend-rows">
+        ${types.map((t) => bar({
+          label: spotType(t.key).label, n: t.n,
+          ratio: maxType > 0 ? t.n / maxType : 0, color: spotType(t.key).color,
+        })).join("")}
+      </div>`);
+  }
+
+  /* 到達段階は「割合」で見たいものなので、ここだけ全体に対する比で描く */
+  function outcomeSection() {
+    const counts = Object.fromEntries(tally(records, (r) => recordOutcome(r).value).map((t) => [t.key, t.n]));
+    return section("結果の内訳", "fish", `
+      <div class="trend-rows">
+        ${OUTCOMES.filter((o) => counts[o.value]).map((o) => bar({
+          label: o.label, n: counts[o.value],
+          ratio: counts[o.value] / records.length,
+          side: `${Math.round((counts[o.value] / records.length) * 100)}%`,
+        })).join("")}
+      </div>
+      <p class="trend-note">ここだけ棒の長さは全 ${records.length} 件に対する割合です。</p>`);
+  }
+
+  function simpleSection(title, iconName, rows, labelOf, missingLabel) {
+    if (!rows.length) return "";
+    const max = rows[0].n;
+    const known = rows.reduce((a, b) => a + b.n, 0);
+    return section(title, iconName, `
+      <div class="trend-rows">
+        ${rows.map((r) => bar({
+          label: labelOf(r.key), n: r.n, ratio: max > 0 ? r.n / max : 0,
+        })).join("")}
+      </div>
+      ${missing(records.length - known, missingLabel)}`);
+  }
+
+  /* ---------- 描画の部品 ---------- */
+
+  function section(title, iconName, inner) {
+    return `
+      <div class="section-label">
+        <span>${icon(iconName, { size: 13 })} ${escapeHtml(title)}</span>
+      </div>
+      <div class="card">${inner}</div>`;
+  }
+
+  /* 1 本の棒。**件数は必ず出す。**割合だけ出すと、1 件と 10 件が
+     同じ「100%」に見えてしまう（この件数ではそれが起きる） */
+  function bar({ label, n, ratio, color, side, nodata = false }) {
+    const thin = n > 0 && n < 3;   // 3 件未満は薄くする。読み取れる数ではない
+    return `
+      <div class="trend-row${n === 0 ? " zero" : ""}${thin ? " thin" : ""}${nodata ? " nodata" : ""}">
+        <span class="trend-label" title="${escapeHtml(String(label))}">${escapeHtml(String(label))}</span>
+        <span class="trend-track">
+          ${nodata ? "" : `<span class="trend-fill" style="width:${
+            Math.round(Math.max(0, Math.min(1, ratio)) * 100)}%${
+            color ? `;background:${color}` : ""}"></span>`}
+        </span>
+        <span class="trend-n">${n}<span class="trend-unit">件</span></span>
+        ${side ? `<span class="trend-side">${escapeHtml(side)}</span>` : ""}
+      </div>`;
+  }
+
+  function missing(n, label) {
+    return n > 0 ? `<p class="trend-note">${n} 件は${escapeHtml(label)}です。数えていません。</p>` : "";
+  }
+</script>
+</body>
+</html>

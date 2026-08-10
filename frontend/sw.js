@@ -27,7 +27,7 @@ const DATA_CACHE = "tidebase-data-v1";      // 配信をまたいで残す（潮
 const V = `?v=${VERSION}`;
 const SHELL = [
   "./index.html", "./tide.html", "./spots.html", "./spot.html",
-  "./records.html", "./record.html", "./record-new.html",
+  "./records.html", "./record.html", "./record-new.html", "./trends.html",
   "./recipes.html", "./recipe.html", "./recipe-edit.html",
   "./tackle.html", "./settings.html", "./news.html", "./login.html",
   `./assets/theme.css${V}`, `./assets/app.js${V}`,
