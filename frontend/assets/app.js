@@ -2258,6 +2258,20 @@ export const SPOT_TYPES = [
   { value: "managed",       label: "管理釣り場", color: "#4CAF50", iconName: "managed" },
 ];
 
+/* 立ち位置（D-099）。**種別（SPOT_TYPES）とは別の軸。**
+   おかっぱりかウェーディングかで、同じ場所でもまったく別の釣りになる。
+   種別の値にすると「河川でなくなる」ので、掛け合わせられる形で持つ。
+   未設定（null）を残してあるのは、既存の大半がそれで、
+   漁港や管理釣り場に「おかっぱり」と付けても意味が無いため。 */
+export const ENTRY_STYLES = [
+  { value: "bank",   label: "おかっぱり",   short: "おかっぱり", iconName: "boot-dry" },
+  { value: "wading", label: "ウェーディング", short: "ウェーディング", iconName: "wading" },
+];
+
+export function entryStyle(value) {
+  return ENTRY_STYLES.find((e) => e.value === value) ?? null;
+}
+
 export const WATER_TYPES = [
   { value: "saltwater",  label: "海水" },
   { value: "brackish",   label: "汽水" },

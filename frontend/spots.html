@@ -66,6 +66,11 @@
     <label>スポット種別</label>
     <div class="chips" id="new-type"></div>
   </div>
+  <!-- 立ち位置は種別とは別の軸（D-099）。同じ河口でもおかっぱりと立ち込みで別物 -->
+  <div class="field">
+    <label>立ち位置</label>
+    <div class="chips" id="new-entry"></div>
+  </div>
   <div class="field toggle-row">
     <label for="new-lowtide" style="margin:0">干潮時のみアクセス可</label>
     <input type="checkbox" id="new-lowtide" style="width:auto">
@@ -87,6 +92,7 @@
     isCoordinateInJapan,
     attachPlaceSearch, renderIcons,
     todayInJst, tideType, sunTimes, fishingScoreOfDay, stars,
+    ENTRY_STYLES, entryStyle,
     listTidePoints, tidePointOfSpot, fetchTideForPoint, fetchWeatherMulti,
   } from "./assets/app.js";
 
@@ -94,7 +100,7 @@
   if (!session) throw new Error("unauthenticated");
   renderNav("map");
 
-  const state = { addMode: false, draft: null, water: "saltwater", type: null };
+  const state = { addMode: false, draft: null, water: "saltwater", type: null, entry: null };
   let spots = await listSpots().catch(() => []);
 
   // 位置が未設定のスポット（旧フォームで 0,0 になったもの）は地図に載せない
@@ -200,6 +206,7 @@
 
   function spotRow(s) {
     const type = spotType(s.spot_type);
+    const entry = entryStyle(s.entry_style);
     const day = scores.get(s.id) ?? null;
     return `
       <a class="list-item" href="spot.html?id=${s.id}">
@@ -207,6 +214,7 @@
         <div class="list-body">
           <div class="list-title">${escapeHtml(s.name ?? "無名スポット")}${s.low_tide_only ? ` ${icon("warning", { size: 13 })}` : ""}</div>
           <div class="list-sub">${waterLabel(s.water_type)}${
+            entry ? ` · ${icon(entry.iconName, { size: 12 })} ${escapeHtml(entry.short)}` : ""}${
             s.tide_station_code ? ` · 潮汐 ${s.tide_station_code}` : ""}${
             isCoordinateInJapan(s.latitude, s.longitude)
               ? "" : ` · ${icon("warning", { size: 12 })} 位置未設定`}${
@@ -264,10 +272,13 @@
   /* ---------- ピンタップ ---------- */
   function openSheet(spot) {
     const type = spotType(spot.spot_type);
+    const entry = entryStyle(spot.entry_style);
     document.getElementById("sheet-body").innerHTML = `
       <div class="list-title" style="font-size:16px">${escapeHtml(spot.name ?? "無名スポット")}</div>
       <div class="list-sub" style="margin-bottom:10px">
-        ${type.label} · ${waterLabel(spot.water_type)}${spot.low_tide_only ? ` · ${icon("warning", { size: 12 })} 干潮時のみアクセス可` : ""}
+        ${type.label} · ${waterLabel(spot.water_type)}${
+          entry ? ` · ${icon(entry.iconName, { size: 12 })} ${escapeHtml(entry.short)}` : ""}${
+          spot.low_tide_only ? ` · ${icon("warning", { size: 12 })} 干潮時のみアクセス可` : ""}
       </div>
       <div class="actions" style="margin-top:0">
         <a class="btn btn-quiet link-btn" href="spot.html?id=${spot.id}">詳細</a>
@@ -384,6 +395,9 @@
     document.getElementById("new-type").innerHTML = SPOT_TYPES
       .map((t) => `<span class="chip${t.value === state.type ? " selected" : ""}"
                          data-value="${t.value}">${icon(t.iconName, { size: 13 })} ${t.label}</span>`).join("");
+    document.getElementById("new-entry").innerHTML = ENTRY_STYLES
+      .map((e) => `<span class="chip${e.value === state.entry ? " selected" : ""}"
+                         data-value="${e.value}">${icon(e.iconName, { size: 13 })} ${e.label}</span>`).join("");
   }
 
   document.getElementById("new-water").addEventListener("click", (e) => {
@@ -395,6 +409,14 @@
     const chip = e.target.closest(".chip");
     if (!chip) return;
     state.type = chip.classList.contains("selected") ? null : chip.dataset.value;
+    renderChips();
+  });
+
+  document.getElementById("new-entry").addEventListener("click", (e) => {
+    const chip = e.target.closest(".chip");
+    if (!chip) return;
+    // もう一度押すと未設定に戻せる（漁港などは「立ち位置」を決めなくてよい）
+    state.entry = chip.classList.contains("selected") ? null : chip.dataset.value;
     renderChips();
   });
 
@@ -423,6 +445,7 @@
       longitude: Number(state.draft.lng.toFixed(6)),
       water_type: state.water,
       spot_type: state.type,
+      entry_style: state.entry,
       low_tide_only: document.getElementById("new-lowtide").checked,
     });
     button.disabled = false; button.textContent = "このスポットを登録";
@@ -432,6 +455,8 @@
     clearDraft();
     document.getElementById("new-name").value = "";
     document.getElementById("new-lowtide").checked = false;
+    state.entry = null;
+    renderChips();
     // ここは以前ボタンの中身を "＋ 追加" の文字に戻していて、登録するたびに
     // アイコンが消えていた（D-027 で線画アイコンにした分が飛ぶ）。setAddMode に寄せる
     setAddMode(false);

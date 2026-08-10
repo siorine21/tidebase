@@ -35,7 +35,8 @@
   import {
     client, requireSession, renderNav, escapeHtml, toJapaneseError,
     listSpots, getSpot, listRecords, createMap, spotMarker, spotType, waterLabel, ownerBadge,
-    SPOT_TYPES, WATER_TYPES, googleMapsUrl, googleDirectionsUrl, formatJstDate, icon,
+    SPOT_TYPES, WATER_TYPES, ENTRY_STYLES, entryStyle,
+    googleMapsUrl, googleDirectionsUrl, formatJstDate, icon,
     recordFishName, listTidePoints, tidePointOfSpot, formatLag, isCoordinateInJapan,
     attachPlaceSearch,
     navigate,
@@ -89,6 +90,7 @@
 
   function render() {
     const type = spotType(spot.spot_type);
+    const entry = entryStyle(spot.entry_style);
     document.getElementById("title").textContent = spot.name ?? "無名スポット";
     // 「釣れた数」と「魚がいた回数」を分ける（D-092）。
     // バラシとミスバイトは、そのスポットに魚がいた証拠として数える
@@ -106,6 +108,7 @@
         <div class="tags" style="margin-top:0">
           <span class="tag tag-gray">${icon(type.iconName, { size: 12 })} ${type.label}</span>
           <span class="tag tag-blue">${waterLabel(spot.water_type)}</span>
+          ${entry ? `<span class="tag tag-gray">${icon(entry.iconName, { size: 12 })} ${escapeHtml(entry.label)}</span>` : ""}
           ${spot.low_tide_only ? `<span class="tag tag-mustard">${icon("warning", { size: 12 })} 干潮時のみアクセス可</span>` : ""}
           ${spot.tide_station_code ? `<span class="tag tag-gray">潮汐観測点 ${escapeHtml(spot.tide_station_code)}</span>` : ""}
         </div>
@@ -152,6 +155,8 @@
           <input type="text" id="e-name" maxlength="100"></div>
         <div class="field"><label>水域区分</label><div class="chips" id="e-water"></div></div>
         <div class="field"><label>スポット種別</label><div class="chips" id="e-type"></div></div>
+        <!-- 立ち位置は種別とは別の軸（D-099）。もう一度押すと未設定に戻る -->
+        <div class="field"><label>立ち位置</label><div class="chips" id="e-entry"></div></div>
         <div class="field toggle-row">
           <label for="e-lowtide" style="margin:0">干潮時のみアクセス可</label>
           <input type="checkbox" id="e-lowtide" style="width:auto">
@@ -259,7 +264,7 @@
     Object.assign(edit, {
       lat: positioned ? Number(spot.latitude) : null,
       lng: positioned ? Number(spot.longitude) : null,
-      water: spot.water_type, type: spot.spot_type,
+      water: spot.water_type, type: spot.spot_type, entry: spot.entry_style ?? null,
     });
     renderEditChips();
     renderTidePointSelect();
@@ -337,13 +342,18 @@
     document.getElementById("e-type").innerHTML = SPOT_TYPES
       .map((t) => `<span class="chip${t.value === edit.type ? " selected" : ""}"
                          data-value="${t.value}">${icon(t.iconName, { size: 13 })} ${t.label}</span>`).join("");
+    document.getElementById("e-entry").innerHTML = ENTRY_STYLES
+      .map((s) => `<span class="chip${s.value === edit.entry ? " selected" : ""}"
+                         data-value="${s.value}">${icon(s.iconName, { size: 13 })} ${s.label}</span>`).join("");
   }
 
   document.addEventListener("click", (e) => {
-    const chip = e.target.closest("#e-water .chip, #e-type .chip");
+    const chip = e.target.closest("#e-water .chip, #e-type .chip, #e-entry .chip");
     if (!chip) return;
     if (chip.closest("#e-water")) edit.water = chip.dataset.value;
-    else edit.type = chip.classList.contains("selected") ? null : chip.dataset.value;
+    else if (chip.closest("#e-entry")) {
+      edit.entry = chip.classList.contains("selected") ? null : chip.dataset.value;
+    } else edit.type = chip.classList.contains("selected") ? null : chip.dataset.value;
     renderEditChips();
   });
 
@@ -358,7 +368,7 @@
       name: document.getElementById("e-name").value.trim() || null,
       memo: document.getElementById("e-memo").value.trim() || null,
       latitude: edit.lat, longitude: edit.lng,
-      water_type: edit.water, spot_type: edit.type,
+      water_type: edit.water, spot_type: edit.type, entry_style: edit.entry ?? null,
       low_tide_only: document.getElementById("e-lowtide").checked,
       tide_area_code: chosen?.area ?? null,
     };
