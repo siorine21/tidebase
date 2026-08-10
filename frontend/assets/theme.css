@@ -956,8 +956,16 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .sheet[hidden] { display: none; }
 .sheet .close { position: absolute; top: 10px; right: 14px; }
 
-.legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11px; color: var(--text-secondary); }
+/* 凡例は 2 段（D-101）。上の段が色＝種別、下の段が形＝立ち位置。
+   同じ行に混ぜると、丸い色玉と線画が並んで別の軸だと分からなくなる */
+.legend { display: flex; flex-direction: column; gap: 5px; }
+.legend-row {
+  display: flex; flex-wrap: wrap; gap: 10px;
+  font-size: 11px; color: var(--text-secondary);
+}
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; }
+.legend-entry { color: var(--text-muted); }
+.legend-entry .icon { margin-right: 3px; }
 
 .link-btn {
   display: block; text-align: center; text-decoration: none; line-height: 1.6;

@@ -2717,6 +2717,14 @@ function addMapUnlock(map) {
 /** スポット種別の色を反映した HTML マーカー（外部画像に依存しない）。 */
 export function spotMarker(spot, { label = true } = {}) {
   const type = spotType(spot.spot_type);
+  /* **ピンの中身は立ち位置、色は種別**（D-101）。
+     もとは中身も色も種別で、同じ情報を 2 回描いていた。おかげで
+     「二瀬橋」と「二瀬橋(ウェーディング)」が地図上で見分けられなかった
+     （同じ河川なので当然だった）。中身を立ち位置に譲れば、
+     色で種別・形で立ち位置と、1 つのピンで 2 つ読める。
+     凡例は色を説明しているので、色は動かさないこと。
+     立ち位置が未設定なら、これまでどおり種別の形にする。 */
+  const entry = entryStyle(spot.entry_style);
   const warn = spot.low_tide_only
     ? `<span class="pin-warn">${icon("warning", { size: 13 })}</span>` : "";
   const name = label && spot.name
@@ -2724,7 +2732,7 @@ export function spotMarker(spot, { label = true } = {}) {
   return L.divIcon({
     className: "spot-pin-wrap",
     html: `<span class="spot-pin" style="--pin:${type.color}">`
-        + `${icon(type.iconName, { size: 14 })}${warn}</span>${name}`,
+        + `${icon(entry?.iconName ?? type.iconName, { size: 14 })}${warn}</span>${name}`,
     iconSize: [26, 26],
     iconAnchor: [13, 26],
   });

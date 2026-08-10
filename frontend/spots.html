@@ -137,11 +137,21 @@
     // 実際に地図に出ている種別だけを出す。12 種を常に並べると凡例が 3 行になり、
     // 下のリストが画面外へ押し出されるうえ、凡例としても読み取りにくい
     const used = new Set(spots.map((s) => s.spot_type));
-    document.getElementById("legend").innerHTML = SPOT_TYPES
-      .filter((t) => used.has(t.value))
-      .map((t) => `<span><i style="background:${t.color}"></i>${t.label}</span>`).join("")
+    const box = document.getElementById("legend");
+    // 色が種別、形が立ち位置（D-101）。凡例も 2 段にして、どちらも読めるようにする
+    const usedEntry = new Set(spots.map((s) => s.entry_style));
+    box.innerHTML = `<div class="legend-row">`
+      + SPOT_TYPES.filter((t) => used.has(t.value))
+        .map((t) => `<span><i style="background:${t.color}"></i>${t.label}</span>`).join("")
       + (used.has(null) || used.has(undefined)
-        ? `<span><i style="background:#9AA5B1"></i>未設定</span>` : "");
+        ? `<span><i style="background:#9AA5B1"></i>未設定</span>` : "")
+      + `</div>`
+      + (ENTRY_STYLES.some((e) => usedEntry.has(e.value))
+        ? `<div class="legend-row legend-entry">`
+          + ENTRY_STYLES.filter((e) => usedEntry.has(e.value))
+            .map((e) => `<span>${icon(e.iconName, { size: 12 })}${escapeHtml(e.label)}</span>`).join("")
+          + `</div>`
+        : "");
   }
 
   function renderAll() {
