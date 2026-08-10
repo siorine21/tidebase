@@ -552,17 +552,34 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 /* ---------- グループ共有（他人の釣果） ---------- */
 /* 自分の記録との違いは色ではなく「名前が付いているか」で分かるようにする。
    青は既に潮汐・情報に使っているので、左の線と名前チップで差をつける。 */
+/* 投稿者は、その行の中でいちばん軽い情報（D-097）。
+   accent の青で縁取っていたので、到達段階のタグと同じ重さに見えていた。
+   枠を外して沈める。ピル＝人、枠なしの色語＝結果、と形で役割を分ける。 */
 .owner-badge {
   display: inline-block; margin-right: 6px; padding: 1px 8px;
   border-radius: 999px; font-size: 11px; vertical-align: middle;
-  background: var(--blue-bg); border: 1px solid var(--blue-deep); color: var(--blue);
+  background: var(--bg-raised); border: 1px solid transparent; color: var(--text-secondary);
 }
+
+/* 到達段階の見出し（D-097）。**ピルにしない。**
+   タイトルに掛かる修飾として読めるよう、枠も背景も付けず、色と印だけで示す。
+   キャッチのときは出さない（ほとんどの行がキャッチなので、出すと印だらけになる）。 */
+.outcome-lead {
+  display: inline-flex; align-items: center; gap: 3px;
+  margin-right: 6px; font-size: 12px; vertical-align: 1px;
+}
+.outcome-lead .icon { margin: 0; }
+.outcome-lead.lost     { color: #E2907F; }
+.outcome-lead.bite     { color: #7FC6E8; }
+.outcome-lead.sighting { color: var(--text-muted); }
+.outcome-lead.none     { color: var(--text-muted); }
 
 /* 自分の釣果（D-064）。カラシはこのアプリで「自分のもの」を指す色
    （スコアの円・ナビの選択中）なので、青（ほかの人）と役割で対になる */
-.owner-badge.mine {
-  background: var(--mustard-bg); border-color: var(--mustard-dk); color: var(--mustard-lt);
-}
+/* 自分の記録も同じ軽さにする（D-097）。
+   ここだけカラシで縁取ると、いちばん多い自分の行がいちばん目立ってしまう。
+   区別は文字色だけで足りる。 */
+.owner-badge.mine { color: var(--mustard); }
 
 /* 左の線は「自分のものではない」ことの目印。自分の行にも付けると
    全行に線が入って、かえって見分けがつかなくなる */

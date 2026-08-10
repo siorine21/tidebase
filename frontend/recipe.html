@@ -35,6 +35,7 @@
     categoryLabel, categoryTagClass, toggleFavorite, formatJstDate, icon, recordFishName,
     navigate,
     recordOutcome,
+    outcomeLead,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -154,7 +155,7 @@
       const outcome = recordOutcome(rec);
       const title = outcome.value === "none"
         ? `${icon(outcome.iconName, { size: 15 })} ${outcome.label}`
-        : `${outcome.value === "landed" ? "" : `<span class="tag ${outcome.tagClass}">${outcome.short}</span> `}`
+        : outcomeLead(rec)
           + `${escapeHtml(recordFishName(rec))}${rec.catch_count > 1 ? ` ×${rec.catch_count}` : ""}`;
       return `
         <a class="list-item" href="record.html?id=${rec.id}">

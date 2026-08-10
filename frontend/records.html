@@ -71,6 +71,7 @@
     requireSession, renderNav, escapeHtml, lureCategoryText, ownerBadge, listRecords, listSpots,
     formatJstDate, relativeDays, icon, recordFishName, signedPhotoUrls,
     recordOutcome,
+    outcomeLead,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -162,7 +163,7 @@
       const outcome = recordOutcome(r);
       const title = outcome.value === "none"
         ? `${icon(outcome.iconName, { size: 15 })} ${outcome.label}`
-        : `${outcome.value === "landed" ? "" : `<span class="tag ${outcome.tagClass}">${outcome.short}</span> `}`
+        : outcomeLead(r)
           + `${escapeHtml(recordFishName(r))}${r.length_cm ? ` ${r.length_cm}cm` : ""}`
           + (r.catch_count > 1 ? ` ×${r.catch_count}` : "");
       const sub = [

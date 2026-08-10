@@ -103,6 +103,7 @@
     hasUnreadNews, WEATHER_SOURCE,
     isCoordinateInJapan, tideTimelineSvg, sunStripHtml, levelAxisHtml, tideLevelAt, sunTimes,
     recordOutcome,
+    outcomeLead,
   } from "./assets/app.js";
 
   // 静岡県特化のため既定は舞阪（浜名湖口・遠州灘西部の基準）
@@ -386,7 +387,7 @@
       const outcome = recordOutcome(r);
       const title = outcome.value === "none"
         ? `${icon(outcome.iconName, { size: 15 })} ${outcome.label}`
-        : `${outcome.value === "landed" ? "" : `<span class="tag ${outcome.tagClass}">${outcome.short}</span> `}`
+        : outcomeLead(r)
           + `${escapeHtml(recordFishName(r))}${r.length_cm ? ` ${r.length_cm}cm` : ""}`
           + (r.catch_count > 1 ? ` ×${r.catch_count}` : "");
       const when = formatShortDate(r.fished_at)

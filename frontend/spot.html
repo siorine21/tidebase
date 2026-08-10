@@ -40,6 +40,7 @@
     attachPlaceSearch,
     navigate,
     recordOutcome,
+    outcomeLead,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -200,7 +201,7 @@
       const outcome = recordOutcome(r);
       const title = outcome.value === "none"
         ? `${icon(outcome.iconName, { size: 15 })} ${outcome.label}`
-        : `${outcome.value === "landed" ? "" : `<span class="tag ${outcome.tagClass}">${outcome.short}</span> `}`
+        : outcomeLead(r)
           + `${escapeHtml(recordFishName(r))}${r.catch_count > 1 ? ` ×${r.catch_count}` : ""}`;
       const owner = r.is_mine === false ? `<span class="owner-badge">${escapeHtml(r.owner_name)}</span>` : "";
       return `

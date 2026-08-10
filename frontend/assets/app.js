@@ -1457,6 +1457,23 @@ export async function listRecords({ limit = 50, spotId = null } = {}) {
  * 色はカラシ（自分）と青（ほかの人）。カラシはこのアプリで
  * 「自分のもの」を指す色（スコアの円・ナビの選択中）なので、意味が揃う。
  */
+/**
+ * 一覧のタイトルに付ける到達段階の見出し（D-097）。
+ *
+ * **ピルにしない。** 投稿者の名前も同じ形・同じ色のピルだったので、
+ * 「誰の記録か」と「その釣行の結果」が同じ重さに見えていた。
+ * 枠を外して色付きの語にすると、タイトルに掛かる修飾として読める。
+ *
+ * キャッチのときは何も出さない。ほとんどの行がキャッチなので、
+ * 出すと画面が印だらけになる。**例外だけに印を付ける。**
+ */
+export function outcomeLead(record) {
+  const outcome = recordOutcome(record);
+  if (outcome.value === "landed") return "";
+  return `<span class="outcome-lead ${outcome.value}">`
+    + `${icon(outcome.iconName, { size: 13 })}${outcome.short}</span>`;
+}
+
 export function ownerBadge(record) {
   return record?.is_mine
     ? `<span class="owner-badge mine">自分</span>`
