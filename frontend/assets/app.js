@@ -1890,6 +1890,57 @@ export async function tideCorrelation() {
 
 /** ボトムナビを描画する。current は home / tide / map / records / recipes。
     設定はここに置かない（毎日開く場所ではないため、ホームのヘッダーから開く）。 */
+/* ---------------- 圏外でも開けるようにする（D-096） ----------------
+   堤防や河口では電波が無いことがある。Service Worker を登録しておくと、
+   画面と、一度見た潮汐が端末に残る。日の出・日没と潮回りはもともと
+   端末側の計算なので（D-056 / D-062）、電波が無くても出る。
+
+   **勝手に古い画面を出さない**のが条件。画面は必ずネットワークを先に試し、
+   圏外のときだけ手持ちを出す（sw.js 側）。D-088 / D-089 の帯もそのまま効く。 */
+export function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+  // file:// で開いたときは登録できない。手元での確認を邪魔しない
+  if (location.protocol !== "https:" && location.hostname !== "127.0.0.1"
+      && location.hostname !== "localhost") return;
+  navigator.serviceWorker.register("sw.js").catch(() => { /* 使えなくても本体は動く */ });
+}
+
+/** ログアウト時に、端末に残った自分のデータを消す。 */
+export function clearOfflineData() {
+  navigator.serviceWorker?.controller?.postMessage({ type: "clear-data" });
+}
+
+/* 圏外の帯。いま出ているものが古いかもしれない、とだけ伝える。
+   D-088 の「新しい版があります」とは別物なので、色も位置も変えてある。 */
+function renderOfflineBar() {
+  const existing = document.querySelector(".offline-bar");
+  if (navigator.onLine) { existing?.remove(); return; }
+  if (existing) return;
+  document.body.insertAdjacentHTML("afterbegin",
+    `<div class="offline-bar" role="status">圏外です。保存してある内容を表示しています</div>`);
+}
+
+export function watchOnlineState() {
+  renderOfflineBar();
+  window.addEventListener("online", renderOfflineBar);
+  window.addEventListener("offline", renderOfflineBar);
+}
+
+/**
+ * 先の潮汐を取っておく（D-096）。
+ * 圏外で役に立つのは「その日たまたま開いていた分」ではなく「これから行く日」なので、
+ * 電波があるうちに 1 週間ぶんを温めておく。1 日ぶんは数 KB で、応答は
+ * Service Worker が持つ。圏外・未登録のときは何もしない。
+ */
+export async function warmTideCache(point, days = 7) {
+  if (!point || !navigator.onLine || !navigator.serviceWorker?.controller) return;
+  const today = todayInJst();
+  for (let i = 0; i < days; i += 1) {
+    // 1 本ずつ順に。まとめて投げると圏内が細いときに他の通信を押しのける
+    await fetchTide(point.station, addDays(today, i)).catch(() => null);
+  }
+}
+
 /* ---------------- 配った版が端末に届いているか（D-088） ----------------
    GitHub Pages は HTML も JS も max-age=600 で配る。配信は成功しているのに
    端末には 10 分ほど古い画面が残るし、ホーム画面から起動したまま
@@ -1937,6 +1988,14 @@ export function navigate(href, { replace = false } = {}) {
   const target = withVersion(href);
   if (replace) location.replace(target);
   else location.href = target;
+}
+
+/* 圏外対応は全画面で効かせたいので、読み込まれた時点で仕掛ける（D-096） */
+registerServiceWorker();
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", watchOnlineState, { once: true });
+} else {
+  watchOnlineState();
 }
 
 /* リンクは踏まれる直前に書き換える（捕捉フェーズ）。

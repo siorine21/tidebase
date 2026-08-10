@@ -346,6 +346,17 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
   font-size: 12px; font-weight: 600; text-align: center; cursor: pointer;
 }
 
+/* 圏外の帯（D-096）。「新しい版があります」（D-088）と混ざらないよう、
+   色も役割も分ける。あちらは押すもの、こちらは知らせるだけ。 */
+.offline-bar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 29;
+  padding: 8px 12px max(8px, env(safe-area-inset-top));
+  background: var(--bg-raised); color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-strong);
+  font-size: 12px; text-align: center;
+}
+.update-bar + .offline-bar, .offline-bar + .update-bar { top: 36px; }
+
 /* ---------- ボトムナビ ---------- */
 .bottom-nav {
   position: fixed; left: 0; right: 0; bottom: 0;

@@ -99,6 +99,7 @@
     listSpots, listRecords, tideCorrelation, icon,
     recordFishName, ownerBadge, nowInJst, hoursFromHhmm, addJstDays,
     listTidePoints, fetchTideForPoint, tidePointOfSpot, savedTidePoint, saveTidePoint, formatLag,
+    warmTideCache,
     hasUnreadNews, WEATHER_SOURCE,
     isCoordinateInJapan, tideTimelineSvg, sunStripHtml, levelAxisHtml, tideLevelAt, sunTimes,
     recordOutcome,
@@ -148,6 +149,10 @@
     if (point) {
       document.getElementById("tide-detail-link").href =
         `tide.html?point=${encodeURIComponent(point.value)}`;
+      /* 電波があるうちに 1 週間ぶんの潮汐を取っておく（D-096）。
+         圏外で要るのは「その日たまたま開いた分」ではなく「これから行く日」。
+         待たない。表示の邪魔をしない */
+      warmTideCache(point).catch(() => {});
     }
 
     // 天気はスポットの座標で取る。座標が未設定・国外なら潮汐地点の座標で代用する。

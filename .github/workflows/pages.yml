@@ -47,7 +47,12 @@ jobs:
           sed -i \
             -e "s#\"\./icons\.js\"#\"./icons.js?v=$V\"#g" \
             -e "s#__APP_VERSION__#$V#" assets/app.js
+          # Service Worker も版で分ける（D-096）。殻のキャッシュ名がこれで変わり、
+          # 中身が 1 文字変わればブラウザが更新に気づく。sw.js の URL には版を付けない
+          sed -i -e "s#__APP_VERSION__#$V#" sw.js
           grep -q "$V" assets/app.js
+          grep -q "$V" sw.js
+          ! grep -q "__APP_VERSION__" sw.js assets/app.js
           grep -q "theme.css?v=$V" index.html
 
       - uses: actions/upload-pages-artifact@v3
