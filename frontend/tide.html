@@ -91,7 +91,7 @@
     requireSession, renderNav, escapeHtml, icon,
     todayInJst, formatJstDate, nowInJst, hoursFromHhmm, addJstDays, weekOf,
     fetchWeatherRange, describeWeather, windDirection,
-    fishingScoreOfDay, showFishingScoreHelp, stars,
+    fishingScoreOfDay, showFishingScoreHelp, stars, savedScoreBand,
     listSpots, listTidePoints, fetchTideForPoint, tidePointOfSpot,
     savedTidePoint, saveTidePoint, formatLag,
     listFavoriteTidePoints, saveFavoriteTidePoints,
@@ -430,7 +430,8 @@
     // 朝マヅメ・夕マヅメで判定し、良いほうをその日のスコアにする（D-051・D-052）
     scoreContext = weather
       ? fishingScoreOfDay({
-          tideType: type, hours: weather, sun: sunOf(date), tide })
+          tideType: type, hours: weather, sun: sunOf(date), tide,
+          date, band: savedScoreBand() })
       : null;
     const score = scoreContext?.score ?? null;
 
@@ -547,7 +548,8 @@
     // 潮汐も揃っていないと潮の動きぶんが出せない。揃うまではスコアを出さない
     // （途中の点を見せると、あとで数字が変わって見える）
     const day = hours && sunOf(date) && tideOf(date)
-      ? fishingScoreOfDay({ tideType: type, hours, sun: sunOf(date), tide: tideOf(date) })
+      ? fishingScoreOfDay({ tideType: type, hours, sun: sunOf(date), tide: tideOf(date),
+                            date, band: savedScoreBand() })
       : null;
 
     // 狭いセルなので星は 1 つだけにして数字を添える（★★★★☆ は 7 列に入らない）

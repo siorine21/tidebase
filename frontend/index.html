@@ -45,6 +45,9 @@
     </div>
     <div class="hero-meta" id="hero-meta">読み込み中…</div>
     <div class="tags" id="hero-tags"></div>
+    <!-- 時間帯ごとの点（D-103）。★ひとつだけだと「いつの点か」が伝わらない。
+         実際に竿を出すのは夜が多いので、夜の点がその場で読めるようにする -->
+    <div class="band-strip" id="band-strip" hidden></div>
   </section>
 
   <div class="section-label">
@@ -95,7 +98,7 @@
   import {
     client, requireSession, renderNav, escapeHtml,
     fetchTide, fetchWeather, todayInJst, formatJstDate, formatShortDate, relativeDays,
-    describeWeather, windDirection, fishingScoreOfDay, showFishingScoreHelp,
+    describeWeather, windDirection, fishingScoreOfDay, showFishingScoreHelp, savedScoreBand,
     listSpots, listRecords, tideCorrelation, icon,
     recordFishName, ownerBadge, nowInJst, hoursFromHhmm, addJstDays,
     listTidePoints, fetchTideForPoint, tidePointOfSpot, savedTidePoint, saveTidePoint, formatLag,
@@ -278,9 +281,12 @@
     }
     meta.innerHTML = parts.join(" / ");
 
-    // スコアはマヅメで判定する（D-051・D-052）。上の天気表示は「いま」なので別物
+    /* スコアは時間帯ごとに判定する（D-051・D-052・D-103）。
+       上の天気表示は「いま」なので別物。
+       date を渡すのは、予報を 2 日ぶん取ってあるため（D-103） */
     scoreContext = tide
-      ? fishingScoreOfDay({ tideType: tide.tide_type, hours: weather, sun, tide })
+      ? fishingScoreOfDay({ tideType: tide.tide_type, hours: weather, sun, tide,
+                            date: today, band: savedScoreBand() })
       : null;
     if (tide && scoreContext) {
       const { score, best } = scoreContext;
@@ -293,10 +299,36 @@
         now?.wave_height_m != null ? `<span class="tag tag-blue">波高 ${now.wave_height_m}m</span>` : "",
         `<span class="tag tag-gray">月齢 ${tide.moon_age}</span>`,
       ].join("");
+      renderBandStrip(scoreContext);
     } else if (!spot) {
       tags.innerHTML = `<span class="tag tag-gray">スポットを登録すると天気と釣行スコアが表示されます</span>`;
     }
   }
+
+  /* 時間帯ごとの点を横に並べる（D-103）。
+     ★は 1 つしか出せないので、「いつの点か」はここで見てもらう。
+     押すと、その時間帯を選んだ状態で説明を開く。 */
+  function renderBandStrip(day) {
+    const box = document.getElementById("band-strip");
+    if (!day || day.fallback || day.bands.length < 2) { box.hidden = true; return; }
+    box.hidden = false;
+    box.innerHTML = day.bands.map((b) => `
+      <button type="button" class="band-cell${b === day.best ? " on" : ""}"
+              data-band="${b.key}">
+        <span class="band-name">${escapeHtml(b.label)}</span>
+        <span class="band-score">${b.score}</span>
+        <span class="band-at">${escapeHtml(b.at)}</span>
+      </button>`).join("");
+  }
+
+  document.getElementById("band-strip").addEventListener("click", (e) => {
+    const cell = e.target.closest(".band-cell");
+    if (!cell || !scoreContext) return;
+    // 押した時間帯を「この日のスコア」として説明を開く。設定は変えない
+    const picked = scoreContext.bands.find((b) => b.key === cell.dataset.band);
+    if (!picked) return;
+    showFishingScoreHelp({ ...scoreContext, score: picked.score, best: picked, preferred: true });
+  });
 
   /* ---------- 潮汐グラフ（日をまたいで連続・D-036） ---------- */
   function renderChart() {

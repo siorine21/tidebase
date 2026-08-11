@@ -226,6 +226,7 @@
     SPOT_TYPES, WATER_TYPES, ENTRY_STYLES, entryStyle,
     listTackle, TACKLE_KINDS,
     listRecordPhotos, preparePhoto, uploadPreparedPhoto, looksLikeImage,
+    captureWeatherSnapshot,
     OUTCOMES, recordOutcome, renderIcons,
     deleteRecordPhotos, signedPhotoUrls, PHOTO_MAX_COUNT,
     navigate,
@@ -275,7 +276,10 @@
       </optgroup>`).join(""));
   document.getElementById("recipe").insertAdjacentHTML("beforeend",
     recipes.map((r) => `<option value="${r.id}">${r.is_favorite ? "[お気に入り] " : ""}${escapeHtml(r.name)}</option>`).join(""));
-  renderSpots(spots);
+  /* その場で登録したスポットもあとで引けるように、変数のほうも入れ替える。
+     天気を残すのにスポットの座標が要る（D-103） */
+  let knownSpots = spots;
+  renderSpots(knownSpots);
 
   /* ---------- タックル（D-066） ----------
      登録済みがあれば 4 つとも選択式にする。無ければ今までどおり自由入力。
@@ -725,6 +729,7 @@
     if (error) return message(toJapaneseError(error), "error");
 
     const updated = await listSpots();
+    knownSpots = updated;
     renderSpots(updated);
     state.spotId = data.id;
     document.querySelector(`.spot-option[data-id="${data.id}"]`)?.click();
@@ -932,6 +937,15 @@
       water_layer: state.layer,
       rod: text("rod"), reel: text("reel"), line: text("line"), leader: text("leader"),
     });
+
+    /* その時刻の天気を一緒に残す（D-103）。**あとから取り直せない。**
+       取れなくても記録の保存は止めない（圏外でも残るのが先・D-096）。 */
+    const spot = knownSpots.find((s) => s.id === state.spotId) ?? null;
+    const snapshot = spot ? await captureWeatherSnapshot({
+      lat: spot.latitude, lng: spot.longitude,
+      date: payload.fished_at, time: payload.fished_time,
+    }).catch(() => null) : null;
+    if (snapshot) payload.weather_snapshot = snapshot;
 
     const { data: saved, error } = recordId
       ? await client.from("fishing_records").update(payload).eq("id", recordId).select().single()

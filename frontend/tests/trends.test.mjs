@@ -21,8 +21,10 @@ const slice = (from, to) => {
 };
 const code = [
   slice('export function hoursFromHhmm', '/* ---------------- 釣行スコア'),
-  'const MAZUME_WINDOW_MINUTES = 60;',
-  slice('export const TIME_BANDS'),
+  // 時間帯は釣行スコアと共通なので、マヅメの節にある（D-103）
+  slice('export const MAZUME_WINDOW_MINUTES', '/**\n * 時間帯ごとに、点を出す候補'),
+  slice('export function tally', 'export function tideTypeDays'),
+  slice('export function tideTypeDays', '\n}\n') + '\n}\n',
 ].join('\n').replaceAll('export function', 'function').replaceAll('export const', 'const');
 
 const { TIME_BANDS, timeBandOf, tally, tideTypeDays } = new Function(

@@ -37,6 +37,7 @@
     createMap, spotMarker, googleMapsUrl, googleDirectionsUrl, isCoordinateInJapan,
     listTidePoints, fetchTideForPoint, tideAt, tideTimelineSvg, sunStripHtml,
     sunTimes, tideFlowAt, TIDE_FLOW_LABELS, nearestMazume, mazumeLabel,
+    weatherSnapshotText,
     listRecordPhotos, deleteRecordPhotos, signedPhotoUrls, lureCategoryText, ownerBadge,
     navigate,
     recordOutcome,
@@ -188,6 +189,8 @@
       ["スポット", r.spot_name ? `${r.spot_name}（${WATER[r.spot_water_type] ?? "—"}）` : null],
       ["潮回り", r.tide_type],
       ["月齢", r.tide_snapshot?.moon_age],
+      // 記録した時点の天気（D-103）。あとから取り直せないので、残っていれば出す
+      ["天気", weatherSnapshotText(r.weather_snapshot)],
       ["魚種", r.species_name],
       ["呼称", r.fish_name_local],
       ["サイズ", r.length_cm ? `${r.length_cm} cm` : null],

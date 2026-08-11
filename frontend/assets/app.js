@@ -654,6 +654,20 @@ export function saveTidePoint(value) {
 }
 
 /**
+ * よく行く時間帯（D-103）。設定すると、釣行スコアの★がその時間帯の点になる。
+ * 端末ごとで構わないので localStorage に置く（潮汐地点と同じ扱い）。
+ * 未設定なら null＝いちばん良い時間帯の点を出す。
+ */
+export function savedScoreBand() {
+  const value = localStorage.getItem("tidebase.scoreBand");
+  return TIME_BANDS.some((b) => b.key === value) ? value : null;
+}
+export function saveScoreBand(value) {
+  if (value) localStorage.setItem("tidebase.scoreBand", value);
+  else localStorage.removeItem("tidebase.scoreBand");
+}
+
+/**
  * お気に入りの潮汐地点（SCR-003 の地点切替タブ）。端末をまたいで同じ並びに
  * したいので profiles に持つ。存在しない地点コードは読み飛ばす。
  */
@@ -1116,6 +1130,78 @@ export function nearestMazume(sun, hhmm) {
 /** マヅメとみなす幅（中心から前後）。 */
 export const MAZUME_WINDOW_MINUTES = 60;
 
+/* ---- 時間帯（D-102 / D-103） -------------------------------------------
+   **釣行スコアと傾向の画面で同じ区切りを使う。** 別々に持つと、
+   同じ 1 回の釣行が画面によって「夕マヅメ」だったり「夜」だったりする。 */
+
+export const TIME_BANDS = [
+  { key: "morning", label: "朝マヅメ" },
+  { key: "day",     label: "日中" },
+  { key: "evening", label: "夕マヅメ" },
+  { key: "night",   label: "夜" },
+];
+
+export function timeBandLabel(key) {
+  return TIME_BANDS.find((b) => b.key === key)?.label ?? null;
+}
+
+/**
+ * その時刻がどの時間帯か。
+ * 日の出・日没は呼ぶ側で計算して渡す（sunTimes）。ここを純粋にしておくと
+ * 天文計算ぬきで境目を試せる。
+ * @param {{rise:string,set:string}|null} sun
+ * @param {string|null} hhmm  "HH:MM"（"HH:MM:SS" でも読む）
+ * @returns {string|null} TIME_BANDS の key。時刻か日の出が無ければ null
+ */
+export function timeBandOf(sun, hhmm) {
+  const at = hoursFromHhmm(hhmm);
+  const rise = hoursFromHhmm(sun?.rise);
+  const set = hoursFromHhmm(sun?.set);
+  if (at == null || rise == null || set == null) return null;
+
+  const width = MAZUME_WINDOW_MINUTES / 60;
+  // マヅメを先に見る。日の出の直後は「日中」でもあるが、釣りとしてはマヅメ
+  if (Math.abs(at - rise) <= width) return "morning";
+  if (Math.abs(at - set) <= width) return "evening";
+  return at > rise && at < set ? "day" : "night";
+}
+
+/**
+ * 時間帯ごとに、点を出す候補になる予報の行を返す（D-103）。
+ *
+ * **マヅメと、日中・夜では選び方が違う。**
+ * マヅメは日の出・日没という 1 点なので、いちばん近い 1 行を代表にする
+ * （1 時間刻みの予報から代表を 1 つ選ぶ、という D-051 の考え方のまま）。
+ * 日中と夜は数時間の幅があるので、その幅に入る行を全部渡し、
+ * **いちばん条件の良い時刻**を呼ぶ側で選ぶ。「何時なら良いか」が要る場面なので、
+ * 幅の平均をとって均してしまうと、行く時刻を決める役に立たない。
+ *
+ * @returns {Record<string, object[]>} 時間帯 key → 予報の行
+ */
+export function bandHours(hours, sun, date = null) {
+  const rows = hoursOfDate(hours, date);
+  const rise = hoursFromHhmm(sun?.rise);
+  const set = hoursFromHhmm(sun?.set);
+  if (!rows.length || rise == null || set == null) return {};
+
+  const width = MAZUME_WINDOW_MINUTES / 60;
+  const near = (target) => {
+    const hit = rows.reduce((best, row) =>
+      Math.abs(row.hour - target) < Math.abs(best.hour - target) ? row : best);
+    return hit ? [hit] : [];
+  };
+  const between = (from, to) => rows.filter((r) => r.hour > from && r.hour < to);
+
+  return {
+    morning: near(rise),
+    day: between(rise + width, set - width),
+    evening: near(set),
+    // 夜は日をまたぐが、**その日の夜**として夕方以降と未明の両方を入れる。
+    // 傾向の画面（timeBandOf）と同じ切り方にしておく
+    night: rows.filter((r) => r.hour > set + width || r.hour < rise - width),
+  };
+}
+
 /** 「朝マヅメ 05:04 の 18 分後」のような文言。 */
 export function mazumeLabel(near) {
   if (!near) return null;
@@ -1131,11 +1217,32 @@ export function mazumeLabel(near) {
   };
 }
 
-/** "HH:MM" にいちばん近い時刻の予報。 */
-function hourNearest(hours, hhmm) {
+/**
+ * その日ぶんの予報だけを取り出す（D-103）。
+ *
+ * **予報は 2 日ぶん取っている**（「0 時から 24 時間後まで」を満たすため）。
+ * hour は 0〜23 の繰り返しなので、日付を見ずに「時」だけで近い行を探すと
+ * **翌日の予報を静かに拾う**。いまは reduce が先勝ちなので当日に当たっているが、
+ * 配列の作り方が変わった時点で崩れる。日付で絞ってから探す。
+ */
+export function hoursOfDate(hours, date) {
+  if (!hours?.length) return [];
+  if (!date) return hours;
+  const sameDay = hours.filter((row) => String(row.time ?? "").startsWith(date));
+  // 日付が入っていない形で渡されたときは、絞らずにそのまま返す（前の挙動）
+  return sameDay.length ? sameDay : hours;
+}
+
+/** "HH:MM" にいちばん近い時刻の予報。date を渡すとその日のぶんから探す。 */
+export function forecastHourAt(hours, hhmm, date = null) {
+  return hourNearest(hours, hhmm, date);
+}
+
+function hourNearest(hours, hhmm, date = null) {
   const target = hoursFromHhmm(hhmm);
-  if (!hours?.length || target == null) return null;
-  return hours.reduce((best, row) =>
+  const rows = hoursOfDate(hours, date);
+  if (!rows.length || target == null) return null;
+  return rows.reduce((best, row) =>
     Math.abs(row.hour - target) < Math.abs(best.hour - target) ? row : best);
 }
 
@@ -1197,15 +1304,24 @@ export function tideFlowAt(tide, hhmm) {
 }
 
 /**
- * その日の釣行スコア。朝マヅメ・夕マヅメをそれぞれ判定し、良いほうを日のスコアにする。
- * 潮回りは日単位なので、朝と夕で差が出るのは天気・風と潮の動きだけ。
+ * その日の釣行スコア。**時間帯ごとに判定する**（朝マヅメ・日中・夕マヅメ・夜）。
+ * 潮回りは日単位なので、時間帯で差が出るのは天気・風と潮の動きだけ。
  * 日の出・日没が取れない日（予報範囲外など）は 12 時で代表させる。
  *
- * @param {{tideType:string, hours:object[], sun:object|null, tide:object|null}} input
- * @returns {{score:number, best:object, windows:object[], tideType:string, fallback:boolean}|null}
+ * **マヅメ 2 点だけを見ていたのをやめた**（D-103）。本人の釣行 17 件のうち
+ * マヅメは 3 件で、残り 14 件は夜と日中だった。行く時間の点が出ていなかった。
+ *
+ * @param {object} input
+ * @param {string} [input.date] 予報を当日ぶんに絞るための日付（"YYYY-MM-DD"）。
+ *   渡さないと 2 日ぶんの配列から探すことになる（D-103 の hoursOfDate を見ること）。
+ * @param {string} [input.band] よく行く時間帯。渡すとその時間帯の点を日の点にする。
+ *   渡さなければ、いちばん良い時間帯の点（これまでと同じ）。
+ * @returns {{score, best, windows, bands, tideType, fallback, preferred}|null}
  */
-export function fishingScoreOfDay({ tideType, hours, sun, tide = null, tideMatters = true }) {
-  const evaluate = (label, at, row) => {
+export function fishingScoreOfDay({
+  tideType, hours, sun, tide = null, tideMatters = true, date = null, band = null,
+}) {
+  const evaluate = (label, at, row, key = null) => {
     if (!row) return null;
     const detail = fishingScoreDetail(tideType, row.weather_code, row.wind_speed_ms, { tideMatters });
     // 潮の効かない場所では、潮の動きによる加減もしない
@@ -1216,7 +1332,7 @@ export function fishingScoreOfDay({ tideType, hours, sun, tide = null, tideMatte
       ? TIDE_FLOW_RULES.find((r) => r.key === flow.key) : null;
     const adjust = rule?.adjust ?? 0;
     return {
-      label, at, hour: row.hour,
+      key, label, at, hour: row.hour,
       weatherCode: row.weather_code, windMs: row.wind_speed_ms,
       ...detail,
       base: detail.score, flow, adjust, weatherGate,
@@ -1224,19 +1340,45 @@ export function fishingScoreOfDay({ tideType, hours, sun, tide = null, tideMatte
     };
   };
 
-  const windows = mazumeWindows(sun)
-    .map((w) => evaluate(w.label, w.at, hourNearest(hours, w.at)))
-    .filter(Boolean);
+  const candidates = bandHours(hours, sun, date);
+  const windows = TIME_BANDS.map(({ key, label }) => {
+    const rows = candidates[key] ?? [];
+    if (!rows.length) return null;
+    /* 幅のある時間帯（日中・夜）は **いちばん条件の良い時刻**を代表にする。
+       平均をとると「何時に行けばいいか」が消える。何時なのかは at に入るので、
+       画面には「夜 21時」のように出る。 */
+    const scored = rows
+      .map((row) => evaluate(label, `${String(row.hour).padStart(2, "0")}:00`, row, key))
+      .filter(Boolean);
+    // 初期値に null を置いて reduce すると、1 周目で a.score を読んで落ちる
+    if (!scored.length) return null;
+    return scored.reduce((a, b) => (b.score > a.score ? b : a));
+  }).filter(Boolean);
 
   if (windows.length) {
-    const best = windows.reduce((a, b) => (b.score > a.score ? b : a));
-    return { score: best.score, best, windows, tideType, tideMatters, fallback: false };
+    // マヅメは日の出・日没そのものを時刻として見せる（1 時間刻みに丸めない）
+    for (const w of windows) {
+      if (w.key === "morning" && sun?.rise) w.at = sun.rise;
+      if (w.key === "evening" && sun?.set) w.at = sun.set;
+    }
+    const top = windows.reduce((a, b) => (b.score > a.score ? b : a));
+    const chosen = band ? windows.find((w) => w.key === band) : null;
+    const best = chosen ?? top;
+    return {
+      score: best.score, best, top, windows, bands: windows,
+      tideType, tideMatters, fallback: false,
+      preferred: Boolean(chosen), band: chosen ? band : null,
+    };
   }
 
   // 日の出・日没が無いときの逃げ道。基準がある方が「出ない」よりましなので残す
-  const noon = evaluate("昼", "12:00", hours?.find((h) => h.hour === 12) ?? hours?.[0]);
+  const sameDay = hoursOfDate(hours, date);
+  const noon = evaluate("昼", "12:00", sameDay.find((h) => h.hour === 12) ?? sameDay[0]);
   if (!noon) return null;
-  return { score: noon.score, best: noon, windows: [noon], tideType, tideMatters, fallback: true };
+  return {
+    score: noon.score, best: noon, top: noon, windows: [noon], bands: [noon],
+    tideType, tideMatters, fallback: true, preferred: false, band: null,
+  };
 }
 
 export function stars(score) {
@@ -1283,7 +1425,9 @@ export function showFishingScoreHelp(day) {
 
     <div class="list-sub" style="margin-bottom:6px">${fallback
       ? "日の出・日没が取れないので 12 時で見ています"
-      : "マヅメごとの判定（良いほうがその日のスコア）"}</div>
+      : day.preferred
+        ? `時間帯ごとの判定（設定した「${escapeHtml(best.label)}」がこの日のスコア）`
+        : "時間帯ごとの判定（いちばん良い時間帯がこの日のスコア）"}</div>
     <ol class="score-rules mazume">${windows.map(windowRow).join("")}</ol>
 
     <div class="list-sub" style="margin:12px 0 6px">${escapeHtml(best.label)}の内訳</div>
@@ -2751,34 +2895,8 @@ export function spotMarker(spot, { label = true } = {}) {
    「機会に対してどれだけ出ているか」に近づく。ほかの軸にこの補正は無い。
    ================================================================ */
 
-/** 時間帯。マヅメの幅は釣果詳細と同じ（MAZUME_WINDOW_MINUTES）。 */
-export const TIME_BANDS = [
-  { key: "morning", label: "朝マヅメ" },
-  { key: "day",     label: "日中" },
-  { key: "evening", label: "夕マヅメ" },
-  { key: "night",   label: "夜" },
-];
-
-/**
- * その釣行がどの時間帯か。
- * 日の出・日没は呼ぶ側で計算して渡す（sunTimes）。ここを純粋にしておくと
- * 天文計算ぬきで境目を試せる。
- * @param {{rise:string,set:string}|null} sun
- * @param {string|null} hhmm  "HH:MM"（"HH:MM:SS" でも読む）
- * @returns {string|null} TIME_BANDS の key。時刻か日の出が無ければ null
- */
-export function timeBandOf(sun, hhmm) {
-  const at = hoursFromHhmm(hhmm);
-  const rise = hoursFromHhmm(sun?.rise);
-  const set = hoursFromHhmm(sun?.set);
-  if (at == null || rise == null || set == null) return null;
-
-  const width = MAZUME_WINDOW_MINUTES / 60;
-  // マヅメを先に見る。日の出の直後は「日中」でもあるが、釣りとしてはマヅメ
-  if (Math.abs(at - rise) <= width) return "morning";
-  if (Math.abs(at - set) <= width) return "evening";
-  return at > rise && at < set ? "day" : "night";
-}
+/* TIME_BANDS と timeBandOf は釣行スコアと共通なので、マヅメの節に置いてある
+   （D-103）。別々に持つと、同じ 1 回の釣行が画面によって時間帯が変わる。 */
 
 /**
  * 件数を数える。**null は数えない**（「未入力」と「その値だった」は別物）。
@@ -2823,4 +2941,63 @@ export function tideTypeDays(fromIso, toIso, typeOf) {
     t += day;
   }
   return out;
+}
+
+/* ================================================================
+   釣行時の天気を残す（D-103）
+
+   **あとから取り直せない。** Open-Meteo の予報は過去 3 か月ほどしか遡れず、
+   それも別の API になる。記録した時点で残しておかないと、
+   「雨の日に出ている」「北風だと渋い」は永久に分からないままになる。
+   実際、これを入れるまでの 17 件は weather_snapshot が全部 NULL だった。
+
+   **保存を止めない。** 圏外でも記録は残るのが先（D-096）。
+   天気が取れなければ、天気だけ入らないまま保存する。
+   ================================================================ */
+
+/**
+ * その釣行の時刻の天気を 1 件ぶんの形にして返す。取れなければ null。
+ * @param {{lat:number, lng:number, date:string, time:string|null}} at
+ */
+export async function captureWeatherSnapshot({ lat, lng, date, time }) {
+  // 時刻が無ければ残さない。この機能の値打ちは「その時刻の」天気なので、
+  // 12 時で代表させると、あとで見たときに本物と区別が付かなくなる
+  if (!time || !date || !isCoordinateInJapan(lat, lng)) return null;
+  let forecast;
+  try {
+    forecast = await fetchWeather(lat, lng, date);
+  } catch {
+    return null;                       // 圏外・予報範囲外。記録の保存は続ける
+  }
+  const row = forecastHourAt(forecast?.hours, time, date);
+  if (!row) return null;
+
+  const sun = forecast.sun ?? null;
+  return {
+    source: "open-meteo",
+    captured_at: new Date().toISOString(),
+    for_time: String(time).slice(0, 5),   // 釣行の時刻
+    at: `${String(row.hour).padStart(2, "0")}:00`,   // 実際に使った予報の時刻
+    weather_code: row.weather_code ?? null,
+    wind_speed_ms: row.wind_speed_ms ?? null,
+    wind_dir_deg: row.wind_dir_deg ?? null,
+    temp_c: row.temp_c ?? null,
+    wave_height_m: row.wave_height_m ?? null,
+    band: timeBandOf(sun, time),
+    sunrise: sun?.rise ?? null,
+    sunset: sun?.set ?? null,
+  };
+}
+
+/** 保存した天気を 1 行の文にする。無ければ null。 */
+export function weatherSnapshotText(snapshot) {
+  if (!snapshot) return null;
+  const parts = [];
+  if (snapshot.weather_code != null) parts.push(describeWeather(snapshot.weather_code).label);
+  if (snapshot.wind_dir_deg != null && snapshot.wind_speed_ms != null) {
+    parts.push(`${windDirection(snapshot.wind_dir_deg)} ${Number(snapshot.wind_speed_ms).toFixed(1)}m/s`);
+  }
+  if (snapshot.temp_c != null) parts.push(`${Math.round(snapshot.temp_c)}℃`);
+  if (snapshot.wave_height_m != null) parts.push(`波 ${snapshot.wave_height_m}m`);
+  return parts.length ? parts.join(" / ") : null;
 }

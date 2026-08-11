@@ -91,7 +91,7 @@
     SPOT_TYPES, WATER_TYPES, googleMapsUrl, googleDirectionsUrl, isNightMap, setNightMap, icon,
     isCoordinateInJapan,
     attachPlaceSearch, renderIcons,
-    todayInJst, tideType, sunTimes, fishingScoreOfDay, stars,
+    todayInJst, tideType, sunTimes, fishingScoreOfDay, stars, savedScoreBand,
     ENTRY_STYLES, entryStyle,
     listTidePoints, tidePointOfSpot, fetchTideForPoint, fetchWeatherMulti,
   } from "./assets/app.js";
@@ -273,6 +273,8 @@
         sun: sunTimes(spot.latitude, spot.longitude, today),
         tide: tideMatters ? (tides.get(tidePointOfSpot(spot)) ?? null) : null,
         tideMatters,
+        date: today,        // 2 日ぶん取ってあるので当日に絞る（D-103）
+        band: savedScoreBand(),   // よく行く時間帯を決めていれば、その点で並べる
       });
       if (day) scores.set(spot.id, day);
     });

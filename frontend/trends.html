@@ -34,7 +34,7 @@
   import {
     requireSession, renderNav, escapeHtml, toJapaneseError, icon, renderIcons,
     listRecords, navigate,
-    tideType, TIDE_TYPE_COLORS, sunTimes, isCoordinateInJapan,
+    tideType, TIDE_TYPE_COLORS, sunTimes, isCoordinateInJapan, describeWeather,
     TIME_BANDS, timeBandOf, tally, tideTypeDays,
     spotType, entryStyle, categoryLabel, recordOutcome, OUTCOMES,
   } from "./assets/app.js";
@@ -97,6 +97,7 @@
       readingNote(from, to, skunked),
       tideSection(days),
       bandSection(),
+      weatherSection(),
       simpleSection("レンジ", "layer-range", tally(records, (r) => r.water_layer),
         (k) => k, "レンジを入れていない記録"),
       simpleSection("ルアー種別", "recipes",
@@ -184,6 +185,50 @@
       <p class="trend-note">マヅメは日の出・日没の前後 1 時間です。
         その日・その場所の日の出から計算しています。</p>
       ${missing(records.length - known, "時刻かスポットの位置が無くて分けられない記録")}`);
+  }
+
+  /* 天気は記録した時点にしか取れない（D-103）。入っている記録だけで数え、
+     **入っていない件数を必ず出す。** ここを黙って除くと、
+     3 件のうち 2 件が晴れというだけで「晴れが多い」に見えてしまう。 */
+  function weatherSection() {
+    const withWeather = records.filter((r) => r.weather_snapshot?.weather_code != null);
+    const missingCount = records.length - withWeather.length;
+    if (!withWeather.length) {
+      return section("天気", "cloud", `
+        <p class="trend-note" style="margin-top:0">記録に天気が残っているものがまだありません。
+          <b>これから記録するぶんには、その時刻の天気が一緒に残ります。</b>
+          あとから取り直せないので、いまある ${records.length} 件には入りません。</p>`);
+    }
+    const rows = tally(withWeather, (r) => weatherCategoryOf(r.weather_snapshot.weather_code));
+    const max = rows[0]?.n ?? 0;
+    const winds = tally(withWeather, (r) => windBucket(r.weather_snapshot.wind_speed_ms));
+    const maxWind = winds[0]?.n ?? 0;
+    return section("天気", "cloud", `
+      <div class="trend-rows">
+        ${rows.map((r) => bar({ label: r.key, n: r.n, ratio: max > 0 ? r.n / max : 0 })).join("")}
+      </div>
+      ${winds.length ? `
+        <div class="trend-sub">風</div>
+        <div class="trend-rows">
+          ${winds.map((w) => bar({ label: w.key, n: w.n, ratio: maxWind > 0 ? w.n / maxWind : 0 })).join("")}
+        </div>` : ""}
+      ${missingCount > 0 ? `<p class="trend-note">${missingCount} 件は天気が残っていません。
+        記録した時点でしか取れないので、それより前の釣行には入りません。</p>` : ""}`);
+  }
+
+  function weatherCategoryOf(code) {
+    return describeWeather(code).label;
+  }
+
+  // 風は生の数字だと 1 件ずつばらけて棒が並ばない。釣りで意味の変わる幅で区切る
+  function windBucket(ms) {
+    const v = Number(ms);
+    if (!Number.isFinite(v)) return null;
+    if (v < 3) return "〜3m/s（穏やか）";
+    if (v < 5) return "3〜5m/s";
+    if (v < 7) return "5〜7m/s";
+    if (v < 10) return "7〜10m/s";
+    return "10m/s 以上（荒れ）";
   }
 
   function spotSection() {

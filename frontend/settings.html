@@ -57,6 +57,19 @@
     <div class="empty">読み込み中…</div>
   </div>
 
+  <!-- 釣行スコアの見え方（D-103） -->
+  <div class="section-label"><span>SCORE</span></div>
+  <div class="card">
+    <h2><span data-icon="clock"></span> よく行く時間帯</h2>
+    <div class="field" style="margin-bottom:8px">
+      <select id="score-band">
+        <option value="">いちばん良い時間帯（指定しない）</option>
+      </select>
+      <div class="hint">釣行スコアの★を、この時間帯の点で出します。
+        スポット一覧の並びもこの点になります。</div>
+    </div>
+  </div>
+
   <!-- アカウント -->
   <div class="section-label"><span>ACCOUNT</span></div>
   <div class="card">
@@ -99,6 +112,7 @@
     revokeInvite, leaveGroup, inviteUrl, isAppAdmin, GROUP_MEMBER_LIMIT,
     APP_VERSION,
     navigate, clearOfflineData,
+    TIME_BANDS, timeBandLabel, savedScoreBand, saveScoreBand,
   } from "./assets/app.js";
 
   document.getElementById("app-version").textContent =
@@ -169,6 +183,23 @@
     } finally {
       button.disabled = false; button.textContent = "パスワードを変更する";
     }
+  });
+
+  /* ---------- よく行く時間帯（D-103） ----------
+     端末ごとの好みなので localStorage に置く（潮汐地点と同じ扱い）。
+     保存ボタンは置かない。選んだ時点で効くほうが、確かめに行きやすい */
+  const bandSelect = document.getElementById("score-band");
+  for (const b of TIME_BANDS) {
+    const option = document.createElement("option");
+    option.value = b.key; option.textContent = b.label;
+    bandSelect.appendChild(option);
+  }
+  bandSelect.value = savedScoreBand() ?? "";
+  bandSelect.addEventListener("change", () => {
+    saveScoreBand(bandSelect.value || null);
+    message(bandSelect.value
+      ? `釣行スコアを「${timeBandLabel(bandSelect.value)}」の点で出します。`
+      : "釣行スコアを、いちばん良い時間帯の点で出します。", "success");
   });
 
   /* ---------- ログアウト ---------- */
