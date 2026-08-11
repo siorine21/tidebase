@@ -644,13 +644,64 @@ export function formatLag(minutes) {
   return `${sign}${Math.floor(abs / 60)}:${String(abs % 60).padStart(2, "0")}`;
 }
 
-/** localStorage に保存した潮汐地点の選択。 */
+/** localStorage に保存した潮汐地点の選択。**D-105 で役目を終えた**。
+    残っている値は「前は地点を選べた」ことの知らせを出すためだけに読む。 */
 export function savedTidePoint() {
   return localStorage.getItem("tidebase.tidePoint");
 }
 export function saveTidePoint(value) {
   if (value) localStorage.setItem("tidebase.tidePoint", value);
   else localStorage.removeItem("tidebase.tidePoint");
+}
+
+/* ---------------- 基準スポット（D-105） ----------------
+   **選ぶものはスポット 1 つ。** そのスポットが
+   「天気を取る座標」と「潮汐の観測所」の両方を決める。
+
+   前は「潮汐地点」を選び、天気は別に自動選択したスポットの座標で取っていた。
+   おかげでホームの 1 行に 3 つの出所が混ざり（スポット名 / 別地点の潮回り /
+   スポットの天気）、先頭のピンが全部を同じ場所のことに見せていた。
+   さらにホームはスポット座標・潮汐詳細は地点座標だったので、
+   **同じ日でも 2 画面で違う天気**が出ていた。 */
+
+export function savedBaseSpot() {
+  return localStorage.getItem("tidebase.baseSpot");
+}
+export function saveBaseSpot(id) {
+  if (id) localStorage.setItem("tidebase.baseSpot", id);
+  else localStorage.removeItem("tidebase.baseSpot");
+}
+
+/**
+ * 基準スポットを決める。ホームと潮汐詳細で同じ規則を使う（別々にすると
+ * 「ホームは福田港なのに潮汐画面は網干場」が起きる）。
+ *
+ * @param {object[]} spots listSpots() の結果（is_mine 降順・作成が新しい順）
+ * @param {string|null} savedId 端末に保存した選択
+ * @returns {object|null} 1 件も無ければ null
+ */
+export function pickBaseSpot(spots, savedId = null) {
+  const list = spots ?? [];
+  // 保存した選択がいちばん強い。ただし消されたスポットは無視する
+  const saved = savedId ? list.find((s) => s.id === savedId) : null;
+  if (saved) return saved;
+  // 淡水（管理釣り場・湖沼）は潮汐が無いので、海か汽水を先に選ぶ。
+  // どれも淡水なら先頭（＝いちばん新しい）を使う
+  const pick = (rows) => rows.find((s) => s.water_type !== "freshwater") ?? rows[0] ?? null;
+  const mine = list.filter((s) => s.is_mine);
+  return pick(mine) ?? pick(list);
+}
+
+/**
+ * スポットに対応する潮汐地点の**オブジェクト**を返す（D-105）。
+ * 淡水スポットは観測所を持たないので null。
+ * @param {object|null} spot
+ * @param {object[]} points listTidePoints() の結果
+ */
+export function spotTidePoint(spot, points) {
+  const value = tidePointOfSpot(spot);
+  if (!value) return null;
+  return (points ?? []).find((p) => p.value === value) ?? null;
 }
 
 /**
@@ -970,9 +1021,12 @@ export async function fetchWeatherMulti(points, date) {
  */
 export async function fetchWeatherRange(lat, lng, startDate, endDate) {
   const last = new Date(Date.parse(`${endDate}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
+  /* 降水確率と突風まで取る（D-105）。潮汐詳細の時間別天気がここを使うので、
+     WEATHER_HOURLY だけだと「雨が降るか」がまた出せなくなる。
+     8 日 × 24 時間 × 7 項目 × 2 モデルで 30KB ほど。週に 1 回なので許容する */
   const query = `latitude=${lat}&longitude=${lng}&timezone=Asia%2FTokyo`
     + `&start_date=${startDate}&end_date=${last}`
-    + `&hourly=${WEATHER_HOURLY}&wind_speed_unit=ms`;
+    + `&hourly=${WEATHER_HOURLY_DETAIL}&wind_speed_unit=ms`;
 
   const result = new Map();
   let forecast;
@@ -3147,4 +3201,83 @@ export function hoursFromNow(hours, nowIso, count = 24) {
      逆に、いまが予報より前（範囲全部が未来）なら findIndex が 0 を返す */
   if (start < 0) return [];
   return hours.slice(start, start + count);
+}
+
+/**
+ * 時間別天気の帯を描く（D-104 / D-105）。**ホームと潮汐詳細で同じものを使う。**
+ *
+ * もとはホームと潮汐詳細に同じ描画が 2 本あった。片方（ホーム）だけ 1 時間ごとに
+ * 直した結果、潮汐詳細は 3 時間刻みのまま取り残され、マヅメの印も
+ * 「6 時と 18 時」の決め打ちで、気温が欠けた時間には NaN° と出ていた。
+ * **2 本あることが原因なので 1 本にする。**
+ *
+ * @param {HTMLElement} box 帯を入れる箱
+ * @param {object}  opt
+ * @param {object[]|null} opt.hours 予報（2 日ぶんでもよい）
+ * @param {{rise:string,set:string}|null} opt.sun その日の日の出・日没
+ * @param {string}  opt.date 見せたい日（"YYYY-MM-DD"）
+ * @param {HTMLElement|null} opt.leadBox 雨の要約を出す箱。省くと出さない
+ * @param {string}  opt.emptyText 予報が無いときの文言
+ */
+export function renderHourlyStrip(box, {
+  hours, sun = null, date = null, leadBox = null, count = 24,
+  emptyText = "予報がありません",
+} = {}) {
+  const hide = (text) => {
+    box.innerHTML = `<div class="empty">${escapeHtml(text)}</div>`;
+    if (leadBox) leadBox.hidden = true;
+  };
+  if (!hours?.length) return hide(emptyText);
+
+  /* **今日はいまの時刻から、先の日は 0 時から。**
+     予報は 0 時からの並びなので、今日をそのまま出すと過ぎた時間が先頭に来る。
+     逆に明日以降を「いまの時刻から」にすると、その日の朝が消えてしまう。 */
+  const today = todayInJst();
+  const now = nowInJst();
+  const rows = date && date !== today
+    ? hoursOfDate(hours, date).slice(0, count)
+    : hoursFromNow(hours, `${now.date}T${now.hhmm}`, count);
+  if (!rows.length) return hide(emptyText);
+
+  if (leadBox) {
+    const outlook = rainOutlook(rows);
+    leadBox.hidden = !outlook;
+    if (outlook) {
+      leadBox.className = `hourly-lead ${outlook.key}`;
+      leadBox.innerHTML = `${icon(outlook.key === "none" ? "sun" : "rain", { size: 14 })}`
+        + `<span>${escapeHtml(outlook.text)}</span>`;
+    }
+  }
+
+  // マヅメの印は**その日の日の出・日没から**出す（決め打ちにしない）
+  const sunHours = sun?.rise && sun?.set
+    ? new Set([Number(sun.rise.slice(0, 2)), Number(sun.set.slice(0, 2))])
+    : new Set();
+
+  box.innerHTML = rows.map((w, i) => {
+    const { icon: weatherIcon } = describeWeather(w.weather_code);
+    const rain = rainLevel(w.precip_chance);
+    const wind = windLevel(w.wind_speed_ms);
+    const arrow = windArrowDeg(w.wind_dir_deg);
+    const mazume = sunHours.has(w.hour);
+    // 日付が変わるところだけ日付を出す。24 時間ぶんは翌日にまたがる
+    const newDay = i > 0 && String(w.time).slice(0, 10) !== String(rows[i - 1].time).slice(0, 10);
+    return `
+      <div class="hour-card${mazume ? " highlight" : ""}${newDay ? " newday" : ""}">
+        <div class="h">${newDay ? `${Number(String(w.time).slice(8, 10))}日 ` : ""}${w.hour}時</div>
+        <div class="icon-wrap">${weatherIcon}</div>
+        <div class="pop ${rain?.key ?? "unknown"}">${
+          w.precip_chance != null ? `${w.precip_chance}<span class="pct">%</span>` : "—"}</div>
+        <div class="t">${w.temp_c != null ? `${Math.round(w.temp_c)}°` : "—"}</div>
+        <div class="wind ${wind?.key ?? "unknown"}">
+          ${arrow != null
+            ? `<span class="wind-arrow" style="transform:rotate(${arrow}deg)"
+                     title="${escapeHtml(windDirection(w.wind_dir_deg))}の風">${
+                 icon("wind-arrow", { size: 12 })}</span>`
+            : ""}
+          <span class="ms">${w.wind_speed_ms != null ? Number(w.wind_speed_ms).toFixed(1) : "—"}</span>
+        </div>
+        <div class="gust">${w.wind_gust_ms != null ? `突 ${Math.round(w.wind_gust_ms)}` : "&nbsp;"}</div>
+      </div>`;
+  }).join("");
 }
