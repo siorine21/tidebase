@@ -77,6 +77,8 @@
 
   <div class="section-label"><span>HOURLY WEATHER</span><span class="note">← スクロール →</span></div>
   <div class="card">
+    <!-- いつ雨か、を先に 1 行で（D-104）。数字を並べる前に結論を出す -->
+    <div class="hourly-lead" id="hourly-lead" hidden></div>
     <div class="hourly" id="hourly"><div class="empty">読み込み中…</div></div>
     <!-- どこの何を見ているのかを画面に出す（D-076）。
          出典が分からないと、外れたときに「何が外れたのか」を判断できない -->
@@ -99,6 +101,7 @@
     client, requireSession, renderNav, escapeHtml,
     fetchTide, fetchWeather, todayInJst, formatJstDate, formatShortDate, relativeDays,
     describeWeather, windDirection, fishingScoreOfDay, showFishingScoreHelp, savedScoreBand,
+    hoursFromNow, rainOutlook, rainLevel, windLevel, windArrowDeg,
     listSpots, listRecords, tideCorrelation, icon,
     recordFishName, ownerBadge, nowInJst, hoursFromHhmm, addJstDays,
     listTidePoints, fetchTideForPoint, tidePointOfSpot, savedTidePoint, saveTidePoint, formatLag,
@@ -185,7 +188,7 @@
 
     renderHero(baseSpot, tide, weather, point, sunCache.get(today) ?? null);
     renderChart();
-    renderHourly(weather);
+    renderHourly(weather, sunCache.get(today) ?? null);
     // どこの天気なのかを出す。基準スポットが無ければ潮汐地点の座標で取っている
     document.getElementById("weather-source").textContent = weatherAt
       ? `${spotUsable ? (baseSpot.name ?? "無名スポット") : (point?.label ?? "既定の地点")}`
@@ -389,22 +392,59 @@
     }));
   }
 
-  function renderHourly(weather) {
+  /* 1 時間ごとの予報（D-104）。
+     3 時間刻みだったのをやめた。「雨が降るか」「風はどうか」は 3 時間で変わる。
+     いまの時刻から 24 時間ぶんを並べる（0 時からだと過ぎた時間が先頭に来る）。
+     結論（いつ雨か）は先に 1 行で出す。24 個の数字を目で追わせない。 */
+  function renderHourly(weather, sun) {
     const box = document.getElementById("hourly");
-    if (!weather) { box.innerHTML = `<div class="empty">スポットを登録すると天気が表示されます</div>`; return; }
-    // 0 時から 3 時間刻みで 24 時間後まで（確定仕様書 2.2 章）。
-    // 6時=朝マズメ / 18時=夕マズメを強調
-    const picked = weather.filter((w) => w.hour % 3 === 0).slice(0, 9);
-    box.innerHTML = picked.map((w, i) => {
+    const head = document.getElementById("hourly-lead");
+    if (!weather) {
+      box.innerHTML = `<div class="empty">スポットを登録すると天気が表示されます</div>`;
+      head.hidden = true;
+      return;
+    }
+    // nowInJst() は { date, hhmm, ... } を返す。文字列として渡すと
+    // "[object Object]" になり、**0 時から並べてしまう**（過ぎた時間が先頭に来る）
+    const now = nowInJst();
+    const rows = hoursFromNow(weather, `${now.date}T${now.hhmm}`, 24);
+    if (!rows.length) { box.innerHTML = `<div class="empty">予報がありません</div>`; head.hidden = true; return; }
+
+    const outlook = rainOutlook(rows);
+    head.hidden = !outlook;
+    if (outlook) {
+      head.className = `hourly-lead ${outlook.key}`;
+      head.innerHTML = `${icon(outlook.key === "none" ? "sun" : "rain", { size: 14 })}
+        <span>${escapeHtml(outlook.text)}</span>`;
+    }
+
+    const sunHours = sun
+      ? new Set([Number(sun.rise.slice(0, 2)), Number(sun.set.slice(0, 2))]) : new Set();
+
+    box.innerHTML = rows.map((w, i) => {
       const { icon: weatherIcon } = describeWeather(w.weather_code);
-      const badge = w.hour === 6 ? "朝マズメ" : w.hour === 18 ? "夕マズメ" : "";
+      const rain = rainLevel(w.precip_chance);
+      const wind = windLevel(w.wind_speed_ms);
+      const arrow = windArrowDeg(w.wind_dir_deg);
+      const mazume = sunHours.has(w.hour);
+      // 日付が変わるところだけ日付を出す。24 時間ぶんは翌日にまたがる
+      const newDay = i > 0 && w.time.slice(0, 10) !== rows[i - 1].time.slice(0, 10);
       return `
-        <div class="hour-card${badge ? " highlight" : ""}">
-          <div class="h">${i === 8 ? "+24h" : `${w.hour}時`}</div>
-          <div class="badge">${badge || "&nbsp;"}</div>
+        <div class="hour-card${mazume ? " highlight" : ""}${newDay ? " newday" : ""}">
+          <div class="h">${newDay ? `${Number(w.time.slice(8, 10))}日 ` : ""}${w.hour}時</div>
           <div class="icon-wrap">${weatherIcon}</div>
-          <div class="t">${Math.round(w.temp_c)}°</div>
-          <div class="w">${windDirection(w.wind_dir_deg)}${Math.round(w.wind_speed_ms)}m</div>
+          <div class="pop ${rain?.key ?? "unknown"}">${
+            w.precip_chance != null ? `${w.precip_chance}<span class="pct">%</span>` : "—"}</div>
+          <div class="t">${w.temp_c != null ? `${Math.round(w.temp_c)}°` : "—"}</div>
+          <div class="wind ${wind?.key ?? "unknown"}">
+            ${arrow != null
+              ? `<span class="wind-arrow" style="transform:rotate(${arrow}deg)"
+                       title="${escapeHtml(windDirection(w.wind_dir_deg))}の風">${
+                   icon("wind-arrow", { size: 12 })}</span>`
+              : ""}
+            <span class="ms">${w.wind_speed_ms != null ? w.wind_speed_ms.toFixed(1) : "—"}</span>
+          </div>
+          <div class="gust">${w.wind_gust_ms != null ? `突 ${Math.round(w.wind_gust_ms)}` : "&nbsp;"}</div>
         </div>`;
     }).join("");
   }

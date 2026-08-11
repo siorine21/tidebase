@@ -824,14 +824,30 @@ export function windDirection(degrees) {
    取れなかったときは既定に戻して取り直す。天気が出ないより、
    別モデルでも出たほうがいい。 */
 export const WEATHER_SOURCE = "気象庁 MSM/GSM（Open-Meteo 経由）";
-const WEATHER_MODEL = "jma_seamless";
+
+/* **降水確率と突風は気象庁のモデルから返ってこない**（D-104）。
+   models=jma_seamless で頼むと、その 2 つだけ全時間 null になる。
+   既定（best_match）なら 48/48 揃い、しかも共通の項目（気温・風速・天気）は
+   気象庁と同じ値だった（この地点では best_match が気象庁を選んでいる）。
+
+   そこで **2 つのモデルを 1 回のリクエストでまとめて頼む**。
+   Open-Meteo は models を並べると `weather_code_jma_seamless` のように
+   接尾辞つきで両方返す。値は気象庁を先に見て、無いところだけ既定で埋める。
+   往復は 1 回のままで、D-076 の「名指しする」意図も保てる。 */
+const WEATHER_MODELS = "jma_seamless,best_match";
+const WEATHER_MODEL_ORDER = ["jma_seamless", "best_match"];
 const WEATHER_HOURLY =
   "temperature_2m,weather_code,wind_speed_10m,wind_direction_10m";
+/* 1 時間ごとの予報を読むとき用（D-104）。
+   降水確率が無いと「雨が降るのか」を天気記号から推し量ることになる。
+   突風は「キャストできるか」に効くので、平均風速だけでは足りない。 */
+const WEATHER_HOURLY_DETAIL =
+  `${WEATHER_HOURLY},precipitation_probability,precipitation,wind_gusts_10m`;
 
 /** 気象庁のモデルを名指しして取る。だめなら既定（best_match）で取り直す。 */
 async function fetchForecast(query) {
   const url = `https://api.open-meteo.com/v1/forecast?${query}`;
-  const pinned = await fetchWithTimeout(`${url}&models=${WEATHER_MODEL}`).catch(() => null);
+  const pinned = await fetchWithTimeout(`${url}&models=${WEATHER_MODELS}`).catch(() => null);
   if (pinned && pinned.ok) return pinned;
   return await fetchWithTimeout(url);
 }
@@ -850,7 +866,8 @@ export async function fetchWeather(lat, lng, date) {
   const marineUrl = "https://marine-api.open-meteo.com/v1/marine?" + base + "&hourly=wave_height";
 
   const [forecastRes, marineRes] = await Promise.all([
-    fetchForecast(`${base}&hourly=${WEATHER_HOURLY}&wind_speed_unit=ms`),
+    // 1 地点ぶんなので、降水確率と突風まで取る（D-104）
+    fetchForecast(`${base}&hourly=${WEATHER_HOURLY_DETAIL}&wind_speed_unit=ms`),
     fetchWithTimeout(marineUrl).catch(() => null),
   ]);
   if (!forecastRes.ok) throw new Error(`天気データを取得できませんでした (${forecastRes.status})`);
@@ -867,14 +884,43 @@ export async function fetchWeather(lat, lng, date) {
 }
 
 /** Open-Meteo の hourly（配列の束）を 1 時間 1 件の形に直す。 */
+/**
+ * 予報の 1 項目を取り出す（D-104）。
+ *
+ * models を並べて頼むと `weather_code_jma_seamless` のように接尾辞が付く。
+ * **1 時間ずつ、先のモデルから見て最初に値があるものを採る。**
+ * 気象庁のモデルは降水確率と突風が全部 null なので、そこだけ既定で埋まる。
+ * 接尾辞なし（1 モデルだけ頼んだとき）はそのまま返す。
+ */
+export function forecastSeries(hourly, name, models = WEATHER_MODEL_ORDER) {
+  if (Array.isArray(hourly?.[name])) return hourly[name];
+  const candidates = models
+    .map((m) => hourly?.[`${name}_${m}`])
+    .filter((series) => Array.isArray(series));
+  if (!candidates.length) return null;
+  return candidates[0].map((_, i) => {
+    for (const series of candidates) if (series[i] != null) return series[i];
+    return null;
+  });
+}
+
 function mapHourly(h, waves = null) {
+  const at = (name) => forecastSeries(h, name) ?? [];
+  const temp = at("temperature_2m"), code = at("weather_code");
+  const wind = at("wind_speed_10m"), dir = at("wind_direction_10m");
+  const pop = at("precipitation_probability"), mm = at("precipitation");
+  const gust = at("wind_gusts_10m");
   return h.time.map((time, i) => ({
     time,
     hour: Number(time.slice(11, 13)),
-    temp_c: h.temperature_2m[i],
-    weather_code: h.weather_code[i],
-    wind_speed_ms: h.wind_speed_10m[i],
-    wind_dir_deg: h.wind_direction_10m[i],
+    temp_c: temp[i] ?? null,
+    weather_code: code[i] ?? null,
+    wind_speed_ms: wind[i] ?? null,
+    wind_dir_deg: dir[i] ?? null,
+    // 頼まなかった項目は入らない。無いことと 0 は別物なので null のままにする
+    precip_chance: pop[i] ?? null,
+    precip_mm: mm[i] ?? null,
+    wind_gust_ms: gust[i] ?? null,
     wave_height_m: waves ? waves[i] : null,
   }));
 }
@@ -2981,6 +3027,11 @@ export async function captureWeatherSnapshot({ lat, lng, date, time }) {
     weather_code: row.weather_code ?? null,
     wind_speed_ms: row.wind_speed_ms ?? null,
     wind_dir_deg: row.wind_dir_deg ?? null,
+    // 降水確率と突風も残す（D-104）。あとから取り直せないのは同じなので、
+    // 取れるようになった時点で一緒に入れておく
+    precip_chance: row.precip_chance ?? null,
+    precip_mm: row.precip_mm ?? null,
+    wind_gust_ms: row.wind_gust_ms ?? null,
     temp_c: row.temp_c ?? null,
     wave_height_m: row.wave_height_m ?? null,
     band: timeBandOf(sun, time),
@@ -2995,9 +3046,105 @@ export function weatherSnapshotText(snapshot) {
   const parts = [];
   if (snapshot.weather_code != null) parts.push(describeWeather(snapshot.weather_code).label);
   if (snapshot.wind_dir_deg != null && snapshot.wind_speed_ms != null) {
-    parts.push(`${windDirection(snapshot.wind_dir_deg)} ${Number(snapshot.wind_speed_ms).toFixed(1)}m/s`);
+    parts.push(`${windDirection(snapshot.wind_dir_deg)} ${Number(snapshot.wind_speed_ms).toFixed(1)}m/s`
+      + (snapshot.wind_gust_ms != null ? `（突風 ${Math.round(snapshot.wind_gust_ms)}）` : ""));
   }
+  if (snapshot.precip_chance != null) parts.push(`降水 ${snapshot.precip_chance}%`);
   if (snapshot.temp_c != null) parts.push(`${Math.round(snapshot.temp_c)}℃`);
   if (snapshot.wave_height_m != null) parts.push(`波 ${snapshot.wave_height_m}m`);
   return parts.length ? parts.join(" / ") : null;
+}
+
+/* ================================================================
+   1 時間ごとの予報の読み方（D-104）
+
+   「雨が降るのか」「風はどうか」を、天気記号から推し量らずに済むようにする。
+   ================================================================ */
+
+/**
+ * 風向きの矢印を何度まわすか。
+ *
+ * **予報の風向は「風が吹いてくる方角」**（気象の約束）。
+ * 矢印は「吹いていく向き」に倒すのが天気の画面の慣例なので **180 度足す**。
+ *   北風（0°）＝北から南へ吹く → 矢印は下（180°）
+ *   西風（270°）＝西から東へ吹く → 矢印は右（90°）
+ * ここを取り違えると、**画面は正常に見えるのに向きだけ真逆**になる。
+ * 文字（北西など）は吹いてくる方角のまま出すので、並べても矛盾しない。
+ */
+export function windArrowDeg(fromDegrees) {
+  // Number(null) も Number("") も 0 になる。0 は「北風」という有効な値なので、
+  // ここで弾かないと **風向が無い時間に真下向きの矢印が出る**（D-056 と同じ罠）
+  if (fromDegrees == null || fromDegrees === "") return null;
+  const deg = Number(fromDegrees);
+  if (!Number.isFinite(deg)) return null;
+  return ((deg + 180) % 360 + 360) % 360;
+}
+
+/** 風の強さの区切り。**釣行スコアと同じ数字**を使う（別々にすると説明が食い違う）。 */
+export function windLevel(ms) {
+  if (ms == null || ms === "") return null;   // 0 は「無風」という有効な値
+  const v = Number(ms);
+  if (!Number.isFinite(v)) return null;
+  if (v > 10) return { key: "danger", label: "強すぎ" };   // スコア 2 点以下
+  if (v > 7) return { key: "strong", label: "強い" };      // スコア 4 点の上限
+  if (v > 5) return { key: "fresh", label: "やや強い" };   // スコア 5 点の上限
+  return { key: "calm", label: "穏やか" };
+}
+
+/** 降水確率の区切り。傘を持つかの目安に合わせる。 */
+export function rainLevel(chance) {
+  if (chance == null || chance === "") return null;   // 0% は有効な値
+  const v = Number(chance);
+  if (!Number.isFinite(v)) return null;
+  if (v >= 70) return { key: "high", label: "降る" };
+  if (v >= 50) return { key: "mid", label: "降りそう" };
+  if (v >= 30) return { key: "low", label: "にわか雨" };
+  return { key: "none", label: "降らなさそう" };
+}
+
+/**
+ * これから先の雨を 1 行にまとめる（D-104）。
+ * **時間ごとの数字を並べる前に、結論を先に出す。**
+ * 24 個の数字を目で追って「何時から雨か」を組み立てるのは、その場でやりたくない。
+ *
+ * @param {object[]} hours 時刻順に並んだ予報（これから先のぶん）
+ * @returns {{key:string, text:string, from:object|null, peak:object|null}|null}
+ */
+export function rainOutlook(hours) {
+  const rows = (hours ?? []).filter((h) => h?.precip_chance != null);
+  if (!rows.length) return null;
+
+  const peak = rows.reduce((a, b) => (b.precip_chance > a.precip_chance ? b : a));
+  // 「降りそう」以上が続く最初の時刻。1 時間だけ跳ねた値で騒がない
+  const from = rows.find((h, i) =>
+    h.precip_chance >= 50 && rows[i + 1] && rows[i + 1].precip_chance >= 50) ?? null;
+  const hh = (h) => `${h.hour}時`;
+
+  if (peak.precip_chance < 30) {
+    return { key: "none", peak, from: null,
+             text: `この先 ${rows.length} 時間、雨の心配は少ないです（最大 ${peak.precip_chance}%）` };
+  }
+  if (!from) {
+    return { key: "maybe", peak, from: null,
+             text: `にわか雨があるかもしれません（${hh(peak)}に最大 ${peak.precip_chance}%）` };
+  }
+  return { key: "rain", peak, from,
+           text: `${hh(from)}ごろから雨になりそうです（${hh(peak)}に最大 ${peak.precip_chance}%）` };
+}
+
+/**
+ * これから先の予報を、いまの時刻から順に取り出す（D-104）。
+ * 予報は 0 時からの並びなので、そのまま出すと**すでに過ぎた時間**が先頭に来る。
+ * @param {object[]} hours 2 日ぶんの予報
+ * @param {string} nowIso  いまの時刻（"YYYY-MM-DDTHH:MM" の形。JST）
+ */
+export function hoursFromNow(hours, nowIso, count = 24) {
+  if (!hours?.length || !nowIso) return [];
+  const from = String(nowIso).slice(0, 13);   // "YYYY-MM-DDTHH"
+  const start = hours.findIndex((h) => String(h.time).slice(0, 13) >= from);
+  /* **見つからない＝予報の範囲より先**。ここで先頭に落とすと、
+     すでに過ぎた時間の予報を「これから」として並べてしまう。何も出さない。
+     逆に、いまが予報より前（範囲全部が未来）なら findIndex が 0 を返す */
+  if (start < 0) return [];
+  return hours.slice(start, start + count);
 }

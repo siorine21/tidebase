@@ -465,15 +465,54 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .hourly::-webkit-scrollbar { height: 4px; }
 .hourly::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 .hour-card {
-  flex: 0 0 62px; text-align: center; padding: 8px 4px;
+  flex: 0 0 54px; text-align: center; padding: 7px 3px;
   background: var(--bg-deep); border: 1px solid var(--border); border-radius: 8px;
 }
+/* マヅメの時間だけ枠を立てる。行く時間を探すときの目印 */
 .hour-card.highlight { border-color: var(--border-strong); background: var(--mustard-bg); }
-.hour-card .h  { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-secondary); }
-.hour-card .badge { font-size: 9px; color: var(--mustard); height: 12px; }
+/* 日付が変わるところに区切りを入れる。24 時間ぶんは翌日にまたがる（D-104） */
+.hour-card.newday { border-left: 2px solid var(--border-strong); }
+.hour-card .h  { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-secondary); }
 .hour-card .icon { font-size: 18px; margin: 2px 0; }
-.hour-card .t  { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--text-primary); }
-.hour-card .w  { font-size: 10px; color: var(--text-muted); }
+.hour-card .t  { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-secondary); }
+
+/* 降水確率（D-104）。**雨の判断の主役**なので、いちばん大きく出す。
+   低いときは沈める。全部同じ濃さだと「0% の列」を読み飛ばせない */
+.hour-card .pop {
+  font-family: 'JetBrains Mono', monospace; font-size: 14px; line-height: 1.3;
+  color: var(--text-muted);
+}
+.hour-card .pop .pct { font-size: 9px; margin-left: 1px; }
+.hour-card .pop.low  { color: var(--text-secondary); }
+.hour-card .pop.mid  { color: var(--blue); }
+.hour-card .pop.high { color: var(--blue); font-weight: 700; }
+
+/* 風。矢印は「吹いていく向き」（windArrowDeg で回す） */
+.hour-card .wind {
+  display: flex; align-items: center; justify-content: center; gap: 1px;
+  font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-secondary);
+}
+.hour-card .wind-arrow { display: flex; line-height: 0; }
+.hour-card .wind.fresh  { color: var(--text-primary); }
+.hour-card .wind.strong { color: var(--mustard-lt); }
+.hour-card .wind.danger { color: #E2907F; }
+.hour-card .gust { font-size: 9px; color: var(--text-muted); height: 12px; }
+
+/* いつ雨か、を先に 1 行で（D-104）。数字を並べる前に結論を出す */
+.hourly-lead {
+  display: flex; align-items: center; gap: 6px;
+  margin-bottom: 10px; padding: 8px 10px; border-radius: 8px;
+  font-size: 12px; line-height: 1.5;
+  background: var(--bg-deep); border: 1px solid var(--border); color: var(--text-secondary);
+}
+.hourly-lead[hidden] { display: none; }
+.hourly-lead .icon { flex-shrink: 0; }
+.hourly-lead.none  { color: var(--text-muted); }
+.hourly-lead.maybe { color: var(--text-primary); }
+.hourly-lead.rain  {
+  color: var(--text-primary); border-color: var(--blue-mid); background: var(--blue-bg);
+}
+.hourly-lead.rain .icon, .hourly-lead.maybe .icon { color: var(--blue); }
 
 /* ---------- リスト ---------- */
 .list-item {
