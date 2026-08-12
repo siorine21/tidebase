@@ -1087,8 +1087,13 @@ export async function fetchWeatherRange(lat, lng, startDate, endDate) {
     byDate.get(date).push(row);
   }
 
+  /* **頼まれた最終日の翌日も返す**（D-114）。0 時を足すためだけに取った日だが、
+     捨てていたせいで「週の最終日の夜」に時間別天気が数枚で途切れていた。
+     土曜の 21 時に開くと、翌日ぶんが手元に無く 4 枚しか出ない。
+     この日は 23 時間ぶんしかない（最後の 1 時間は区間の値が無いので落ちる）が、
+     23 時に開いても翌日 22 時まで並ぶので 24 枚には足りる。
+     使う側は endDate までを週として扱い、翌日は「はみ出しぶん」として見ること。 */
   for (const [date, hours] of byDate) {
-    if (date > endDate) continue;                       // 翌日 0 時を足すためだけに取った日
     const nextMidnight = byDate.get(addDays(date, 1))?.[0];
     result.set(date, {
       hours: nextMidnight ? [...hours, nextMidnight] : hours,
@@ -3437,8 +3442,31 @@ export function rainOutlook(hours, { startsNow = false } = {}) {
 }
 
 /**
+ * 同じ時刻の行が 2 度来ていたら 1 つにまとめる（D-114）。
+ *
+ * 週まとめの予報（fetchWeatherRange）は日ごとに切ってあり、
+ * **各日の末尾に翌日 0 時を足してある**（その日のグラフを 24 時まで引くため）。
+ * 潮汐詳細はそこへ翌日ぶんをつなげて渡すので、**0 時が 2 枚並ぶ**。
+ * その 1 枚に押し出されて、21 時に見ると 24 枚目が 19 時になっていた（本人の指摘）。
+ *
+ * つなげる側で削るのではなく、**受け取る側でまとめる**。
+ * 「日ごとの配列を並べて渡してよい」という渡し方をそのまま活かしたいのと、
+ * 削る位置を数えるやり方は日数が変わると黙って狂うため。
+ */
+export function uniqueHours(rows) {
+  const seen = new Set();
+  return (rows ?? []).filter((row) => {
+    const key = String(row?.time).slice(0, 13);      // "YYYY-MM-DDTHH"
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/**
  * これから先の予報を、いまの時刻から順に取り出す（D-104）。
  * 予報は 0 時からの並びなので、そのまま出すと**すでに過ぎた時間**が先頭に来る。
+ * 同じ時刻が重なっていると 1 枚ぶん足りなくなるので、先に uniqueHours を通すこと。
  * @param {object[]} hours 2 日ぶんの予報
  * @param {string} nowIso  いまの時刻（"YYYY-MM-DDTHH:MM" の形。JST）
  */
@@ -3479,6 +3507,9 @@ export function renderHourlyStrip(box, {
   };
   if (!hours?.length) return hide(emptyText);
 
+  // 日ごとの配列をつないで渡されることがあり、境目の 0 時が重なる（D-114）
+  const series = uniqueHours(hours);
+
   /* **今日はいまの時刻から、先の日は 0 時から。**
      予報は 0 時からの並びなので、今日をそのまま出すと過ぎた時間が先頭に来る。
      逆に明日以降を「いまの時刻から」にすると、その日の朝が消えてしまう。 */
@@ -3486,8 +3517,8 @@ export function renderHourlyStrip(box, {
   const now = nowInJst();
   const startsNow = !date || date === today;
   const rows = startsNow
-    ? hoursFromNow(hours, `${now.date}T${now.hhmm}`, count)
-    : hoursOfDate(hours, date).slice(0, count);
+    ? hoursFromNow(series, `${now.date}T${now.hhmm}`, count)
+    : hoursOfDate(series, date).slice(0, count);
   if (!rows.length) return hide(emptyText);
 
   if (leadBox) {

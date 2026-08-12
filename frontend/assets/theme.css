@@ -398,6 +398,18 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .score-label { font-size: 10px; color: var(--text-muted); }
 
 .hero-meta { margin-top: 10px; font-size: 13px; color: var(--text-secondary); }
+
+/* 時間別天気を TODAY の中に入れる（D-114）。スコアも時間帯ごとの点も
+   この予報から出しているので、根拠が同じ箱の中にある形にする。
+   節見出し（.section-label）はヒーローの外用なので、中では線で区切る */
+.hero-hourly { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.hero-hourly-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 11px; letter-spacing: 1.5px; color: var(--text-muted); margin-bottom: 8px;
+}
+.hero-hourly-head .note { letter-spacing: 0; font-size: 11px; }
+.hero-hourly .list-sub { margin-top: 10px; }
+
 .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .tag { padding: 3px 9px; border-radius: 999px; font-size: 11px; border: 1px solid transparent; }
 .tag-mustard { background: var(--mustard-bg); color: var(--mustard-lt); border-color: var(--border-strong); }

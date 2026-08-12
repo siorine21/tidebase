@@ -45,6 +45,16 @@
     <button type="button" class="chip" id="week-today" hidden>今週へ戻る</button>
   </div>
 
+  <!-- 時間別天気（D-114）。**週を選んだ直後に読めるよう、カレンダーの真下に置く。**
+       ホームでも同じ帯が見えるようになったので、この画面の役目は
+       「週を送って別の日を見る」ことに寄せる。日を押したらすぐ下に出る、が要る -->
+  <div class="section-label"><span>HOURLY WEATHER</span><span class="note">← スクロール →</span></div>
+  <div class="card">
+    <!-- いつ雨か、を先に 1 行で（D-104）。ホームと同じ（D-105） -->
+    <div class="hourly-lead" id="hourly-lead" hidden></div>
+    <div class="hourly" id="hourly"><div class="empty">読み込み中…</div></div>
+  </div>
+
   <!-- 選んだ日のサマリ -->
   <div class="section-label"><span>SUMMARY</span><span class="note" id="summary-date"></span></div>
   <div class="info-grid" id="summary">
@@ -79,14 +89,6 @@
     <span data-icon="back"></span>横にスクロールで前後の時間へ（1 画面 = 1 日・日をまたいで連続）<span data-icon="chevron-right"></span>
   </div>
   </div><!-- /tide-block -->
-
-  <!-- 時間別天気 -->
-  <div class="section-label"><span>HOURLY WEATHER</span><span class="note">← スクロール →</span></div>
-  <div class="card">
-    <!-- いつ雨か、を先に 1 行で（D-104）。ホームと同じ（D-105） -->
-    <div class="hourly-lead" id="hourly-lead" hidden></div>
-    <div class="hourly" id="hourly"><div class="empty">読み込み中…</div></div>
-  </div>
 </main>
 
 <script src="vendor/supabase.js"></script>
@@ -449,7 +451,8 @@
   function renderHourly(weather) {
     /* 今日は「いまの時刻から 24 時間」なので、**翌日ぶんも渡す**。
        その日だけ渡すと夕方に開いたとき数時間で途切れる。
-       翌日が週をまたいで未取得のこともあるので、無ければ今日だけで出す */
+       週の最終日でも途切れないよう、fetchWeatherRange は週の翌日まで返す（D-114）。
+       日の境目で 0 時が重なるが、renderHourlyStrip がまとめる（D-114） */
     const next = weatherCache.get(addJstDays(state.date, 1)) ?? [];
     const hours = weather ? [...weather, ...next] : null;
     renderHourlyStrip(document.getElementById("hourly"), {
