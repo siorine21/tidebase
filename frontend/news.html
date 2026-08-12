@@ -34,7 +34,7 @@
 <script src="assets/config.js"></script>
 <script type="module">
   import {
-    requireSession, renderNav, escapeHtml, renderIcons, icon, markNewsSeen,
+    requireSession, renderNav, escapeHtml, renderIcons, icon, markNewsSeen, formatJstDate,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -57,7 +57,6 @@
     box.innerHTML = `<div class="empty">お知らせを読み込めませんでした。</div>`;
   }
 
-  const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
 
   /**
    * "2026-08-09 17:30" → "08/09(日) 17:30"（JST・24 時間表記）。
@@ -70,12 +69,9 @@
    */
   function shortAt(at) {
     const [date, time = ""] = String(at ?? "").split(" ");
-    const [y, m, d] = date.split("-").map(Number);
-    if (!y || !m || !d) return String(at ?? "");
-    const week = WEEKDAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
-    const thisYear = new Date().getFullYear() === y;
-    const md = `${String(m).padStart(2, "0")}/${String(d).padStart(2, "0")}`;
-    return `${thisYear ? "" : `${y}/`}${md}(${week}) ${time}`.trim();
+    // 日付の形は app.js に 1 つだけ置く（D-113）。ここに書くと必ずゆれる
+    const label = formatJstDate(date, { weekday: true });
+    return label ? `${label} ${time}`.trim() : String(at ?? "");
   }
 
   if (updates.length) {

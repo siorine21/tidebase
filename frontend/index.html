@@ -109,7 +109,7 @@
 <script type="module">
   import {
     client, requireSession, renderNav, escapeHtml,
-    fetchTide, fetchWeather, todayInJst, formatJstDate, formatShortDate, relativeDays,
+    fetchTide, fetchWeather, todayInJst, formatJstDate, relativeDays,
     describeWeather, windDirection, fishingScoreOfDay, showFishingScoreHelp, savedScoreBand,
     renderHourlyStrip,
     listSpots, listRecords, tideCorrelation, icon,
@@ -437,7 +437,7 @@
         : outcomeLead(r)
           + `${escapeHtml(recordFishName(r))}${r.length_cm ? ` ${r.length_cm}cm` : ""}`
           + (r.catch_count > 1 ? ` ×${r.catch_count}` : "");
-      const when = formatShortDate(r.fished_at)
+      const when = formatJstDate(r.fished_at, { weekday: true })
         + (r.fished_time ? ` ${r.fished_time.slice(0, 5)}` : "");
       const sub = [when, r.spot_name, r.lure_label]
         .filter(Boolean).map(escapeHtml).join(" / ");

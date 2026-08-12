@@ -10,12 +10,9 @@
  * app.js はブラウザ前提（window.supabase 等）なので import できない。
  * 対象の関数だけをソースから切り出して評価する。
  */
-import fs from 'node:fs';
+import { sliceApp } from './_slice.mjs';
 
-const src = fs.readFileSync(new URL('../assets/app.js', import.meta.url), 'utf8');
-const start = src.indexOf('const SHORT_MAP_LINK');
-const end = src.indexOf('export function attachPlaceSearch');
-const code = src.slice(start, end).replaceAll('export function', 'function');
+const code = sliceApp([['const SHORT_MAP_LINK', 'export function attachSpotPicker']]);
 const { parseLatLng, isShortMapLink } =
   new Function(code + '; return { parseLatLng, isShortMapLink };')();
 

@@ -162,7 +162,7 @@
           <div class="thumb">${icon(outcome.iconName, { size: 20 })}</div>
           <div class="list-body">
             <div class="list-title">${title}</div>
-            <div class="list-sub">${escapeHtml(formatJstDate(rec.fished_at))}${rec.spots?.name ? " " + escapeHtml(rec.spots.name) : ""}</div>
+            <div class="list-sub">${escapeHtml(formatJstDate(rec.fished_at, { weekday: true }))}${rec.spots?.name ? " " + escapeHtml(rec.spots.name) : ""}</div>
           </div>
           ${rec.tide_type ? `<span class="tag tag-blue">${escapeHtml(rec.tide_type)}</span>` : ""}
         </a>`;

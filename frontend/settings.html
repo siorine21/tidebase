@@ -305,11 +305,12 @@
             ${invites.map((inv) => inv.used_at ? `
               <div class="card invite-used" style="background:var(--bg-deep);margin-bottom:8px">
                 <div class="list-title">${escapeHtml(inv.label ?? "（メモなし）")}</div>
-                <div class="list-sub">${formatJstDate(inv.used_at.slice(0, 10))} に使用済み</div>
+                <!-- 事務的な日付なので曜日は付けない（D-113） -->
+                <div class="list-sub">${formatJstDate(inv.used_at)} に使用済み</div>
               </div>` : `
               <div class="card" style="background:var(--bg-deep);margin-bottom:8px" data-token="${inv.token}">
                 <div class="list-title">${escapeHtml(inv.label ?? "（メモなし）")}</div>
-                <div class="list-sub">未使用 · ${formatJstDate(inv.expires_at.slice(0, 10))} まで有効</div>
+                <div class="list-sub">未使用 · ${formatJstDate(inv.expires_at)} まで有効</div>
                 <input type="text" class="invite-url" readonly value="${escapeHtml(inviteUrl(inv.token))}"
                        style="width:100%;margin-top:8px;font-size:12px">
                 <div class="actions" style="margin-top:8px">
