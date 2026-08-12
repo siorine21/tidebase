@@ -105,7 +105,10 @@ eq('予報の前なら先頭から', hoursFromNow(twoDays, '2026-08-01T00:00', 2
 eq('空でも落ちない', hoursFromNow([], '2026-08-11T21:00'), []);
 
 /* ---- 1 行の結論 ---- */
+// 降水量が届かない経路（古いキャッシュなど）。確率だけで判断する
 const withPop = (list) => list.map((p, i) => ({ hour: i, precip_chance: p }));
+// 降水量つき（本来の経路）。[確率, mm] の組で渡す
+const withMm = (list) => list.map(([p, mm], i) => ({ hour: i, precip_chance: p, precip_mm: mm }));
 
 eq('全部低ければ「心配は少ない」', rainOutlook(withPop([0, 5, 10, 2])).key, 'none');
 check('最大値も出す', rainOutlook(withPop([0, 5, 10, 2])).text.includes('10%'),
@@ -124,6 +127,77 @@ eq('降水確率が 1 つも無ければ出さない',
   rainOutlook([{ hour: 0, precip_chance: null }]), null);
 eq('空でも落ちない', rainOutlook([]), null);
 eq('null でも落ちない', rainOutlook(null), null);
+
+/* ---- 「いま」と「量」（D-107） ----
+   12:05 に見て「12 時ごろから雨になりそうです」と出ていた。
+   先頭がいまの時間帯なら、始まりではなく**いま降っていること**と**終わり**を出す。 */
+const nowRain = withMm([[94, 1.2], [91, 0.8], [86, 0.3], [82, 0], [80, 0]]);
+eq('いま降っているなら「いま雨」', rainOutlook(nowRain, { startsNow: true }).key, 'rain');
+check('「いま雨が降っています」と書く',
+  rainOutlook(nowRain, { startsNow: true }).text.startsWith('いま雨が降っています'),
+  rainOutlook(nowRain, { startsNow: true }).text);
+check('**いつやむか**を書く',
+  rainOutlook(nowRain, { startsNow: true }).text.includes('3時ごろにやみそう'),
+  rainOutlook(nowRain, { startsNow: true }).text);
+eq('やむ時刻も返す', rainOutlook(nowRain, { startsNow: true }).until.hour, 3);
+// 同じ並びでも、先頭がいまでなければ「◯時ごろから」のまま
+check('先の日なら「0時ごろから」',
+  rainOutlook(nowRain).text.startsWith('0時ごろから'), rainOutlook(nowRain).text);
+
+const allRain = withMm([[90, 1.0], [90, 1.0], [90, 1.0]]);
+check('窓の端まで降り続くなら、やむ時刻は書かない',
+  rainOutlook(allRain, { startsNow: true }).text.includes('降り続きそう')
+  && rainOutlook(allRain, { startsNow: true }).until === null,
+  rainOutlook(allRain, { startsNow: true }).text);
+
+// いまは降っていないが、あとで降る
+const later = withMm([[40, 0], [60, 0], [85, 2.4], [85, 3.1], [50, 0]]);
+check('あとで降るなら「◯時ごろから」',
+  rainOutlook(later, { startsNow: true }).text.startsWith('2時ごろから'),
+  rainOutlook(later, { startsNow: true }).text);
+check('終わりと最大の量も出す',
+  rainOutlook(later, { startsNow: true }).text.includes('4時ごろまで')
+  && rainOutlook(later, { startsNow: true }).text.includes('3.1mm/h'),
+  rainOutlook(later, { startsNow: true }).text);
+
+/* **確率は高いのに量はゼロ**。蒸し暑い不安定な空でよく出る。
+   ここで「雨になりそう」と言うと、モデルが降ると言っていない雨を宣言してしまう。
+   実際 2026-08-12 の遠州灘がこれで、94% ・ 0.0mm だった。 */
+const popOnly = withMm([[94, 0], [91, 0], [86, 0], [82, 0]]);
+eq('量がゼロなら言い切らない', rainOutlook(popOnly, { startsNow: true }).key, 'maybe');
+check('確率が高いことは伝える',
+  rainOutlook(popOnly, { startsNow: true }).text.includes('94%')
+  && rainOutlook(popOnly, { startsNow: true }).text.includes('まとまった雨の予想はありません'),
+  rainOutlook(popOnly, { startsNow: true }).text);
+// 0.05mm のような端数で「降っている」と言わない
+eq('ごく少ない量は降っていない扱い',
+  rainOutlook(withMm([[80, 0.05], [80, 0.05]]), { startsNow: true }).key, 'maybe');
+
+/* **1 時間だけの弱い雨で見出しを出さない。** 確率のときと同じ考え方。
+   実際 2026-08-12 の遠州灘は、21 時に 0.2mm が 1 時間だけ立っていた。
+   これで「21 時ごろから雨になりそう」と出すと、行くのをやめてしまう。 */
+eq('1 時間だけ 0.2mm なら見出しにしない',
+  rainOutlook(withMm([[90, 0], [90, 0], [84, 0.2], [80, 0]]), { startsNow: true }).key, 'maybe');
+// 量がまとまっていれば 1 時間でも出す（通り雨）
+check('1 時間でも量があれば出す',
+  rainOutlook(withMm([[40, 0], [40, 0], [84, 3.0], [40, 0]]), { startsNow: true })
+    .text.startsWith('2時ごろから'),
+  rainOutlook(withMm([[40, 0], [40, 0], [84, 3.0], [40, 0]]), { startsNow: true }).text);
+// 弱くても 2 時間続けば出す
+check('弱くても 2 時間続けば出す',
+  rainOutlook(withMm([[40, 0], [84, 0.2], [84, 0.2], [40, 0]]), { startsNow: true })
+    .text.startsWith('1時ごろから'),
+  rainOutlook(withMm([[40, 0], [84, 0.2], [84, 0.2], [40, 0]]), { startsNow: true }).text);
+// いま降っているなら、弱くても 1 時間でも言う（もう濡れているので）
+check('いまの雨は弱くても言う',
+  rainOutlook(withMm([[84, 0.2], [40, 0], [40, 0]]), { startsNow: true })
+    .text.startsWith('いま雨が降っています'),
+  rainOutlook(withMm([[84, 0.2], [40, 0], [40, 0]]), { startsNow: true }).text);
+
+// 量が届いていない経路では、いままでどおり確率で判断する
+check('量が無ければ確率で判断（いま降っている）',
+  rainOutlook(withPop([80, 80, 20]), { startsNow: true }).text.startsWith('いま雨が降っていそう'),
+  rainOutlook(withPop([80, 80, 20]), { startsNow: true }).text);
 
 console.log(failed ? `\n${failed} 件 FAIL` : '\nすべて PASS');
 process.exit(failed ? 1 : 0);
