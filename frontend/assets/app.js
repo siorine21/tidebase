@@ -3345,6 +3345,11 @@ export function rainLevel(mm) {
   return { key: "none", label: "降らない" };
 }
 
+/** 時間別天気のカード 1 枚の幅と間隔（px）。**theme.css の .hour-card / .hourly と揃える。**
+    日付の帯の幅をここから計算するので、片方だけ変えると帯とカードがずれる（D-112）。 */
+const HOUR_CARD_W = 54;
+const HOUR_CARD_GAP = 8;
+
 /** 雨が「降っている」と言える降水量（mm/h）。これ未満は量として意味がない。 */
 const RAIN_MM = 0.1;
 /** **これから降り出す**と見出しに書くのに要る量（mm）。いま降っている判定には使わない。
@@ -3496,22 +3501,37 @@ export function renderHourlyStrip(box, {
     ? new Set([Number(sun.rise.slice(0, 2)), Number(sun.set.slice(0, 2))])
     : new Set();
 
-  box.innerHTML = rows.map((w, i) => {
+  /* 日付は**カードの上を横に走る帯**として出す（D-112）。
+     その日のカードのぶんだけ幅を持ち、日が変わるところで区切れる。
+     前は日付を時刻と同じ行に入れていて（「13日 0時」）、54px に収まらず
+     そこだけ 2 行になり、その 1 枚だけ中身が下にずれていた。
+
+     幅はカードの並びから計算する（1 枚 54px・間隔 8px。theme.css と揃えること）。
+     帯とカードを同じ横スクロールの中に入れて、ずれないようにする。 */
+  const days = [];
+  for (const w of rows) {
+    const date = String(w.time).slice(0, 10);
+    if (days.at(-1)?.date === date) days.at(-1).count += 1;
+    else days.push({ date, count: 1 });
+  }
+  const ruler = days.map(({ date, count }) => {
+    const width = count * HOUR_CARD_W + (count - 1) * HOUR_CARD_GAP;
+    /* 中の名前は横スクロールに貼り付く（position: sticky）。
+       真ん中に置くと、少しスクロールしただけで日付が画面の外へ出てしまう。
+       貼り付けておけば、**いま見ている日の名前が常に見えている。** */
+    return `<span class="day-seg${date === today ? " today" : ""}" style="width:${width}px"
+                 ><span class="day-name">${escapeHtml(formatDayLabel(date))}</span></span>`;
+  }).join("");
+
+  const cards = rows.map((w, i) => {
     const { icon: weatherIcon } = describeWeather(w.weather_code);
     const rain = rainLevel(w.precip_mm);
     const wind = windLevel(w.wind_speed_ms);
     const arrow = windArrowDeg(w.wind_dir_deg);
     const mazume = sunHours.has(w.hour);
-    /* 日付は**カードの上のラベル**として出す（D-112）。
-       前は「13日 0時」と時刻と同じ行に入れていて、そこだけ 2 行になり、
-       その 1 枚だけ中身が下にずれていた。
-       全カードに同じだけ上の余白を空けて、ラベルは日が変わるところと先頭にだけ置く。
-       ラベルは隣のカードの上まではみ出してよい（54px に月日曜日は入らない）。 */
     const newDay = i > 0 && String(w.time).slice(0, 10) !== String(rows[i - 1].time).slice(0, 10);
-    const showDay = i === 0 || newDay;
     return `
       <div class="hour-card${mazume ? " highlight" : ""}${newDay ? " newday" : ""}">
-        ${showDay ? `<span class="day">${escapeHtml(formatDayLabel(w.time))}</span>` : ""}
         <div class="h">${w.hour}時</div>
         <div class="icon-wrap">${weatherIcon}</div>
         <!-- 降水確率ではなく**予想雨量**を出す（D-111）。
@@ -3533,4 +3553,9 @@ export function renderHourlyStrip(box, {
         <div class="gust">${w.wind_gust_ms != null ? `突 ${Math.round(w.wind_gust_ms)}` : "&nbsp;"}</div>
       </div>`;
   }).join("");
+
+  box.innerHTML = `<div class="hourly-inner">`
+    + `<div class="hourly-days">${ruler}</div>`
+    + `<div class="hourly-row">${cards}</div>`
+    + `</div>`;
 }

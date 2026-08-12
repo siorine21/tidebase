@@ -461,31 +461,43 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .tide-point .page-sub { margin-top: 6px; line-height: 1.5; }
 
 /* ---------- 天気の横スクロール ---------- */
-.hourly { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+/* 横スクロールの器。中は「日付の帯」と「カードの並び」の 2 段（D-112） */
+.hourly { overflow-x: auto; padding-bottom: 4px; }
 .hourly::-webkit-scrollbar { height: 4px; }
 .hourly::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.hourly-inner { display: inline-flex; flex-direction: column; gap: 5px; }
+.hourly-row, .hourly-days { display: flex; gap: 8px; }
+
+/* 日付の帯（D-112）。その日のカードのぶんだけ幅を持ち、日が変わるところで区切れる。
+   幅は app.js の HOUR_CARD_W / HOUR_CARD_GAP から計算している。
+   **片方だけ変えると帯とカードがずれる**ので、54px / 8px は両方で揃えること。 */
+.day-seg {
+  flex: 0 0 auto; box-sizing: border-box;
+  padding: 2px 0 3px; text-align: left; white-space: nowrap;
+  font-family: 'JetBrains Mono', monospace; font-size: 10px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  border-radius: 4px 4px 0 0;
+}
+/* 名前は横スクロールに貼り付ける。真ん中に置くと、少し送っただけで
+   日付が画面の外へ出てしまう。貼り付けておけば、
+   **いま見ている日の名前が常に見えている**（D-112） */
+.day-name { position: sticky; left: 0; display: inline-block; padding: 0 6px; }
+/* 今日だけ立てる。「いまどこを見ているか」が帯だけで分かる */
+.day-seg.today {
+  color: var(--mustard-lt);
+  background: var(--mustard-bg); border-bottom-color: var(--mustard-dk);
+}
+
 .hour-card {
   flex: 0 0 54px; text-align: center; padding: 7px 3px;
   background: var(--bg-deep); border: 1px solid var(--border); border-radius: 8px;
-  /* 日付ラベルの置き場所（D-112）。**全カードで同じだけ空ける**ので、
-     ラベルの有無でカードの中身がずれない。前は時刻と同じ行に日付を入れていて、
-     そこだけ 2 行になり 1 枚だけ下にずれていた */
-  position: relative; padding-top: 22px;
 }
 /* マヅメの時間だけ枠を立てる。行く時間を探すときの目印 */
 .hour-card.highlight { border-color: var(--border-strong); background: var(--mustard-bg); }
 /* 日付が変わるところに区切りを入れる。24 時間ぶんは翌日にまたがる（D-104） */
 .hour-card.newday { border-left: 2px solid var(--border-strong); }
 
-/* 日付ラベル（D-112）。月・日・曜日は 54px に収まらないので、
-   隣のカードの上へはみ出させる。z-index は**あとに来るカードより前に出す**ため。
-   1 なので画面いちばん外側の重なり（ボトムナビ 20）には届かない */
-.hour-card .day {
-  position: absolute; top: 3px; left: 2px; z-index: 1;
-  padding: 1px 6px; border-radius: 4px; white-space: nowrap;
-  background: var(--mustard-bg); border: 1px solid var(--mustard-dk);
-  color: var(--mustard-lt); font-family: 'JetBrains Mono', monospace; font-size: 10px;
-}
 .hour-card .h  { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-secondary); }
 .hour-card .icon { font-size: 18px; margin: 2px 0; }
 .hour-card .t  { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-secondary); }
