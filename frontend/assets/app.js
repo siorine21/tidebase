@@ -97,26 +97,35 @@ export function nowInJst(base = new Date()) {
   };
 }
 
-const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
+/* 曜日は**英語の 3 文字**（D-113）。週間カレンダーが前からこれで、
+   等幅で幅が揃うので一覧の列が縦にそろう（「水」と「日」は全角で見た目の重さも違う）。
+   画面の見出しもすべて英語なので、そちらとも揃う。
+   **この配列はここにしか置かない。** 前は日本語版が app.js に 2 つ、
+   news.html と tide.html にもあり、コピーが 4 つに増えていた。 */
+export const WEEKDAYS_EN = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 
-export function formatJstDate(isoDate, { weekday = false } = {}) {
-  const [y, m, d] = isoDate.split("-").map(Number);
-  const label = `${y}.${String(m).padStart(2, "0")}.${String(d).padStart(2, "0")}`;
-  if (!weekday) return label;
-  return `${label} ${WEEKDAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]}`;
-}
-
-export function formatShortDate(isoDate) {
-  const [, m, d] = isoDate.split("-");
-  return `${m}/${d}`;
-}
-
-/** 「8/13(木)」。時間別天気の日付ラベル用（D-112）。
-    横に狭いので 0 埋めはしない。日付だけだと何曜日か分からないので曜日まで出す。 */
-export function formatDayLabel(isoDate) {
-  const [y, m, d] = String(isoDate).slice(0, 10).split("-").map(Number);
+/**
+ * 日付の表記（D-113）。**画面に出す日付はすべてここを通す。**
+ *
+ * `2026.08.12 WED` / 今年なら `08.12 WED`。
+ * 前は区切りが `.` と `/`、曜日が `水` `(水)` `WED` `無し` の 4 通り、
+ * 0 埋めも不揃いで、15 か所が思い思いの形だった。
+ * **組み立てるコードが 4 か所にべた書きされていたのが原因。**
+ *
+ * @param {string} isoDate "YYYY-MM-DD"（後ろに時刻が付いていてもよい）
+ * @param {boolean} weekday 曜日を付けるか。**「その日に何をするか」に関わる所だけ付ける**
+ *   （釣行日・予報の日・お知らせ）。招待の有効期限のような事務的な日付には付けない。
+ * @param {boolean|"auto"} year 年を出すか。"auto" は**今年なら省く**。
+ *   普段は短く、年をまたいだ記録だけ長くなる。
+ */
+export function formatJstDate(isoDate, { weekday = false, year = "auto" } = {}) {
+  const [y, m, d] = String(isoDate ?? "").slice(0, 10).split("-").map(Number);
   if (!y || !m || !d) return "";
-  return `${m}/${d}(${WEEKDAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]})`;
+  const pad = (v) => String(v).padStart(2, "0");
+  const showYear = year === "auto" ? y !== Number(todayInJst().slice(0, 4)) : Boolean(year);
+  const label = `${showYear ? `${y}.` : ""}${pad(m)}.${pad(d)}`;
+  if (!weekday) return label;
+  return `${label} ${WEEKDAYS_EN[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]}`;
 }
 
 /** 「4日前」のような相対表記。 */
@@ -354,7 +363,6 @@ export function smoothPath(points) {
   return d;
 }
 
-const WEEKDAYS_SHORT = ["日", "月", "火", "水", "木", "金", "土"];
 
 /**
  * 複数日を 1 本につないだ潮位グラフの SVG を返す。
@@ -461,10 +469,8 @@ export function tideTimelineSvg({
     // 0 時のところは時刻ではなく日付を出す（D-057）。
     // 日付を上に置くと、満潮のときに「満 15:32」とぶつかって読めなくなる。
     // 日境界＝0 時なので、時刻を省いても位置は分からなくならない。
-    const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
     marks.push(`<text class="day-label" x="${x(d * 24) + 4}" y="${height - 10}">${
-      date.slice(5).replace("-", "/")} ${WEEKDAYS_SHORT[weekday]}${
-      date === today ? " TODAY" : ""}</text>`);
+      formatJstDate(date, { weekday: true })}${date === today ? " TODAY" : ""}</text>`);
     for (const h of [6, 12, 18]) {
       marks.push(`<text x="${x(d * 24 + h) + 3}" y="${height - 10}">${h}:00</text>`);
     }
@@ -3520,7 +3526,7 @@ export function renderHourlyStrip(box, {
        真ん中に置くと、少しスクロールしただけで日付が画面の外へ出てしまう。
        貼り付けておけば、**いま見ている日の名前が常に見えている。** */
     return `<span class="day-seg${date === today ? " today" : ""}" style="width:${width}px"
-                 ><span class="day-name">${escapeHtml(formatDayLabel(date))}</span></span>`;
+                 ><span class="day-name">${escapeHtml(formatJstDate(date, { weekday: true }))}</span></span>`;
   }).join("");
 
   const cards = rows.map((w, i) => {

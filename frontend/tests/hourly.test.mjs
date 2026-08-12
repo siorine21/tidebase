@@ -26,15 +26,13 @@ const slice = (from, to) => {
 };
 const code = [
   'const WEATHER_MODEL_ORDER = ["jma_seamless", "best_match"];',
-  'const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];',
-  slice('export function formatDayLabel', '\n/** 「4日前」'),
+
   slice('export function forecastSeries', '/**\n * **複数地点**'),
   slice('export function windArrowDeg'),
 ].join('\n').replaceAll('export function', 'function').replaceAll('export const', 'const');
 
-const { forecastSeries, mapHourly, formatDayLabel, windArrowDeg, windLevel, rainLevel,
-        rainOutlook, hoursFromNow } =
-  new Function(code + `; return { forecastSeries, mapHourly, formatDayLabel, windArrowDeg,
+const { forecastSeries, mapHourly, windArrowDeg, windLevel, rainLevel, rainOutlook, hoursFromNow } =
+  new Function(code + `; return { forecastSeries, mapHourly, windArrowDeg,
                                   windLevel, rainLevel, rainOutlook, hoursFromNow };`)();
 
 let failed = 0;
@@ -197,19 +195,6 @@ check('**16 時台の雨を 17 時台のものとして出さない**',
   mapped[1].precip_mm !== 2.6, `17 時のカードの雨量 ${mapped[1].precip_mm}mm`);
 eq('1 時間しか無ければそのまま返す（落とし切らない）',
   mapHourly({ time: ['2026-08-12T16:00'], precipitation_jma_seamless: [0.4] }).length, 1);
-
-/* ---- 日付ラベル（D-112） ----
-   前は「13日 0時」と時刻と同じ行に入れていて、そこだけ 2 行になっていた。
-   日付だけだと何曜日か分からないので、月・日・曜日まで出す。 */
-eq('月/日(曜)で出す', formatDayLabel('2026-08-13'), '8/13(木)');
-eq('1 桁の月日は 0 埋めしない（横が狭い）', formatDayLabel('2026-01-05'), '1/5(月)');
-eq('時刻が付いていても日付だけ読む', formatDayLabel('2026-08-13T00:00'), '8/13(木)');
-// 曜日は日曜から土曜まで一周させる。ずれると全部 1 日ずれる
-eq('曜日が一周する',
-  ['2026-08-09','2026-08-10','2026-08-11','2026-08-12','2026-08-13','2026-08-14','2026-08-15']
-    .map((d) => formatDayLabel(d).slice(-2, -1)).join(''), '日月火水木金土');
-eq('壊れた値でも落ちない', formatDayLabel('なにか'), '');
-eq('空でも落ちない', formatDayLabel(''), '');
 
 console.log(failed ? `\n${failed} 件 FAIL` : '\nすべて PASS');
 process.exit(failed ? 1 : 0);

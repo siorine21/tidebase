@@ -185,7 +185,7 @@
             : icon(outcome.iconName, { size: 20 })}</div>
           <div class="list-body">
             <div class="list-title">${owner}${title}</div>
-            <div class="list-sub">${escapeHtml(formatJstDate(r.fished_at))}${
+            <div class="list-sub">${escapeHtml(formatJstDate(r.fished_at, { weekday: true }))}${
             r.fished_time ? " " + r.fished_time.slice(0, 5) : ""}${sub ? " · " + sub : ""}</div>
           </div>
           <div class="list-aside">${relativeDays(r.fished_at)}</div>

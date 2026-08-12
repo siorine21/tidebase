@@ -94,7 +94,7 @@
 <script type="module">
   import {
     requireSession, renderNav, escapeHtml, icon,
-    todayInJst, formatJstDate, nowInJst, hoursFromHhmm, addJstDays, weekOf,
+    todayInJst, formatJstDate, WEEKDAYS_EN, nowInJst, hoursFromHhmm, addJstDays, weekOf,
     fetchWeatherRange, describeWeather, windDirection,
     fishingScoreOfDay, showFishingScoreHelp, stars, savedScoreBand,
     listSpots, listTidePoints, fetchTideForPoint, tidePointOfSpot,
@@ -104,7 +104,6 @@
   } from "./assets/app.js";
 
   const DEFAULT_POINT = "ST:MI";   // 静岡特化の既定（D-030）
-  const WEEKDAYS_EN = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 
   const session = await requireSession();
   if (!session) throw new Error("unauthenticated");
@@ -464,8 +463,10 @@
   function renderWeek() {
     const days = weekOf(state.week);
     // 見出しは日付の範囲、ナビの真ん中は週の呼び名。同じ情報を二重に出さない
+    /* 範囲の見出しなので曜日は付けない（D-113）。すぐ下のカレンダーが
+       7 日ぶんの曜日を出しているので、ここで重ねても情報が増えない */
     document.getElementById("week-range").textContent =
-      `${days[0].slice(5).replace("-", "/")} — ${days[6].slice(5).replace("-", "/")}`;
+      `${formatJstDate(days[0])} — ${formatJstDate(days[6])}`;
     const isThisWeek = days[0] === weekOf(today)[0];
     document.getElementById("week-now").textContent = weekLabel(days[0]);
     document.getElementById("week-now").classList.toggle("current", isThisWeek);
