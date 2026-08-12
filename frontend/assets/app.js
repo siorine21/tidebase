@@ -3163,33 +3163,100 @@ export function rainLevel(chance) {
   return { key: "none", label: "降らなさそう" };
 }
 
+/** 雨が「降っている」と言える降水量（mm/h）。これ未満は量として意味がない。 */
+const RAIN_MM = 0.1;
+/** **これから降り出す**と見出しに書くのに要る量（mm）。いま降っている判定には使わない。
+    1 時間だけ 0.2mm のような予想で「雨になりそう」と言うと、外に出るのをやめてしまう。 */
+const RAIN_WORTH_MM = 0.5;
+
 /**
- * これから先の雨を 1 行にまとめる（D-104）。
+ * これから先の雨を 1 行にまとめる（D-104 / D-107）。
  * **時間ごとの数字を並べる前に、結論を先に出す。**
  * 24 個の数字を目で追って「何時から雨か」を組み立てるのは、その場でやりたくない。
  *
- * @param {object[]} hours 時刻順に並んだ予報（これから先のぶん）
- * @returns {{key:string, text:string, from:object|null, peak:object|null}|null}
+ * **見るのは降水量（mm）が先、降水確率は後**（D-107）。
+ * 前は確率だけで判断していて、2 つ外していた。
+ * 1. 先頭が**いまの時刻**でも「◯時ごろから降りそう」と書いていた。
+ *    12:05 に見て「12 時ごろから雨になりそうです」は予報ではなく現在の話。
+ * 2. 確率 94% でも予想降水量が 0.0mm のことがある（蒸し暑い不安定な空でよく出る）。
+ *    そこで「雨になりそう」と言うと、モデルが降ると言っていない雨を宣言してしまう。
+ *
+ * @param {object[]} hours     時刻順に並んだ予報（これから先のぶん）
+ * @param {boolean}  startsNow 先頭が「いまの時間帯」か。今日を今から並べたときだけ true
+ * @returns {{key:string, text:string, from:object|null, until:object|null,
+ *            peak:object|null}|null}
  */
-export function rainOutlook(hours) {
+export function rainOutlook(hours, { startsNow = false } = {}) {
   const rows = (hours ?? []).filter((h) => h?.precip_chance != null);
   if (!rows.length) return null;
 
-  const peak = rows.reduce((a, b) => (b.precip_chance > a.precip_chance ? b : a));
-  // 「降りそう」以上が続く最初の時刻。1 時間だけ跳ねた値で騒がない
-  const from = rows.find((h, i) =>
-    h.precip_chance >= 50 && rows[i + 1] && rows[i + 1].precip_chance >= 50) ?? null;
   const hh = (h) => `${h.hour}時`;
+  const peak = rows.reduce((a, b) => (b.precip_chance > a.precip_chance ? b : a));
+  const wet = (h) => h.precip_mm != null && h.precip_mm >= RAIN_MM;
+  const mm = (h) => `${Number(h.precip_mm).toFixed(1)}mm/h`;
+
+  /* 降水量が 1 つも届いていないときは確率だけで見るしかない
+     （古いキャッシュや、詳細項目を頼んでいない経路） */
+  const hasMm = rows.some((h) => h.precip_mm != null);
+
+  if (hasMm) {
+    /* 雨の続きを頭から拾う。**降り止む時刻まで一組で持つ**（D-107）。
+       いま降っているかを言うにも、いつやむかを言うにも同じものが要る */
+    const runs = [];
+    for (let i = 0; i < rows.length; i++) {
+      if (!wet(rows[i])) continue;
+      let j = i;
+      while (j + 1 < rows.length && wet(rows[j + 1])) j++;
+      runs.push({
+        from: rows[i], startIndex: i,
+        until: j + 1 < rows.length ? rows[j + 1] : null,   // 窓の端まで続くなら null
+        heaviest: rows.slice(i, j + 1).reduce((a, b) => (b.precip_mm > a.precip_mm ? b : a)),
+        length: j - i + 1,
+      });
+      i = j;
+    }
+    const now = startsNow && runs[0]?.startIndex === 0 ? runs[0] : null;
+    // いま降っているなら、始まりではなく**終わり**を知りたい
+    if (now) {
+      return { key: "rain", peak, from: now.from, until: now.until,
+               text: now.until
+                 ? `いま雨が降っています（${mm(rows[0])}）。${hh(now.until)}ごろにやみそうです`
+                 : `いま雨が降っています（${mm(rows[0])}）。この先 ${rows.length} 時間降り続きそうです` };
+    }
+    /* **1 時間だけの弱い雨で見出しを出さない。** 確率のときと同じ考え方。
+       2 時間以上続くか、まとまった量があるものだけ「降り出す」と書く */
+    const worth = runs.find((r) => r.length >= 2 || r.heaviest.precip_mm >= RAIN_WORTH_MM);
+    if (worth) {
+      return { key: "rain", peak, from: worth.from, until: worth.until,
+               text: `${hh(worth.from)}ごろから雨になりそうです`
+                 + (worth.until ? `（${hh(worth.until)}ごろまで・最大 ${mm(worth.heaviest)}）`
+                                : `（最大 ${mm(worth.heaviest)}）`) };
+    }
+    /* 見出しにするほどの雨は無いのに確率だけ高い。**降ると言い切らない。**
+       釣りに行くかの判断としては「傘は要るが濡れ続けはしない」に近い */
+    if (peak.precip_chance >= 50) {
+      return { key: "maybe", peak, from: null, until: null,
+               text: `降りやすい空です（${hh(peak)}に ${peak.precip_chance}%）。`
+                 + `まとまった雨の予想はありません` };
+    }
+  }
 
   if (peak.precip_chance < 30) {
-    return { key: "none", peak, from: null,
+    return { key: "none", peak, from: null, until: null,
              text: `この先 ${rows.length} 時間、雨の心配は少ないです（最大 ${peak.precip_chance}%）` };
   }
+  // 量が届いていないときの従来の判定（1 時間だけ跳ねた値で騒がない）
+  const from = hasMm ? null : (rows.find((h, i) =>
+    h.precip_chance >= 50 && rows[i + 1] && rows[i + 1].precip_chance >= 50) ?? null);
   if (!from) {
-    return { key: "maybe", peak, from: null,
+    return { key: "maybe", peak, from: null, until: null,
              text: `にわか雨があるかもしれません（${hh(peak)}に最大 ${peak.precip_chance}%）` };
   }
-  return { key: "rain", peak, from,
+  if (from === rows[0] && startsNow) {
+    return { key: "rain", peak, from, until: null,
+             text: `いま雨が降っていそうです（${peak.precip_chance}%）` };
+  }
+  return { key: "rain", peak, from, until: null,
            text: `${hh(from)}ごろから雨になりそうです（${hh(peak)}に最大 ${peak.precip_chance}%）` };
 }
 
@@ -3241,13 +3308,16 @@ export function renderHourlyStrip(box, {
      逆に明日以降を「いまの時刻から」にすると、その日の朝が消えてしまう。 */
   const today = todayInJst();
   const now = nowInJst();
-  const rows = date && date !== today
-    ? hoursOfDate(hours, date).slice(0, count)
-    : hoursFromNow(hours, `${now.date}T${now.hhmm}`, count);
+  const startsNow = !date || date === today;
+  const rows = startsNow
+    ? hoursFromNow(hours, `${now.date}T${now.hhmm}`, count)
+    : hoursOfDate(hours, date).slice(0, count);
   if (!rows.length) return hide(emptyText);
 
   if (leadBox) {
-    const outlook = rainOutlook(rows);
+    /* 先頭が「いまの時間帯」かを渡す（D-107）。
+       これを渡さないと、いま 12:05 なのに「12 時ごろから雨になりそうです」と出る */
+    const outlook = rainOutlook(rows, { startsNow: startsNow && rows[0].hour === now.hour });
     leadBox.hidden = !outlook;
     if (outlook) {
       leadBox.className = `hourly-lead ${outlook.key}`;
