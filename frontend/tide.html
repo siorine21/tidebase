@@ -26,8 +26,6 @@
 
 <!-- 地点切替タブ（お気に入り地点） -->
 <div class="point-tabs" id="point-tabs"></div>
-<select class="point-picker" id="point-picker" hidden
-        aria-label="お気に入りに追加する潮汐地点"></select>
 
 <main>
   <div id="message" class="message" hidden role="alert"></div>
@@ -56,7 +54,11 @@
     <div class="info-cell"><div class="label">干潮</div><div class="value">—</div></div>
   </div>
 
+  <!-- 淡水スポットのとき。空のグラフを出さない（D-105） -->
+  <div class="card no-tide" id="no-tide" hidden></div>
+
   <!-- 潮汐グラフ（日をまたいで連続。横スクロールで時間を移動する） -->
+  <div id="tide-block">
   <div class="section-label">
     <span>TIDE CHART</span>
     <span class="note" id="tide-note"></span>
@@ -76,10 +78,13 @@
   <div class="scroll-hint">
     <span data-icon="back"></span>横にスクロールで前後の時間へ（1 画面 = 1 日・日をまたいで連続）<span data-icon="chevron-right"></span>
   </div>
+  </div><!-- /tide-block -->
 
   <!-- 時間別天気 -->
   <div class="section-label"><span>HOURLY WEATHER</span><span class="note">← スクロール →</span></div>
   <div class="card">
+    <!-- いつ雨か、を先に 1 行で（D-104）。ホームと同じ（D-105） -->
+    <div class="hourly-lead" id="hourly-lead" hidden></div>
     <div class="hourly" id="hourly"><div class="empty">読み込み中…</div></div>
   </div>
 </main>
@@ -93,8 +98,8 @@
     fetchWeatherRange, describeWeather, windDirection,
     fishingScoreOfDay, showFishingScoreHelp, stars, savedScoreBand,
     listSpots, listTidePoints, fetchTideForPoint, tidePointOfSpot,
-    savedTidePoint, saveTidePoint, formatLag,
-    listFavoriteTidePoints, saveFavoriteTidePoints,
+    formatLag, pickBaseSpot, spotTidePoint, savedBaseSpot, saveBaseSpot,
+    renderHourlyStrip,
     tideType, TIDE_TYPE_COLORS, isCoordinateInJapan, tideTimelineSvg, sunStripHtml, levelAxisHtml, tideLevelAt, sunTimes,
   } from "./assets/app.js";
 
@@ -113,106 +118,75 @@
   }
   const byValue = new Map(points.map((p) => [p.value, p]));
 
+  /* 選ぶのはスポット（D-105）。地点はスポットから決まる。
+     自分のスポットだけをタブに出す（自分の場所を切り替えるための列なので）。
+     URL の ?spot= はホームから来たとき、?point= は古いリンク用に残す */
   const spots = await listSpots().catch(() => []);
-  // 共有スポットも混ざるので、まず自分のものから選ぶ（D-065）
-  const usable = (s) => isCoordinateInJapan(s.latitude, s.longitude);
-  const baseSpot = spots.find((s) => s.is_mine && usable(s)) ?? spots.find(usable) ?? null;
+  const mySpots = spots.filter((s) => s.is_mine);
+  const params = new URLSearchParams(location.search);
+  const requestedSpot = params.get("spot");
+  const requestedPoint = params.get("point");
 
-  // 表示する地点: URL 指定 → 端末に保存した選択 → スポットの地点 → 既定（舞阪）
-  const requested = new URLSearchParams(location.search).get("point");
   const state = {
-    point: byValue.get(requested) ?? byValue.get(savedTidePoint())
-      ?? byValue.get(tidePointOfSpot(baseSpot)) ?? byValue.get(DEFAULT_POINT) ?? points[0],
+    spot: pickBaseSpot(spots, requestedSpot ?? savedBaseSpot()),
+    point: null,          // spot から決まる。淡水スポットでは null
     week: today,          // 表示中の週に含まれる日
     date: today,          // サマリ・天気を出す日（グラフの中央に来ている日）
-    favorites: [],
   };
+  /* スポットが 1 件も無いときと、古い ?point= で来たときだけ地点を直接使う */
+  state.point = spotTidePoint(state.spot, points)
+    ?? (state.spot ? null : (byValue.get(requestedPoint) ?? byValue.get(DEFAULT_POINT) ?? points[0]));
+  if (!state.spot && requestedPoint) state.point = byValue.get(requestedPoint) ?? state.point;
 
-  // 取得済みの潮汐（地点 + 日付 でキャッシュ）。地点を変えたら捨てる
+  /* 取得済みの潮汐と天気。**場所が変われば 3 つとも捨てる**（D-105）。
+     前は潮汐だけ捨てていて、requestedWeeks が週の頭しか鍵に持たないため、
+     場所を変えても前の場所の予報が出続けていた */
   let tideCache = new Map();
 
-  /* ---------- 地点切替タブ ---------- */
+  /* ---------- スポット切替タブ（D-105） ----------
+     前はお気に入りの潮汐地点だった。約 50 ある地点から選ぶための仕組みだが、
+     選ぶものがスポットになったので要らない（自分のスポットは 5〜8 件）。
+     ホームと同じ言葉にすることのほうが大事（D-032 の一部を取り消す）。 */
   function renderTabs() {
-    // お気に入りが空でも、今見ている地点は必ずタブに出す
-    const shown = state.favorites.some((p) => p.value === state.point.value)
-      ? state.favorites : [state.point, ...state.favorites];
-    document.getElementById("point-tabs").innerHTML = shown
-      .map((p) => `<button type="button" class="point-tab${p.value === state.point.value ? " on" : ""}"
-                           data-value="${escapeHtml(p.value)}">${escapeHtml(p.name)}</button>`).join("")
-      + `<button type="button" class="point-tab add" id="tab-add">${icon("plus", { size: 12 })} 追加</button>`
-      + (isFavorite(state.point)
-        ? `<button type="button" class="point-tab add" id="tab-remove">${icon("close", { size: 12 })} 外す</button>`
-        : "");
-    // ヘッダーは横幅が限られるので、地点名だけにする
-    // （基準観測点と時差は TIDE CHART の見出しと SUMMARY の下に出ている）
-    document.getElementById("point-name").textContent = state.point.name;
+    const box = document.getElementById("point-tabs");
+    if (!mySpots.length) { box.hidden = true; return; }
+    box.hidden = false;
+    box.innerHTML = mySpots
+      .map((s) => `<button type="button" class="point-tab${s.id === state.spot?.id ? " on" : ""}"
+                           data-id="${escapeHtml(s.id)}">${escapeHtml(s.name ?? "無名スポット")}</button>`)
+      .join("");
+    // ヘッダーは横幅が限られるので、いま見ている場所の名前だけにする
+    document.getElementById("point-name").textContent =
+      state.spot?.name ?? state.point?.name ?? "—";
   }
 
-  function isFavorite(point) {
-    return state.favorites.some((p) => p.value === point.value);
-  }
-
-  document.getElementById("point-tabs").addEventListener("click", async (e) => {
+  document.getElementById("point-tabs").addEventListener("click", (e) => {
     const tab = e.target.closest(".point-tab");
-    if (!tab) return;
-
-    if (tab.id === "tab-add") return addFavorite();
-    if (tab.id === "tab-remove") return removeFavorite();
-
-    const chosen = byValue.get(tab.dataset.value);
-    if (!chosen || chosen.value === state.point.value) return;
-    await selectPoint(chosen);
+    if (!tab || tab.dataset.id === state.spot?.id) return;
+    const chosen = mySpots.find((s) => s.id === tab.dataset.id);
+    if (chosen) selectSpot(chosen);
   });
 
-  /** 地点を切り替える。URL も書き換えるので、再読み込みしても同じ地点で開く。 */
-  async function selectPoint(point) {
-    state.point = point;
-    tideCache = new Map();          // 地点が変われば潮位は総入れ替え
-    saveTidePoint(point.value);
-    history.replaceState(null, "", `tide.html?point=${encodeURIComponent(point.value)}`);
-    renderTabs();
-    renderChart();
-    renderWeek();
-    applyDate();        // 地点名・推算表記もここで更新する
-    await loadWeekDays();
+  /* 淡水スポットには潮汐が無い。空のグラフを出さずに、そう書く（D-105）。
+     週間カレンダーは残す（天気と釣行スコアは出せる） */
+  function renderTideAvailability() {
+    const hasTide = Boolean(state.point);
+    document.getElementById("tide-block").hidden = !hasTide;
+    const box = document.getElementById("no-tide");
+    box.hidden = hasTide;
+    if (!hasTide) {
+      box.innerHTML = `${icon("warning", { size: 14 })} `
+        + `「${escapeHtml(state.spot?.name ?? "この場所")}」は潮汐の対象外です（淡水）。`
+        + `天気と釣行スコアは出ます。`;
+    }
   }
 
-  // 追加用の select は常設して出し入れするだけにする（動的生成はフォーカスの
-  // 取り合いで消えることがあるため）
-  const picker = document.getElementById("point-picker");
-
-  function addFavorite() {
-    const groups = [...new Set(points.map((p) => p.group))];
-    picker.innerHTML = `<option value="">お気に入りに追加する地点を選ぶ…</option>`
-      + groups.map((group) => {
-        const options = points.filter((p) => p.group === group && !isFavorite(p));
-        return options.length ? `
-          <optgroup label="${escapeHtml(group)}">
-            ${options.map((p) => `<option value="${escapeHtml(p.value)}">${escapeHtml(p.label)}</option>`).join("")}
-          </optgroup>` : "";
-      }).join("");
-    picker.value = "";
-    picker.hidden = false;
-    picker.focus();
-  }
-
-  picker.addEventListener("change", async () => {
-    const chosen = byValue.get(picker.value);
-    picker.hidden = true;
-    if (!chosen) return;
-    const next = [...state.favorites.map((p) => p.value), chosen.value];
-    try { await saveFavoriteTidePoints(next); }
-    catch (error) { return message(error.message, "error"); }
-    state.favorites = next.map((v) => byValue.get(v)).filter(Boolean);
-    await selectPoint(chosen);
-  });
-
-  async function removeFavorite() {
-    const next = state.favorites.filter((p) => p.value !== state.point.value).map((p) => p.value);
-    try { await saveFavoriteTidePoints(next); }
-    catch (error) { return message(error.message, "error"); }
-    state.favorites = next.map((v) => byValue.get(v)).filter(Boolean);
-    renderTabs();
+  /** スポットを切り替える。**画面ごと読み直す**（D-105）。
+      潮汐・天気・日の出・スコアが全部この 1 つで決まるので、
+      部分的に描き替えるとどれか 1 つを直し忘れる。 */
+  function selectSpot(spot) {
+    saveBaseSpot(spot.id);
+    location.href = `tide.html?spot=${encodeURIComponent(spot.id)}`;
   }
 
   /* ---------- 潮汐グラフ（日をまたいで連続） ----------
@@ -324,7 +298,9 @@
   }
 
   async function loadDay(date) {
-    const key = `${state.point.value}|${date}`;
+    // 潮汐の無い場所（淡水）は潮位を取りに行かない。天気だけ読む
+    if (!state.point) { loadWeather(date); return null; }
+    const key = `${placeKey()}|${date}`;
     if (tideCache.has(key)) return tideCache.get(key);
 
     const pending = fetchTideForPoint(state.point, date).catch(() => null);
@@ -332,8 +308,8 @@
     const tide = await pending;
     tideCache.set(key, tide);
 
-    // 取得中に地点が変わっていたら描かない
-    if (key.startsWith(`${state.point.value}|`)) {
+    // 取得中に場所が変わっていたら描かない
+    if (key.startsWith(`${placeKey()}|`)) {
       renderChart();
       renderWeek();        // 潮の動きぶんが決まるので、その日の星が出せるようになる
       loadWeather(date).then((hours) => {
@@ -346,7 +322,7 @@
   }
 
   function tideOf(date) {
-    const value = tideCache.get(`${state.point.value}|${date}`);
+    const value = tideCache.get(`${placeKey()}|${date}`);
     return value instanceof Promise ? null : value ?? null;
   }
 
@@ -366,11 +342,26 @@
   });
 
   /* ---------- 天気（日付ごとに取得してキャッシュ） ---------- */
-  const weatherCache = new Map();   // 日付 → 時間別予報
+  /* 日付 → 時間別予報。**場所は鍵に入れていない。**
+     場所を変えるときは画面ごと読み直す（selectSpot）ので、1 回の表示のあいだ
+     場所は変わらない。差分で描き替える作りに戻すなら、ここの鍵に場所を足すこと
+     （前は地点を変えても前の場所の予報が出続けていた・D-105） */
+  const weatherCache = new Map();
 
   /** 天気は地点の座標で取る（この画面はスポットではなく地点が主役）。 */
   function pickWeatherCoordinates() {
-    return state.point.lat != null ? { lat: state.point.lat, lng: state.point.lng } : null;
+    /* **スポットの座標で取る**（D-105）。前は地点の座標だったので、
+       ホーム（スポット座標）と同じ日でも違う天気が出ていた。
+       座標の無いスポットのときだけ地点で代用する */
+    if (state.spot && isCoordinateInJapan(state.spot.latitude, state.spot.longitude)) {
+      return { lat: Number(state.spot.latitude), lng: Number(state.spot.longitude) };
+    }
+    return state.point?.lat != null ? { lat: state.point.lat, lng: state.point.lng } : null;
+  }
+
+  /** いま見ている場所を表す鍵。天気と日の出のキャッシュに使う */
+  function placeKey() {
+    return state.spot?.id ?? state.point?.value ?? "-";
   }
 
   /**
@@ -381,7 +372,7 @@
   function sunOf(date) {
     const at = pickWeatherCoordinates();
     if (!at) return null;
-    const key = `${state.point.value}|${date}`;
+    const key = `${placeKey()}|${date}`;
     if (!sunCache.has(key)) sunCache.set(key, sunTimes(at.lat, at.lng, date));
     return sunCache.get(key);
   }
@@ -424,13 +415,16 @@
 
   function renderSummary(date, tide, weather) {
     document.getElementById("summary-date").textContent = formatJstDate(date, { weekday: true });
-    document.getElementById("tide-note").textContent =
-      `${state.point.name}${state.point.area ? " 推算" : ""}`;
-    const type = tide?.tide_type ?? tideType(date);
-    // 朝マヅメ・夕マヅメで判定し、良いほうをその日のスコアにする（D-051・D-052）
+    document.getElementById("tide-note").textContent = state.point
+      ? `${state.point.name}${state.point.area ? " 推算" : ""}` : "";
+    /* 潮汐の無い場所（淡水）は潮の項を落とす（D-077）。
+       そのままだと潮の条件に永久に当たらず、晴れて無風でも 3 点で頭打ちになる */
+    const tideMatters = Boolean(state.point);
+    const type = tideMatters ? (tide?.tide_type ?? tideType(date)) : null;
+    // 時間帯ごとに判定し、いちばん良い時間帯をその日のスコアにする（D-051・D-103）
     scoreContext = weather
       ? fishingScoreOfDay({
-          tideType: type, hours: weather, sun: sunOf(date), tide,
+          tideType: type, hours: weather, sun: sunOf(date), tide, tideMatters,
           date, band: savedScoreBand() })
       : null;
     const score = scoreContext?.score ?? null;
@@ -443,7 +437,8 @@
       </div>`;
 
     document.getElementById("summary").innerHTML =
-      cell("潮回り", escapeHtml(type), TIDE_TYPE_COLORS[type])
+      // 淡水では潮回りに意味が無いので「—」にする（暦としては出せるが誤解を招く）
+      cell("潮回り", type ? escapeHtml(type) : "—", type ? TIDE_TYPE_COLORS[type] : null)
       + cell("釣行スコア", score
           ? stars(score)
             + `<button type="button" class="info-hint" id="score-help"
@@ -464,22 +459,20 @@
   }
 
   /* ---------- 時間別天気 ---------- */
+  /* 時間別天気（D-105）。**ホームと同じ描画を使う。**
+     前はここに 3 時間刻みの別実装があり、マヅメの印が「6 時と 18 時」の
+     決め打ち、気温が欠けた時間は NaN° と出ていた。 */
   function renderHourly(weather) {
-    const box = document.getElementById("hourly");
-    if (!weather) { box.innerHTML = `<div class="empty">読み込み中…</div>`; return; }
-    const picked = weather.filter((w) => w.hour % 3 === 0).slice(0, 9);
-    box.innerHTML = picked.map((w, i) => {
-      const { icon: weatherIcon } = describeWeather(w.weather_code);
-      const badge = w.hour === 6 ? "朝マズメ" : w.hour === 18 ? "夕マズメ" : "";
-      return `
-        <div class="hour-card${badge ? " highlight" : ""}">
-          <div class="h">${i === 8 ? "+24h" : `${w.hour}時`}</div>
-          <div class="badge">${badge || "&nbsp;"}</div>
-          <div class="icon-wrap">${weatherIcon}</div>
-          <div class="t">${Math.round(w.temp_c)}°</div>
-          <div class="w">${windDirection(w.wind_dir_deg)}${Math.round(w.wind_speed_ms)}m</div>
-        </div>`;
-    }).join("");
+    /* 今日は「いまの時刻から 24 時間」なので、**翌日ぶんも渡す**。
+       その日だけ渡すと夕方に開いたとき数時間で途切れる。
+       翌日が週をまたいで未取得のこともあるので、無ければ今日だけで出す */
+    const next = weatherCache.get(addJstDays(state.date, 1)) ?? [];
+    const hours = weather ? [...weather, ...next] : null;
+    renderHourlyStrip(document.getElementById("hourly"), {
+      hours, sun: sunOf(state.date), date: state.date,
+      leadBox: document.getElementById("hourly-lead"),
+      emptyText: "読み込み中…",
+    });
   }
 
   /* ---------- 週間カレンダー ---------- */
@@ -545,11 +538,16 @@
 
     const hours = weatherCache.get(date) ?? null;
     const noon = hours?.find((w) => w.hour === 12) ?? hours?.[0] ?? null;
-    // 潮汐も揃っていないと潮の動きぶんが出せない。揃うまではスコアを出さない
-    // （途中の点を見せると、あとで数字が変わって見える）
-    const day = hours && sunOf(date) && tideOf(date)
-      ? fishingScoreOfDay({ tideType: type, hours, sun: sunOf(date), tide: tideOf(date),
-                            date, band: savedScoreBand() })
+    /* 潮汐も揃っていないと潮の動きぶんが出せない。揃うまではスコアを出さない
+       （途中の点を見せると、あとで数字が変わって見える）。
+       ただし**淡水は潮汐を待たない**（永久に来ないので★が出なくなる・D-105） */
+    const tideMatters = Boolean(state.point);
+    const ready = hours && sunOf(date) && (!tideMatters || tideOf(date));
+    const day = ready
+      ? fishingScoreOfDay({
+          tideType: tideMatters ? type : null, hours, sun: sunOf(date),
+          tide: tideMatters ? tideOf(date) : null, tideMatters,
+          date, band: savedScoreBand() })
       : null;
 
     // 狭いセルなので星は 1 つだけにして数字を添える（★★★★☆ は 7 列に入らない）
@@ -605,8 +603,8 @@
   /* ---------- 初期化 ----------
      イベント登録をすべて済ませてから通信する。逆順にすると、タブや週送りが
      見えているのに通信が終わるまで押しても反応しない時間ができる。 */
-  state.favorites = await listFavoriteTidePoints(points).catch(() => []);
   renderTabs();
+  renderTideAvailability();
   renderWeek();
   applyDate();
   loadWeekWeather(weekOf(state.week));
