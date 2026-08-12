@@ -55,6 +55,21 @@
     <!-- 時間帯ごとの点（D-103）。★ひとつだけだと「いつの点か」が伝わらない。
          実際に竿を出すのは夜が多いので、夜の点がその場で読めるようにする -->
     <div class="band-strip" id="band-strip" hidden></div>
+
+    <!-- 時間別天気は TODAY の中に入れる（D-114）。
+         スコアも時間帯ごとの点も、この 1 時間ごとの予報から出している。
+         別の節に置くと、点の根拠を見るのに節をまたぐことになる。 -->
+    <div class="hero-hourly">
+      <div class="hero-hourly-head">
+        <span>HOURLY WEATHER</span><span class="note">← スクロール →</span>
+      </div>
+      <!-- いつ雨か、を先に 1 行で（D-104）。数字を並べる前に結論を出す -->
+      <div class="hourly-lead" id="hourly-lead" hidden></div>
+      <div class="hourly" id="hourly"><div class="empty">読み込み中…</div></div>
+      <!-- どこの何を見ているのかを画面に出す（D-076）。
+           出典が分からないと、外れたときに「何が外れたのか」を判断できない -->
+      <div class="list-sub" id="weather-source"></div>
+    </div>
   </section>
 
   <!-- 潮汐のある場所だけ。淡水スポットではこの節ごと隠す（D-105） -->
@@ -84,16 +99,6 @@
   </div>
   <!-- 淡水スポットのとき。空のグラフを出さない -->
   <div class="card no-tide" id="no-tide" hidden></div>
-
-  <div class="section-label"><span>HOURLY WEATHER</span><span class="note">← スクロール →</span></div>
-  <div class="card">
-    <!-- いつ雨か、を先に 1 行で（D-104）。数字を並べる前に結論を出す -->
-    <div class="hourly-lead" id="hourly-lead" hidden></div>
-    <div class="hourly" id="hourly"><div class="empty">読み込み中…</div></div>
-    <!-- どこの何を見ているのかを画面に出す（D-076）。
-         出典が分からないと、外れたときに「何が外れたのか」を判断できない -->
-    <div class="list-sub" id="weather-source" style="margin-top:10px"></div>
-  </div>
 
   <div class="section-label"><span>RECENT CATCH</span><a class="note" href="records.html">すべて見る →</a></div>
   <div id="recent"><div class="empty">読み込み中…</div></div>

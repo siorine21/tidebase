@@ -25,9 +25,11 @@ const code = sliceApp([
   ['export function windArrowDeg', END],
 ], 'const WEATHER_MODEL_ORDER = ["jma_seamless", "best_match"];');
 
-const { forecastSeries, mapHourly, windArrowDeg, windLevel, rainLevel, rainOutlook, hoursFromNow } =
+const { forecastSeries, mapHourly, windArrowDeg, windLevel, rainLevel, rainOutlook,
+        hoursFromNow, uniqueHours } =
   new Function(code + `; return { forecastSeries, mapHourly, windArrowDeg,
-                                  windLevel, rainLevel, rainOutlook, hoursFromNow };`)();
+                                  windLevel, rainLevel, rainOutlook,
+                                  hoursFromNow, uniqueHours };`)();
 
 let failed = 0;
 const check = (name, ok, extra = '') => {
@@ -189,6 +191,40 @@ check('**16 時台の雨を 17 時台のものとして出さない**',
   mapped[1].precip_mm !== 2.6, `17 時のカードの雨量 ${mapped[1].precip_mm}mm`);
 eq('1 時間しか無ければそのまま返す（落とし切らない）',
   mapHourly({ time: ['2026-08-12T16:00'], precipitation_jma_seamless: [0.4] }).length, 1);
+
+/* ---- 24 枚ちょうど出るか（D-114） ----
+   潮汐詳細は「その日ぶん」と「翌日ぶん」をつないで渡す。
+   週まとめの予報は**各日の末尾に翌日 0 時が足してある**ので、
+   つなぐと 0 時が 2 枚になり、そのぶん最後の 1 時間が押し出される。
+   21 時に見ると 24 枚目が 19 時（本人の指摘）。20 時まで出るのが期待値。
+
+   **枚数だけ見ても気づけない**（重複ぶんで 24 枚は揃ってしまう）ので、
+   最後の時刻まで見る。 */
+const dayRows = (date) => Array.from({ length: 24 }, (_, h) =>
+  ({ time: `${date}T${String(h).padStart(2, '0')}:00`, hour: h }));
+// fetchWeatherRange が返す形。末尾に翌日 0 時が付く
+const withNextMidnight = (date, next) => [...dayRows(date), dayRows(next)[0]];
+const joined = [...withNextMidnight('2026-08-12', '2026-08-13'),
+                ...withNextMidnight('2026-08-13', '2026-08-14')];
+
+eq('つなぎ目の 0 時が 2 度出てこない',
+  uniqueHours(joined).filter((h) => h.time === '2026-08-13T00:00').length, 1);
+eq('まとめても順番と中身は変わらない',
+  uniqueHours(joined).map((h) => h.time).slice(22, 26),
+  ['2026-08-12T22:00', '2026-08-12T23:00', '2026-08-13T00:00', '2026-08-13T01:00']);
+eq('重複が無ければそのまま', uniqueHours(dayRows('2026-08-12')).length, 24);
+eq('null でも落ちない', uniqueHours(null), []);
+
+const strip = (nowIso) => hoursFromNow(uniqueHours(joined), nowIso, 24);
+eq('21 時に見たら 24 枚', strip('2026-08-12T21:00').length, 24);
+eq('**21 時に見たら 20 時で終わる**（19 時ではない）',
+  strip('2026-08-12T21:00').at(-1).time, '2026-08-13T20:00');
+eq('0 時に見たら 23 時で終わる', strip('2026-08-12T00:00').at(-1).time, '2026-08-12T23:00');
+eq('23 時に見たら翌日 22 時で終わる',
+  strip('2026-08-12T23:00').at(-1).time, '2026-08-13T22:00');
+// まとめずに渡すと、まさに指摘の症状になる。直っていることの裏取り
+eq('まとめないと 19 時で終わっていた',
+  hoursFromNow(joined, '2026-08-12T21:00', 24).at(-1).time, '2026-08-13T19:00');
 
 console.log(failed ? `\n${failed} 件 FAIL` : '\nすべて PASS');
 process.exit(failed ? 1 : 0);
