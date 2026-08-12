@@ -25,6 +25,7 @@ test-frontend:
 	node frontend/tests/score_bands.test.mjs
 	node frontend/tests/hourly.test.mjs
 	node frontend/tests/base_spot.test.mjs
+	node frontend/tests/spot_colors.test.mjs
 
 # 本番 Supabase への操作（要: SUPABASE_ACCESS_TOKEN / SUPABASE_PROJECT_REF）
 db-migrate:
