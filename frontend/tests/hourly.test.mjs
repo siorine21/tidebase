@@ -7,6 +7,10 @@
  *   - forecastSeries: モデルを 2 つ頼んだときの拾い方。片方が全部 null。
  *   - hoursFromNow: 起点を間違えると、過ぎた時間の予報を出し続ける。
  *   - rainOutlook: 1 行の結論。ここが外れると数字を見に行く意味がなくなる。
+ *   - mapHourly: **1 時間値の時刻の意味**（D-111）。Open-Meteo は項目によって違う。
+ *     気温は「その時刻の値」、雨量・天気記号・突風は「その時刻までの 1 時間」。
+ *     読み違えると 1 時間ずれた予報を平然と出す（実際、16 時台に降って上がった雨を
+ *     17:09 に「いま雨が降っています」と出した）。
  *
  * app.js はブラウザ前提（window.supabase 等）なので import できない。
  * 対象の関数だけをソースから切り出して評価する。
@@ -22,12 +26,12 @@ const slice = (from, to) => {
 };
 const code = [
   'const WEATHER_MODEL_ORDER = ["jma_seamless", "best_match"];',
-  slice('export function forecastSeries', 'function mapHourly'),
+  slice('export function forecastSeries', '/**\n * **複数地点**'),
   slice('export function windArrowDeg'),
 ].join('\n').replaceAll('export function', 'function').replaceAll('export const', 'const');
 
-const { forecastSeries, windArrowDeg, windLevel, rainLevel, rainOutlook, hoursFromNow } =
-  new Function(code + `; return { forecastSeries, windArrowDeg, windLevel, rainLevel,
+const { forecastSeries, mapHourly, windArrowDeg, windLevel, rainLevel, rainOutlook, hoursFromNow } =
+  new Function(code + `; return { forecastSeries, mapHourly, windArrowDeg, windLevel, rainLevel,
                                   rainOutlook, hoursFromNow };`)();
 
 let failed = 0;
@@ -79,11 +83,14 @@ eq('10m/s はまだ強い', windLevel(10).key, 'strong');
 eq('10.1m/s は強すぎ', windLevel(10.1).key, 'danger');
 eq('風が無ければ出さない', windLevel(null), null);
 
-eq('29% は降らなさそう', rainLevel(29).key, 'none');
-eq('30% はにわか雨', rainLevel(30).key, 'low');
-eq('50% は降りそう', rainLevel(50).key, 'mid');
-eq('70% は降る', rainLevel(70).key, 'high');
-eq('降水確率が無ければ出さない', rainLevel(null), null);
+/* 予想雨量の段階（D-111）。前は降水確率で分けていた */
+eq('0.0mm は降らない', rainLevel(0).key, 'none');
+eq('0.1mm から弱い雨', rainLevel(0.1).key, 'low');
+eq('3mm から雨', rainLevel(3).key, 'mid');
+eq('10mm から強い雨', rainLevel(10).key, 'high');
+// 0 と「値が無い」は別物。0 を null 扱いにすると「降らない」が出せなくなる
+eq('雨量が無ければ出さない', rainLevel(null), null);
+eq('空文字でも出さない', rainLevel(''), null);
 
 /* ---- これから先だけを取り出す ---- */
 const twoDays = [];
@@ -105,36 +112,47 @@ eq('予報の前なら先頭から', hoursFromNow(twoDays, '2026-08-01T00:00', 2
 eq('空でも落ちない', hoursFromNow([], '2026-08-11T21:00'), []);
 
 /* ---- 1 行の結論 ---- */
-// 降水量が届かない経路（古いキャッシュなど）。確率だけで判断する
-const withPop = (list) => list.map((p, i) => ({ hour: i, precip_chance: p }));
-// 降水量つき（本来の経路）。[確率, mm] の組で渡す
-const withMm = (list) => list.map(([p, mm], i) => ({ hour: i, precip_chance: p, precip_mm: mm }));
+// 予想雨量だけで判断する（D-111）。降水確率は出すのをやめた
+const mmRows = (list) => list.map((mm, i) => ({ hour: i, precip_mm: mm }));
 
-eq('全部低ければ「心配は少ない」', rainOutlook(withPop([0, 5, 10, 2])).key, 'none');
-check('最大値も出す', rainOutlook(withPop([0, 5, 10, 2])).text.includes('10%'),
-  rainOutlook(withPop([0, 5, 10, 2])).text);
+eq('雨の予想が無ければそう書く', rainOutlook(mmRows([0, 0, 0, 0])).key, 'none');
+check('何時間ぶん見たかを書く', rainOutlook(mmRows([0, 0, 0, 0])).text.includes('4 時間'),
+  rainOutlook(mmRows([0, 0, 0, 0])).text);
 
-// 1 時間だけ跳ねた値で「雨になる」と言わない。次の時間も続いていることを見る
-eq('1 時間だけ 60% なら「かもしれない」', rainOutlook(withPop([0, 0, 60, 0])).key, 'maybe');
-eq('2 時間続けば「雨になりそう」', rainOutlook(withPop([0, 0, 60, 55])).key, 'rain');
-check('何時からかを出す', rainOutlook(withPop([0, 0, 60, 55])).text.includes('2時'),
-  rainOutlook(withPop([0, 0, 60, 55])).text);
-check('いちばん高い時刻も出す', rainOutlook(withPop([0, 0, 60, 90])).text.includes('3時'),
-  rainOutlook(withPop([0, 0, 60, 90])).text);
-eq('30% 台だけなら「にわか雨」', rainOutlook(withPop([0, 35, 35, 0])).key, 'maybe');
+/* **1 時間だけの弱い雨で見出しを出さない。**
+   1 時間だけ 0.2mm の予想で「雨になりそう」と言うと、行くのをやめてしまう */
+eq('1 時間だけ 0.2mm なら言い切らない', rainOutlook(mmRows([0, 0, 0.2, 0])).key, 'maybe');
+check('少し降るかも、とは書く',
+  rainOutlook(mmRows([0, 0, 0.2, 0])).text.includes('2時ごろに少し降るかもしれません'),
+  rainOutlook(mmRows([0, 0, 0.2, 0])).text);
+// 1 時間でも量があれば出す（通り雨）
+check('1 時間でも量があれば出す',
+  rainOutlook(mmRows([0, 0, 3.0, 0])).text.startsWith('2時ごろから'),
+  rainOutlook(mmRows([0, 0, 3.0, 0])).text);
+// 弱くても 2 時間続けば出す
+check('弱くても 2 時間続けば出す',
+  rainOutlook(mmRows([0, 0.2, 0.2, 0])).text.startsWith('1時ごろから'),
+  rainOutlook(mmRows([0, 0.2, 0.2, 0])).text);
+check('終わりと最大の量も出す',
+  rainOutlook(mmRows([0, 0, 2.4, 3.1, 0])).text.includes('4時ごろまで')
+  && rainOutlook(mmRows([0, 0, 2.4, 3.1, 0])).text.includes('3.1mm/h'),
+  rainOutlook(mmRows([0, 0, 2.4, 3.1, 0])).text);
 
-eq('降水確率が 1 つも無ければ出さない',
-  rainOutlook([{ hour: 0, precip_chance: null }]), null);
+eq('雨量が 1 つも無ければ出さない', rainOutlook([{ hour: 0, precip_mm: null }]), null);
 eq('空でも落ちない', rainOutlook([]), null);
 eq('null でも落ちない', rainOutlook(null), null);
 
-/* ---- 「いま」と「量」（D-107） ----
-   12:05 に見て「12 時ごろから雨になりそうです」と出ていた。
-   先頭がいまの時間帯なら、始まりではなく**いま降っていること**と**終わり**を出す。 */
-const nowRain = withMm([[94, 1.2], [91, 0.8], [86, 0.3], [82, 0], [80, 0]]);
-eq('いま降っているなら「いま雨」', rainOutlook(nowRain, { startsNow: true }).key, 'rain');
-check('「いま雨が降っています」と書く',
-  rainOutlook(nowRain, { startsNow: true }).text.startsWith('いま雨が降っています'),
+/* ---- 「いま」の書き方（D-111 で D-107 を直した） ----
+   1 時間ぶんの予想雨量から「いま降っている」とは言えない。
+   実際、16 時台に降って 17 時前に上がった雨を 17:09 に
+   「いま雨が降っています」と書いて外した。**時間帯の予報として書く。** */
+const nowRain = mmRows([1.2, 0.8, 0.3, 0, 0]);
+eq('いまの時間帯が雨なら rain', rainOutlook(nowRain, { startsNow: true }).key, 'rain');
+check('**「いま降っています」とは書かない**',
+  !rainOutlook(nowRain, { startsNow: true }).text.includes('いま雨が降っています'),
+  rainOutlook(nowRain, { startsNow: true }).text);
+check('「◯時台は雨の予想です」と書く',
+  rainOutlook(nowRain, { startsNow: true }).text.startsWith('0時台は雨の予想です'),
   rainOutlook(nowRain, { startsNow: true }).text);
 check('**いつやむか**を書く',
   rainOutlook(nowRain, { startsNow: true }).text.includes('3時ごろにやみそう'),
@@ -144,60 +162,38 @@ eq('やむ時刻も返す', rainOutlook(nowRain, { startsNow: true }).until.hour
 check('先の日なら「0時ごろから」',
   rainOutlook(nowRain).text.startsWith('0時ごろから'), rainOutlook(nowRain).text);
 
-const allRain = withMm([[90, 1.0], [90, 1.0], [90, 1.0]]);
 check('窓の端まで降り続くなら、やむ時刻は書かない',
-  rainOutlook(allRain, { startsNow: true }).text.includes('降り続きそう')
-  && rainOutlook(allRain, { startsNow: true }).until === null,
-  rainOutlook(allRain, { startsNow: true }).text);
+  rainOutlook(mmRows([1.0, 1.0, 1.0]), { startsNow: true }).text.includes('降り続きそう')
+  && rainOutlook(mmRows([1.0, 1.0, 1.0]), { startsNow: true }).until === null,
+  rainOutlook(mmRows([1.0, 1.0, 1.0]), { startsNow: true }).text);
 
-// いまは降っていないが、あとで降る
-const later = withMm([[40, 0], [60, 0], [85, 2.4], [85, 3.1], [50, 0]]);
-check('あとで降るなら「◯時ごろから」',
-  rainOutlook(later, { startsNow: true }).text.startsWith('2時ごろから'),
-  rainOutlook(later, { startsNow: true }).text);
-check('終わりと最大の量も出す',
-  rainOutlook(later, { startsNow: true }).text.includes('4時ごろまで')
-  && rainOutlook(later, { startsNow: true }).text.includes('3.1mm/h'),
-  rainOutlook(later, { startsNow: true }).text);
-
-/* **確率は高いのに量はゼロ**。蒸し暑い不安定な空でよく出る。
-   ここで「雨になりそう」と言うと、モデルが降ると言っていない雨を宣言してしまう。
-   実際 2026-08-12 の遠州灘がこれで、94% ・ 0.0mm だった。 */
-const popOnly = withMm([[94, 0], [91, 0], [86, 0], [82, 0]]);
-eq('量がゼロなら言い切らない', rainOutlook(popOnly, { startsNow: true }).key, 'maybe');
-check('確率が高いことは伝える',
-  rainOutlook(popOnly, { startsNow: true }).text.includes('94%')
-  && rainOutlook(popOnly, { startsNow: true }).text.includes('まとまった雨の予想はありません'),
-  rainOutlook(popOnly, { startsNow: true }).text);
-// 0.05mm のような端数で「降っている」と言わない
-eq('ごく少ない量は降っていない扱い',
-  rainOutlook(withMm([[80, 0.05], [80, 0.05]]), { startsNow: true }).key, 'maybe');
-
-/* **1 時間だけの弱い雨で見出しを出さない。** 確率のときと同じ考え方。
-   実際 2026-08-12 の遠州灘は、21 時に 0.2mm が 1 時間だけ立っていた。
-   これで「21 時ごろから雨になりそう」と出すと、行くのをやめてしまう。 */
-eq('1 時間だけ 0.2mm なら見出しにしない',
-  rainOutlook(withMm([[90, 0], [90, 0], [84, 0.2], [80, 0]]), { startsNow: true }).key, 'maybe');
-// 量がまとまっていれば 1 時間でも出す（通り雨）
-check('1 時間でも量があれば出す',
-  rainOutlook(withMm([[40, 0], [40, 0], [84, 3.0], [40, 0]]), { startsNow: true })
-    .text.startsWith('2時ごろから'),
-  rainOutlook(withMm([[40, 0], [40, 0], [84, 3.0], [40, 0]]), { startsNow: true }).text);
-// 弱くても 2 時間続けば出す
-check('弱くても 2 時間続けば出す',
-  rainOutlook(withMm([[40, 0], [84, 0.2], [84, 0.2], [40, 0]]), { startsNow: true })
-    .text.startsWith('1時ごろから'),
-  rainOutlook(withMm([[40, 0], [84, 0.2], [84, 0.2], [40, 0]]), { startsNow: true }).text);
-// いま降っているなら、弱くても 1 時間でも言う（もう濡れているので）
-check('いまの雨は弱くても言う',
-  rainOutlook(withMm([[84, 0.2], [40, 0], [40, 0]]), { startsNow: true })
-    .text.startsWith('いま雨が降っています'),
-  rainOutlook(withMm([[84, 0.2], [40, 0], [40, 0]]), { startsNow: true }).text);
-
-// 量が届いていない経路では、いままでどおり確率で判断する
-check('量が無ければ確率で判断（いま降っている）',
-  rainOutlook(withPop([80, 80, 20]), { startsNow: true }).text.startsWith('いま雨が降っていそう'),
-  rainOutlook(withPop([80, 80, 20]), { startsNow: true }).text);
+/* ---- 1 時間値の時刻の意味（D-111） ----
+   **これが今回いちばん効いた取り違え。**
+   Open-Meteo は気温を「その時刻の値」、雨量・天気記号・突風を
+   「その時刻までの 1 時間」で返す。同じ 1 行の中で意味が違う。
+   「H 時のカード」は H:00〜H+1:00 のことなので、区間の値は 1 つ後ろから取る。 */
+const raw = {
+  time: ['2026-08-12T16:00', '2026-08-12T17:00', '2026-08-12T18:00'],
+  temperature_2m_jma_seamless: [29, 27, 26],
+  precipitation_jma_seamless: [0.1, 2.6, 0.5],   // 17:00 の 2.6 は 16〜17 時に降ったぶん
+  weather_code_jma_seamless: [3, 63, 61],
+  wind_speed_10m_jma_seamless: [7, 7.7, 6.4],
+  wind_direction_10m_jma_seamless: [90, 90, 90],
+  wind_gusts_10m_jma_seamless: [12, 15, 13],
+};
+const mapped = mapHourly(raw);
+eq('最後の 1 時間は落とす（区間の値が無いので）', mapped.length, 2);
+eq('気温はその時刻の値のまま', mapped.map((r) => r.temp_c), [29, 27]);
+eq('風速もその時刻の値のまま', mapped.map((r) => r.wind_speed_ms), [7, 7.7]);
+// **16 時のカードの雨量は 16〜17 時ぶん = API の 17:00 の値**
+eq('雨量は 1 つ後ろから取る', mapped.map((r) => r.precip_mm), [2.6, 0.5]);
+eq('天気記号も 1 つ後ろから取る', mapped.map((r) => r.weather_code), [63, 61]);
+eq('突風も 1 つ後ろから取る', mapped.map((r) => r.wind_gust_ms), [15, 13]);
+// 取り違えていたときの値。ここに戻ったら気づけるようにしておく
+check('**16 時台の雨を 17 時台のものとして出さない**',
+  mapped[1].precip_mm !== 2.6, `17 時のカードの雨量 ${mapped[1].precip_mm}mm`);
+eq('1 時間しか無ければそのまま返す（落とし切らない）',
+  mapHourly({ time: ['2026-08-12T16:00'], precipitation_jma_seamless: [0.4] }).length, 1);
 
 console.log(failed ? `\n${failed} 件 FAIL` : '\nすべて PASS');
 process.exit(failed ? 1 : 0);
