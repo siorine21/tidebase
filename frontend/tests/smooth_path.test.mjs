@@ -5,13 +5,10 @@
  * app.js はブラウザ前提（window.supabase 等）なので import できない。
  * 対象の関数だけをソースから切り出して評価する。
  */
-import fs from 'node:fs';
-// app.js から smoothPath だけ取り出して評価する
-const src = fs.readFileSync(new URL('../assets/app.js', import.meta.url), 'utf8');
-const start = src.indexOf('export function smoothPath');
-const end = src.indexOf('const WEEKDAYS_SHORT');
-const code = src.slice(start, end).replace('export function', 'function');
-const smoothPath = new Function(code + '; return smoothPath;')();
+import { sliceApp } from './_slice.mjs';
+// app.js から smoothPath だけ取り出して評価する（範囲は「次の export まで」）
+const smoothPath = new Function(sliceApp(['export function smoothPath'])
+  + '; return smoothPath;')();
 
 // 3 次ベジェを評価して、実際の曲線が元データの範囲を超えないか調べる
 function evalPath(d, steps = 40) {

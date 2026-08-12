@@ -11,20 +11,13 @@
  * app.js はブラウザ前提（window.supabase 等）なので import できない。
  * 対象の関数だけをソースから切り出して評価する。
  */
-import fs from 'node:fs';
+import { sliceApp } from './_slice.mjs';
 
-const src = fs.readFileSync(new URL('../assets/app.js', import.meta.url), 'utf8');
-const slice = (from, to) => {
-  const start = src.indexOf(from);
-  const end = to ? src.indexOf(to, start) : src.length;
-  if (start < 0 || end < 0) throw new Error(`切り出せない: ${from}`);
-  return src.slice(start, end);
-};
-const code = [
-  slice('export function hoursFromHhmm', '/* ---------------- 釣行スコア'),
-  slice('export function hoursOfDate', '/** "HH:MM" にいちばん近い時刻の予報'),
-  slice('export const MAZUME_WINDOW_MINUTES', '/* ---- 潮の動きによる加減点'),
-].join('\n').replaceAll('export function', 'function').replaceAll('export const', 'const');
+const code = sliceApp([
+  ['export function hoursFromHhmm', '/* ---------------- 釣行スコア'],
+  ['export function hoursOfDate', '/** "HH:MM" にいちばん近い時刻の予報'],
+  ['export const MAZUME_WINDOW_MINUTES', '/* ---- 潮の動きによる加減点'],
+]);
 
 const { hoursOfDate, bandHours, timeBandOf } = new Function(
   code + '; return { hoursOfDate, bandHours, timeBandOf };')();

@@ -10,22 +10,15 @@
  * 時刻の読み取り（hoursFromHhmm）は実物を一緒に切り出す。
  * ここを差し替えると、境目の試験が本物を見なくなる。
  */
-import fs from 'node:fs';
+import { sliceApp } from './_slice.mjs';
 
-const src = fs.readFileSync(new URL('../assets/app.js', import.meta.url), 'utf8');
-const slice = (from, to) => {
-  const start = src.indexOf(from);
-  const end = to ? src.indexOf(to, start) : src.length;
-  if (start < 0 || end < 0) throw new Error(`切り出せない: ${from}`);
-  return src.slice(start, end);
-};
-const code = [
-  slice('export function hoursFromHhmm', '/* ---------------- 釣行スコア'),
+const code = sliceApp([
+  ['export function hoursFromHhmm', '/* ---------------- 釣行スコア'],
   // 時間帯は釣行スコアと共通なので、マヅメの節にある（D-103）
-  slice('export const MAZUME_WINDOW_MINUTES', '/**\n * 時間帯ごとに、点を出す候補'),
-  slice('export function tally', 'export function tideTypeDays'),
-  slice('export function tideTypeDays', '\n}\n') + '\n}\n',
-].join('\n').replaceAll('export function', 'function').replaceAll('export const', 'const');
+  ['export const MAZUME_WINDOW_MINUTES', '/**\n * 時間帯ごとに、点を出す候補'],
+  ['export function tally', 'export function tideTypeDays'],
+  ['export function tideTypeDays', '\n/* ================'],
+]);
 
 const { TIME_BANDS, timeBandOf, tally, tideTypeDays } = new Function(
   code + '; return { TIME_BANDS, timeBandOf, tally, tideTypeDays };')();

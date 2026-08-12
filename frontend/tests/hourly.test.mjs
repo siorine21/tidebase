@@ -16,20 +16,14 @@
  * 対象の関数だけをソースから切り出して評価する。
  */
 import fs from 'node:fs';
+import { sliceApp, END } from './_slice.mjs';
 
-const src = fs.readFileSync(new URL('../assets/app.js', import.meta.url), 'utf8');
-const slice = (from, to) => {
-  const start = src.indexOf(from);
-  const end = to ? src.indexOf(to, start) : src.length;
-  if (start < 0 || end < 0) throw new Error(`切り出せない: ${from}`);
-  return src.slice(start, end);
-};
-const code = [
-  'const WEATHER_MODEL_ORDER = ["jma_seamless", "best_match"];',
 
-  slice('export function forecastSeries', '/**\n * **複数地点**'),
-  slice('export function windArrowDeg'),
-].join('\n').replaceAll('export function', 'function').replaceAll('export const', 'const');
+const code = sliceApp([
+  ['export function forecastSeries', '/**\n * **複数地点**'],
+  // windArrowDeg 以降は末尾まで（rainLevel / rainOutlook / mapHourly が要る）
+  ['export function windArrowDeg', END],
+], 'const WEATHER_MODEL_ORDER = ["jma_seamless", "best_match"];');
 
 const { forecastSeries, mapHourly, windArrowDeg, windLevel, rainLevel, rainOutlook, hoursFromNow } =
   new Function(code + `; return { forecastSeries, mapHourly, windArrowDeg,

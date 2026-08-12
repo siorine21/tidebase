@@ -12,14 +12,9 @@
  * 対象の関数だけをソースから切り出して評価する。
  */
 import fs from 'node:fs';
+import { sliceApp } from './_slice.mjs';
 
-const src = fs.readFileSync(new URL('../assets/app.js', import.meta.url), 'utf8');
-const slice = (from, to) => {
-  const start = src.indexOf(from);
-  const end = to ? src.indexOf(to, start) : src.length;
-  if (start < 0 || end < 0) throw new Error(`切り出せない: ${from}`);
-  return src.slice(start, end);
-};
+
 
 let failed = 0;
 const check = (name, ok, extra = '') => {
@@ -33,10 +28,9 @@ const eq = (name, got, want) =>
    年を省くかどうかがこれで決まるため、ここを実時刻に任せると
    年が変わった瞬間にテストが落ちる（あるいは通らなくなる）。 */
 const build = (todayIso) => {
-  const code = [
-    `function todayInJst() { return ${JSON.stringify(todayIso)}; }`,
-    slice('export const WEEKDAYS_EN', '/** 「4日前」'),
-  ].join('\n').replaceAll('export function', 'function').replaceAll('export const', 'const');
+  const code = sliceApp(
+    [['export const WEEKDAYS_EN', '/** 「4日前」']],
+    `function todayInJst() { return ${JSON.stringify(todayIso)}; }`);
   return new Function(code + '; return { formatJstDate, WEEKDAYS_EN };')();
 };
 const { formatJstDate, WEEKDAYS_EN } = build('2026-08-12');

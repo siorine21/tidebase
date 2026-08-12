@@ -11,24 +11,18 @@
  * 対象の関数だけをソースから切り出して評価する。
  */
 import fs from 'node:fs';
+import { sliceApp } from './_slice.mjs';
 
-const src = fs.readFileSync(new URL('../assets/app.js', import.meta.url), 'utf8');
-const slice = (from, to) => {
-  const start = src.indexOf(from);
-  const end = to ? src.indexOf(to, start) : src.length;
-  if (start < 0 || end < 0) throw new Error(`切り出せない: ${from}`);
-  return src.slice(start, end);
-};
-const code = [
-  slice('export function pickBaseSpot', ' * お気に入りの潮汐地点'),
+
+const code = sliceApp([
+  ['export function pickBaseSpot', ' * お気に入りの潮汐地点'],
   // spotTidePoint が呼ぶ相手。ファイル上はこちらが後ろにある
-  slice('/** スポットに紐付いた潮汐地点', '/**\n * 潮汐地点の推算値'),
+  ['/** スポットに紐付いた潮汐地点', '/**\n * 潮汐地点の推算値'],
   // 一覧の並び（D-108）。spotType と SPOT_TYPES も要る
-  slice('export const SPOT_TYPES = [', '/* 立ち位置（D-099'),
-  slice('export function spotType(value)', '/**\n * スポットを種別ごとに'),
-  slice('export function groupSpotsByType', '\n/**'),
-].join('\n').replaceAll('export function', 'function')
-  .replaceAll('export const', 'const').replace(/\/\*\*\s*$/, '');
+  ['export const SPOT_TYPES = [', '/* 立ち位置（D-099'],
+  ['export function spotType(value)', '/**\n * スポットを種別ごとに'],
+  ['export function groupSpotsByType', '\n/**'],
+]).replace(/\/\*\*\s*$/, '');
 
 const { pickBaseSpot, spotTidePoint, tidePointOfSpot, groupSpotsByType } = new Function(
   code + '; return { pickBaseSpot, spotTidePoint, tidePointOfSpot, groupSpotsByType };')();
