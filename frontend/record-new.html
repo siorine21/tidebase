@@ -126,16 +126,23 @@
         <input type="date" id="fished-at">
       </div>
       <div class="field">
-        <label for="fished-time">釣れた時刻（任意）</label>
+        <label for="fished-time">釣れた時刻</label>
         <div class="time-row">
           <input type="time" id="fished-time">
           <button type="button" class="chip" id="time-now">今</button>
         </div>
-        <div class="hint">入力すると、その時刻の潮位を記録します</div>
+        <!-- 開いた時刻を初期値に入れる（D-106・D-044 の既定を取り消し） -->
+        <div class="hint">開いた時刻が入っています。違うときは直してください（この時刻の潮位を残します）</div>
       </div>
     </div>
+    <!-- スポットは地図と一覧の両方から選べる（D-106）。
+         地図は 1 つで、ピンを押せば選択、何もない所を押せば新規登録が開く -->
     <div class="field">
       <label>スポット</label>
+      <!-- 地名検索（D-069）。地図の外・上に置く -->
+      <div id="spot-place-search" style="margin-bottom:8px"></div>
+      <div class="map-box map-pick" id="spot-map"></div>
+      <div class="pick-current" id="pick-current" hidden></div>
       <div id="spot-list"><div class="empty">読み込み中…</div></div>
     </div>
     <details id="new-spot">
@@ -143,11 +150,8 @@
       <div style="margin-top:12px">
         <div class="field"><label for="spot-name">スポット名</label><input type="text" id="spot-name" maxlength="100"></div>
         <div class="field">
-          <label>位置（地名で探すか、地図をタップしてピンを立てる）</label>
-          <!-- 地名検索（D-069）。地図の外・上に置く -->
-          <div id="spot-place-search" style="margin-bottom:8px"></div>
-          <div class="map-box" id="spot-map" style="margin-bottom:6px"></div>
-          <div class="page-sub" id="spot-coords">地図をタップすると、その場所にピンが立ちます。</div>
+          <label>位置</label>
+          <div class="page-sub" id="spot-coords">上の地図の、何も無いところをタップするとピンが立ちます。</div>
         </div>
         <!-- スポットマップ側の登録と同じ項目にする（D-078）。
              ここで種別を入れられないと、一覧の種別ごとの並びで「未設定」に落ちる -->
@@ -208,7 +212,9 @@
     </div>
   </section>
 
-  <div class="actions">
+  <!-- 下に固定する（D-106）。スポットが増えると一覧だけで 1 画面を超えるので、
+       進むたびに一番下までスクロールする必要が出ていた -->
+  <div class="actions wizard-actions">
     <button type="button" class="btn btn-quiet" id="prev" hidden>← 戻る</button>
     <button type="button" class="btn" id="next">次へ →</button>
     <button type="button" class="btn" id="submit" hidden>この内容で記録する</button>
@@ -223,7 +229,7 @@
     client, requireSession, renderNav, escapeHtml, toJapaneseError, requireUserId,
     todayInJst, nowInJst, listSpots, listSpecies, listRecipes, suggestFishName, icon,
     groupSpeciesByCategory, createMap, spotMarker, LURE_CATEGORIES, attachPlaceSearch,
-    SPOT_TYPES, WATER_TYPES, ENTRY_STYLES, entryStyle,
+    SPOT_TYPES, WATER_TYPES, ENTRY_STYLES, entryStyle, isCoordinateInJapan,
     listTackle, TACKLE_KINDS,
     listRecordPhotos, preparePhoto, uploadPreparedPhoto, looksLikeImage,
     captureWeatherSnapshot,
@@ -257,7 +263,16 @@
     document.title = "EDIT CATCH | TIDEBASE";
     document.getElementById("submit").textContent = "変更を保存する";
   }
+  /* 釣行日と釣れた時刻の初期値（D-106）。
+     **新規登録のときだけ、開いた時刻を入れる。** D-044 は「帰ってから入力したときに
+     間違った時刻が黙って入る」ことを嫌って空にしていたが、実際は釣った直後に
+     開くことが多く、毎回「今」を押すほうが手間だった。本人の判断で取り消す。
+     **編集（?id=）では入れない。** 元の時刻が届くまでの一瞬「いまの時刻」が見え、
+     もし読み込みに失敗したら、その嘘の時刻が残ったままになる。
+     openedTime は「触られたか」の判定に使う（hasInput）。 */
   document.getElementById("fished-at").value = todayInJst();
+  const openedTime = recordId ? null : nowInJst().hhmm;
+  if (openedTime) document.getElementById("fished-time").value = openedTime;
   renderStepper();
 
   const [species, recipes, spots, tackle] = await Promise.all([
@@ -434,6 +449,10 @@
     document.getElementById("prev").hidden = step === 1;
     document.getElementById("next").hidden = step === 5;
     document.getElementById("submit").hidden = step !== 5;
+    /* 地図は**このステップを出してから**作る（D-106）。
+       Leaflet は hidden の箱の寸法を測れないので、先に作ると真っ白になる。
+       前は「新しいスポットを登録」を開いたときに作っていた */
+    if (step === 3) initSpotMap();
     if (step === 5) renderSummary();
     renderStepper();
     window.scrollTo(0, 0);
@@ -619,53 +638,99 @@
     }).join("");
   }
 
-  function selectSpot(item) {
-    state.spotId = item.dataset.id;
+  /** 選択を一覧・地図・見出しの 3 か所へ反映する。**選択の入口はここだけ**（D-106）。 */
+  function selectSpot(id, { fly = false } = {}) {
+    state.spotId = id;
     document.querySelectorAll(".spot-option").forEach((el) => {
-      el.style.borderColor = "";
-      el.querySelector(".select-mark").textContent = "";
+      const on = el.dataset.id === id;
+      el.style.borderColor = on ? "var(--mustard)" : "";
+      el.querySelector(".select-mark").innerHTML = on ? icon("check", { size: 16 }) : "";
     });
-    item.style.borderColor = "var(--mustard)";
-    item.querySelector(".select-mark").innerHTML = icon("check", { size: 16 });
+    const spot = knownSpots.find((s) => s.id === id) ?? null;
+    const box = document.getElementById("pick-current");
+    box.hidden = !spot;
+    if (spot) {
+      box.innerHTML = `${icon("check", { size: 13 })}<span>選択中:</span>`
+        + `<span class="name">${escapeHtml(spot.name ?? "無名スポット")}</span>`;
+    }
+    drawSpotPins();
+    // 一覧から選んだときは地図をその場所へ寄せる（地図から選んだときは動かさない）
+    if (fly && spotMap && spot && isCoordinateInJapan(spot.latitude, spot.longitude)) {
+      spotMap.setView([spot.latitude, spot.longitude], Math.max(spotMap.getZoom(), 13));
+    }
   }
 
   document.getElementById("spot-list").addEventListener("click", (e) => {
     const item = e.target.closest(".spot-option");
     if (!item) return;
-    selectSpot(item);
+    selectSpot(item.dataset.id, { fly: true });
     saveDraft();
   });
 
-  /* ---------- 新規スポットは地図でピンを立てて登録する ---------- */
+  /* ---------- スポットの地図（D-106） ----------
+     **1 つの地図で「選ぶ」と「作る」の両方をやる。**
+     ピンを押せば選択、何もない所を押せば新規登録が開いてそこにピンが立つ。
+     前は登録専用の地図が details の中にだけあり、選ぶときは文字の一覧しか無かった。 */
   const draft = { lat: null, lng: null };
   let spotMap = null;
   let spotPin = null;
+  let pinLayer = null;
 
-  // details を開いたときに初期化する（非表示のままだと Leaflet がサイズを測れない）
-  document.getElementById("new-spot").addEventListener("toggle", (e) => {
-    if (e.currentTarget.open) initSpotMap();
-  });
+  // 位置未設定（旧フォームで 0,0 になったもの）は地図に載せられない
+  const positioned = () => knownSpots.filter((s) => isCoordinateInJapan(s.latitude, s.longitude));
 
   function initSpotMap() {
     if (spotMap) { setTimeout(() => spotMap.invalidateSize(), 50); return; }
-    const base = spots[0];
+    const onMap = positioned();
     // スポットがなければ静岡県（浜名湖〜遠州灘）を初期表示する
-    const created = createMap("spot-map", base
-      ? { center: [base.latitude, base.longitude], zoom: 13, lock: true }
+    const created = createMap("spot-map", onMap.length
+      ? { center: [onMap[0].latitude, onMap[0].longitude], zoom: 13, lock: true }
       : { lock: true });
     spotMap = created.map;
-    // 登録済みスポットも表示して、同じ場所を重複登録しにくくする
-    for (const s of spots) {
-      L.marker([s.latitude, s.longitude], { icon: spotMarker(s, { label: false }) }).addTo(spotMap);
+    pinLayer = L.layerGroup().addTo(spotMap);
+    drawSpotPins();
+    if (onMap.length > 1) {
+      spotMap.fitBounds(L.latLngBounds(onMap.map((s) => [s.latitude, s.longitude])),
+        { padding: [30, 30], maxZoom: 13 });
     }
-    spotMap.on("click", (e) => placePin(e.latlng.lat, e.latlng.lng));
+    /* 何もない所を押したら新規登録。**選択中のスポットは変えない**。
+       ピンを狙って少しずれても、選んだ場所が消えないようにする */
+    spotMap.on("click", (e) => {
+      document.getElementById("new-spot").open = true;
+      placePin(e.latlng.lat, e.latlng.lng);
+    });
+    // ズームが変わるとラベルの出し方が変わる（spots.html と同じ）
+    spotMap.on("zoomend", () => drawSpotPins());
     setTimeout(() => spotMap.invalidateSize(), 50);
+  }
+
+  /** 登録済みスポットのピンを引き直す。選択中のものだけラベルを出す。 */
+  function drawSpotPins() {
+    if (!pinLayer) return;
+    pinLayer.clearLayers();
+    const showLabels = spotMap.getZoom() >= 12;
+    for (const s of positioned()) {
+      const selected = s.id === state.spotId;
+      L.marker([s.latitude, s.longitude], {
+        icon: spotMarker(s, { label: showLabels || selected }),
+        zIndexOffset: selected ? 1000 : 0,
+      })
+        .addTo(pinLayer)
+        // ピンを押したら選択。地図は動かさない（押した場所が見えているので）
+        .on("click", (e) => {
+          L.DomEvent.stopPropagation(e);      // 地図の click（＝新規登録）へ流さない
+          selectSpot(s.id);
+          saveDraft();
+        });
+    }
   }
 
   /* 地名で位置を探す（D-069）。マップ画面と同じ部品を使う。
      見つかったらピンまで置いて、スポット名も空なら入れておく */
   attachPlaceSearch(document.getElementById("spot-place-search"), (hit) => {
     initSpotMap();            // 何度呼んでも 1 回しか作らない
+    // 地名で探すのは「そこに新しく登録したい」ときなので、登録欄も開く
+    document.getElementById("new-spot").open = true;
     spotMap.setView([hit.lat, hit.lng], 16);
     placePin(hit.lat, hit.lng);
     const nameInput = document.getElementById("spot-name");
@@ -686,7 +751,7 @@
     draft.lat = null; draft.lng = null;
     if (spotPin) { spotPin.remove(); spotPin = null; }
     document.getElementById("spot-coords").textContent =
-      "地図をタップすると、その場所にピンが立ちます。";
+      "上の地図の、何も無いところをタップするとピンが立ちます。";
   }
 
   document.getElementById("use-gps").addEventListener("click", () => {
@@ -705,7 +770,7 @@
   document.getElementById("save-spot").addEventListener("click", async (e) => {
     const name = document.getElementById("spot-name").value.trim();
     if (!name) return message("スポット名を入力してください。", "error");
-    if (draft.lat == null) return message("地図をタップしてピンを立ててください。", "error");
+    if (draft.lat == null) return message("上の地図をタップしてピンを立ててください。", "error");
 
     const button = e.currentTarget;
     button.disabled = true; button.textContent = "登録中…";
@@ -731,8 +796,6 @@
     const updated = await listSpots();
     knownSpots = updated;
     renderSpots(updated);
-    state.spotId = data.id;
-    document.querySelector(`.spot-option[data-id="${data.id}"]`)?.click();
     document.getElementById("spot-name").value = "";
     document.getElementById("spot-lowtide").checked = false;
     newSpot.type = null;
@@ -740,8 +803,9 @@
     document.querySelectorAll("#spot-type-chips .chip, #spot-entry-chips .chip")
       .forEach((c) => c.classList.remove("selected"));
     clearPin();
-    // 登録済みとして地図に残す（次に開いたときも見える）
-    L.marker([data.latitude, data.longitude], { icon: spotMarker(data, { label: false }) }).addTo(spotMap);
+    // 登録したスポットをそのまま選ぶ。地図のピンは selectSpot が引き直す
+    selectSpot(data.id);
+    saveDraft();
     document.getElementById("new-spot").open = false;
     message("スポットを登録しました。", "success");
   });
@@ -998,11 +1062,15 @@
     };
   }
 
-  // 釣行日は初期値が入るので、それ以外に入力があるときだけ「入力途中」とみなす
+  /* 釣行日と釣れた時刻は初期値が入るので、それ以外に入力があるときだけ
+     「入力途中」とみなす。時刻は**開いたときの値から変わっていれば**入力あり
+     （D-106。ここを直さないと、開いただけで下書きが残り、
+     次に開いたとき「入力途中の内容を復元しました」が毎回出る） */
   function hasInput(d) {
     return Boolean((d.outcome && d.outcome !== "landed") || d.spotId || d.layer || d.displayName || d.memo
       || d.species || d.length || d.weight || d.quantityNote
-      || d.recipe || d.lureLarge || d.rod || d.reel || d.line || d.leader || d.fishedTime);
+      || d.recipe || d.lureLarge || d.rod || d.reel || d.line || d.leader
+      || (d.fishedTime && d.fishedTime !== openedTime));
   }
 
   function saveDraft() {
@@ -1043,10 +1111,8 @@
     renderTackle();          // 復元した値を選択式にも反映する
     markChip("layer-chips", state.layer);
     markChip("visibility-chips", state.visibility);
-    if (state.spotId) {
-      const item = document.querySelector(`.spot-option[data-id="${state.spotId}"]`);
-      if (item) selectSpot(item);
-    }
+    // 一覧・地図・見出しの 3 か所へまとめて反映する（D-106）
+    if (state.spotId) selectSpot(state.spotId);
   }
 
   function markChip(containerId, value) {

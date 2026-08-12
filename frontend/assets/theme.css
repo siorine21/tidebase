@@ -587,6 +587,32 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .step-label { font-size: 10px; color: var(--text-muted); }
 .step-label.active { color: var(--mustard); }
 
+/* ウィザードの「戻る / 次へ / 記録する」を下に固定する（D-106）。
+   スポットが増えて STEP3 の一覧だけで 1 画面を超えるようになり、
+   進むたびに一番下までスクロールする必要が出ていた。
+   #edit-panel .actions（スポット編集の保存）と同じ作りにしてある。
+   **登録パネルの中の .actions（現在地にピン / スポットを登録）は固定しない**ので、
+   main > .actions のような選択子ではなくこの class で当てる。 */
+.wizard-actions {
+  position: sticky; z-index: 10;
+  bottom: calc(76px + env(safe-area-inset-bottom));
+  margin: 18px -16px 0; padding: 12px 16px;
+  /* 背景と上境界が要る。透けると下の入力欄と重なって読めない */
+  background: var(--bg-dark); border-top: 1px solid var(--border);
+}
+
+/* STEP3 のスポットを選ぶ地図（D-106）。
+   .map-box の 150px では 17 件のスポットを見渡せないので少し高くする。 */
+.map-box.map-pick { height: 220px; }
+
+/* いまどのスポットを選んでいるか。一覧の中を探さなくても分かるようにする */
+.pick-current {
+  display: flex; align-items: center; gap: 6px;
+  margin: -8px 0 10px; font-size: 12px; color: var(--text-secondary);
+}
+.pick-current .name { color: var(--mustard); }
+.pick-current[hidden] { display: none; }
+
 /* 入力途中の下書きを復元したときの通知 */
 /* ---------- グループ共有（他人の釣果） ---------- */
 /* 自分の記録との違いは色ではなく「名前が付いているか」で分かるようにする。
