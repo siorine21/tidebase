@@ -1687,7 +1687,14 @@ export async function listRecords({ limit = 50, spotId = null } = {}) {
   let query = client
     .from("record_feed")
     .select("*")
+    /* **釣れた日時の降順**（D-106）。
+       fished_at は date で、時刻は別列の fished_time に入っている。
+       日付だけで並べると、同じ日の中は created_at＝**登録した順**になり、
+       あとから時刻を直しても並びが変わらなかった。
+       時刻の無い記録はその日の先頭に置く（本人の指定）。
+       created_at は同じ日・同じ時刻のときの最後の同着解消として残す。 */
     .order("fished_at", { ascending: false })
+    .order("fished_time", { ascending: false, nullsFirst: true })
     .order("created_at", { ascending: false })
     .limit(limit);
   if (spotId) query = query.eq("spot_id", spotId);
