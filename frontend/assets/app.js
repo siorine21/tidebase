@@ -2535,6 +2535,35 @@ export function spotType(value) {
     ?? { value: null, label: "未設定", color: "#9AA5B1", iconName: "map-pin" };
 }
 
+/* 種別の並び（D-108）。海 → 汽水 → 淡水（SPOT_TYPES のとおり）。
+   **管理釣り場だけは最後に置く。** SPOT_TYPES の並びが変わっても最後に来るよう、
+   明示的に外して足す。未設定はその手前。
+   もとはスポットマップの中だけにあった。スポットを選ぶところが 3 画面に増えたので
+   共通に出す（同じ並びが 3 通りあると、どれが正か分からなくなる）。 */
+const SPOT_TYPE_PINNED_LAST = "managed";
+export const SPOT_TYPE_ORDER = [
+  ...SPOT_TYPES.map((t) => t.value).filter((v) => v !== SPOT_TYPE_PINNED_LAST),
+  null,                       // 種別未設定
+  SPOT_TYPE_PINNED_LAST,
+];
+
+/**
+ * スポットを種別ごとにまとめる（D-108）。中身が無い種別は返さない。
+ * @param {object[]} spots
+ * @returns {{type: object, spots: object[]}[]} SPOT_TYPE_ORDER の並び
+ */
+export function groupSpotsByType(spots) {
+  const byType = new Map(SPOT_TYPE_ORDER.map((v) => [v, []]));
+  for (const spot of spots ?? []) {
+    // 知らない種別の値が入っていても落とさない。「未設定」に寄せる
+    const key = byType.has(spot.spot_type ?? null) ? (spot.spot_type ?? null) : null;
+    byType.get(key).push(spot);
+  }
+  return SPOT_TYPE_ORDER
+    .map((value) => ({ type: spotType(value), spots: byType.get(value) ?? [] }))
+    .filter((g) => g.spots.length);
+}
+
 export function waterLabel(value) {
   return WATER_TYPES.find((w) => w.value === value)?.label ?? "—";
 }
@@ -2783,6 +2812,108 @@ export function parseLatLng(text) {
   if (pair) return pick(pair[1], pair[2]);
 
   return null;
+}
+
+/**
+ * どのスポットを見ているかの帯と、押すと開く一覧を作る（D-108）。
+ *
+ * **ホームと潮汐詳細で同じものを使う。** 前はホームが `<select>`、
+ * 潮汐詳細が横スクロールのタブだった。タブは 17 件あっても 5 件ほどしか見えず、
+ * 横に流せること自体が伝わっていなかった。
+ *
+ * `<select>` をやめたのは、`<option>` の中に**アイコンを描けない**から。
+ * 種別の色とアイコン、共有スポットの目印は、どれも文字では代えられない。
+ * 見た目はスポットマップの一覧に合わせる（同じものを 2 通りに見せない）。
+ *
+ * @param {HTMLElement} container 中身は差し替える
+ * @param {object}   opts
+ * @param {object[]} opts.spots     出すスポット
+ * @param {object|null} opts.selected いま選んでいるもの
+ * @param {(spot: object) => void} opts.onPick 選ばれたとき（同じものを選んだら呼ばない）
+ * @param {string}   [opts.title]   一覧の見出し
+ */
+export function attachSpotPicker(container, { spots, selected, onPick, title = "スポットを選ぶ" }) {
+  container.classList.add("spot-picker");
+  container.hidden = !(spots ?? []).length;
+  if (container.hidden) return { close: () => {} };
+
+  const type = spotType(selected?.spot_type);
+  container.innerHTML = `
+    <button type="button" class="spot-picker-bar" aria-haspopup="listbox" aria-expanded="false">
+      <span class="thumb" style="background:${type.color}22;color:${type.color}"
+        >${icon(type.iconName, { size: 17 })}</span>
+      <span class="picked">${escapeHtml(selected?.name ?? "スポットを選ぶ")}</span>
+      <span class="caret">${icon("chevron-down", { size: 14 })}</span>
+    </button>
+    <div class="spot-picker-sheet" hidden>
+      <div class="spot-picker-back"></div>
+      <div class="spot-picker-panel" role="listbox" aria-label="${escapeHtml(title)}">
+        <div class="spot-picker-head">
+          <span>${escapeHtml(title)}</span>
+          <button type="button" class="spot-picker-close" aria-label="閉じる">✕</button>
+        </div>
+        <div class="spot-picker-list"></div>
+      </div>
+    </div>`;
+
+  const bar = container.querySelector(".spot-picker-bar");
+  const sheet = container.querySelector(".spot-picker-sheet");
+  const list = container.querySelector(".spot-picker-list");
+
+  /* 種別ごとにまとめる。**「自分 / 共有」では分けない**（D-108）。
+     場所を選ぶときに知りたいのは誰のものかではなく、どんな場所か。
+     共有のものは左の青線で分かる（一覧の他の画面と同じ目印） */
+  list.innerHTML = groupSpotsByType(spots).map(({ type: t, spots: group }) => `
+    <div class="section-label spot-group">
+      <span>${icon(t.iconName, { size: 13 })} ${escapeHtml(t.label)}</span>
+      <span class="note">${group.length}</span>
+    </div>
+    ${group.map((s) => {
+      const entry = entryStyle(s.entry_style);
+      const on = s.id === selected?.id;
+      return `
+        <button type="button" class="list-item spot-pick${s.is_mine ? "" : " shared"}${on ? " on" : ""}"
+                role="option" aria-selected="${on}" data-id="${escapeHtml(s.id)}">
+          <span class="thumb" style="background:${t.color}22;color:${t.color}"
+            >${icon(t.iconName, { size: 19 })}</span>
+          <span class="list-body">
+            <span class="list-title">${escapeHtml(s.name ?? "無名スポット")}${
+              s.low_tide_only ? ` ${icon("warning", { size: 13 })}` : ""}</span>
+            <span class="list-sub">${escapeHtml(waterLabel(s.water_type))}${
+              entry ? ` · ${icon(entry.iconName, { size: 12 })} ${escapeHtml(entry.short)}` : ""}${
+              s.is_mine ? "" : " · 共有"}</span>
+          </span>
+          <span class="list-aside">${on ? icon("check", { size: 16 }) : ""}</span>
+        </button>`;
+    }).join("")}`).join("");
+
+  const open = () => {
+    sheet.hidden = false;
+    bar.setAttribute("aria-expanded", "true");
+    // 選んでいるものが画面外だと「どこにいるか」が分からない
+    list.querySelector(".spot-pick.on")?.scrollIntoView({ block: "center" });
+  };
+  const close = () => {
+    sheet.hidden = true;
+    bar.setAttribute("aria-expanded", "false");
+  };
+
+  bar.addEventListener("click", () => (sheet.hidden ? open() : close()));
+  sheet.querySelector(".spot-picker-back").addEventListener("click", close);
+  sheet.querySelector(".spot-picker-close").addEventListener("click", close);
+  // 開いたまま行き止まりにしない（D-071）。Esc でも閉じる
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !sheet.hidden) close(); });
+
+  list.addEventListener("click", (e) => {
+    const row = e.target.closest(".spot-pick");
+    if (!row) return;
+    close();
+    if (row.dataset.id === selected?.id) return;   // 同じ場所なら何もしない
+    const chosen = spots.find((s) => s.id === row.dataset.id);
+    if (chosen) onPick(chosen);
+  });
+
+  return { close };
 }
 
 /**

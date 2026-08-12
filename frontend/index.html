@@ -29,13 +29,10 @@
   </span>
 </header>
 
-<!-- どこを見ているか（D-105）。**選ぶのはスポット 1 つ。**
+<!-- どこを見ているか（D-105 / D-108）。**選ぶのはスポット 1 つ。**
      そのスポットが天気の座標と潮汐の観測所の両方を決める。
-     潮汐画面の地点タブと同じ位置に置いて、2 画面の形を揃える -->
-<div class="base-spot" id="base-spot-bar" hidden>
-  <label for="base-spot">スポット</label>
-  <select id="base-spot"></select>
-</div>
+     中身は attachSpotPicker が入れる。潮汐詳細の先頭にも同じものを置く -->
+<div id="base-spot-bar" hidden></div>
 
 <main>
   <div id="message" class="message" hidden role="alert"></div>
@@ -118,7 +115,7 @@
     listSpots, listRecords, tideCorrelation, icon,
     recordFishName, ownerBadge, nowInJst, hoursFromHhmm, addJstDays,
     listTidePoints, fetchTideForPoint, savedTidePoint, saveTidePoint, formatLag,
-    pickBaseSpot, spotTidePoint, savedBaseSpot, saveBaseSpot,
+    pickBaseSpot, spotTidePoint, savedBaseSpot, saveBaseSpot, attachSpotPicker,
     warmTideCache,
     hasUnreadNews, WEATHER_SOURCE,
     isCoordinateInJapan, tideTimelineSvg, sunStripHtml, levelAxisHtml, tideLevelAt, sunTimes,
@@ -158,17 +155,16 @@
     const spots = await listSpots().catch(() => []);
     const baseSpot = pickBaseSpot(spots, savedBaseSpot());
     const points = await listTidePoints().catch(() => []);
-    renderSpotPicker(spots, baseSpot);
-
-    /* スポットを変えたら**画面ごと読み直す**（D-105）。
+    /* どこを見ているかの帯（D-108）。**潮汐詳細と同じ部品を使う。**
+       スポットを変えたら**画面ごと読み直す**（D-105）。
        潮汐も天気も日の出も、スコアも、全部この 1 つで決まる。
        ここだけ差分で描き替えると、どれか 1 つを直し忘れて
        「地名は変わったのに天気は前のまま」が起きる。前がそれだった。
        **描いた直後に付ける。** 天気の通信を待ってから付けると、
        読み込み中に選んだ操作が黙って捨てられる */
-    document.getElementById("base-spot").addEventListener("change", (e) => {
-      saveBaseSpot(e.currentTarget.value || null);
-      location.reload();
+    attachSpotPicker(document.getElementById("base-spot-bar"), {
+      spots, selected: baseSpot,
+      onPick: (spot) => { saveBaseSpot(spot.id); location.reload(); },
     });
 
     /* 潮汐地点はスポットから決まる。淡水スポットは観測所を持たないので null。
@@ -246,21 +242,6 @@
       + `<a href="spot.html?id=${spot.id}">スポット詳細</a>の「編集」から地図をタップして位置を設定してください。`;
     box.className = "message error";
     box.hidden = false;
-  }
-
-  /* どこを見ているか（D-105）。自分のスポットと共有スポットを分けて並べる。
-     共有は「友人の場所」なので、自分のものと混ぜない */
-  function renderSpotPicker(spots, selected) {
-    const bar = document.getElementById("base-spot-bar");
-    if (!spots.length) { bar.hidden = true; return; }
-    bar.hidden = false;
-    const option = (s) => `<option value="${escapeHtml(s.id)}"${
-      s.id === selected?.id ? " selected" : ""}>${escapeHtml(s.name ?? "無名スポット")}</option>`;
-    const mine = spots.filter((s) => s.is_mine);
-    const shared = spots.filter((s) => !s.is_mine);
-    document.getElementById("base-spot").innerHTML =
-      (mine.length ? `<optgroup label="自分のスポット">${mine.map(option).join("")}</optgroup>` : "")
-      + (shared.length ? `<optgroup label="共有">${shared.map(option).join("")}</optgroup>` : "");
   }
 
   /* 潮汐地点は場所ごとに決まるようになった（D-105）。

@@ -88,7 +88,7 @@
   import {
     client, requireSession, renderNav, escapeHtml, toJapaneseError, requireUserId,
     listSpots, createMap, spotMarker, spotType, waterLabel,
-    SPOT_TYPES, WATER_TYPES, googleMapsUrl, googleDirectionsUrl, isNightMap, setNightMap, icon,
+    SPOT_TYPES, WATER_TYPES, groupSpotsByType, googleMapsUrl, googleDirectionsUrl, isNightMap, setNightMap, icon,
     isCoordinateInJapan,
     attachPlaceSearch, renderIcons,
     todayInJst, tideType, sunTimes, fishingScoreOfDay, stars, savedScoreBand,
@@ -111,21 +111,16 @@
     : {});   // 位置つきスポットがなければ静岡県（浜名湖〜遠州灘）を初期表示
   let markerLayer = L.layerGroup().addTo(map);
   let draftMarker = null;
-  /* ここから 3 つは **renderAll より前に置くこと**（D-077）。
+  /* これは **renderAll より前に置くこと**（D-077）。
      const は巻き上がらないので、あとに置くと一覧の描画が参照した時点で落ちる。
-     この取り違えはこの画面で 2 回やっている（scores と TYPE_ORDER）。 */
+     この取り違えはこの画面で 2 回やっている（scores と、かつての TYPE_ORDER）。 */
 
   // スポット ID → 今日のスコア
   const scores = new Map();
 
-  // 種別の並びは SPOT_TYPES のとおり（海 → 汽水 → 淡水）。
-  // 管理釣り場だけは、SPOT_TYPES の並びが変わっても最後に来るよう明示的に外して足す
-  const PINNED_LAST = "managed";
-  const TYPE_ORDER = [
-    ...SPOT_TYPES.map((t) => t.value).filter((v) => v !== PINNED_LAST),
-    null,             // 種別未設定
-    PINNED_LAST,
-  ];
+  /* 種別ごとの並びは app.js の groupSpotsByType に移した（D-108）。
+     スポットを選ぶところが 3 画面に増えたので、並びが 3 通りあると
+     どれが正か分からなくなる。 */
 
   renderChips();
   renderAll();
@@ -191,16 +186,7 @@
       return;
     }
 
-    const byType = new Map(TYPE_ORDER.map((v) => [v, []]));
-    for (const spot of spots) {
-      const key = byType.has(spot.spot_type ?? null) ? (spot.spot_type ?? null) : null;
-      byType.get(key).push(spot);
-    }
-
-    box.innerHTML = TYPE_ORDER.map((value) => {
-      const group = byType.get(value) ?? [];
-      if (!group.length) return "";
-      const type = spotType(value);
+    box.innerHTML = groupSpotsByType(spots).map(({ type, spots: group }) => {
       // 群の中は今日のスコアが高い順。まだ出ていないものは後ろへ
       const sorted = [...group].sort((a, b) =>
         (scores.get(b.id)?.score ?? -1) - (scores.get(a.id)?.score ?? -1));

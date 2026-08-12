@@ -21,11 +21,11 @@
      （戻るボタンのある page-head は、詳細画面のためのもの） -->
 <header class="app-header">
   <h1>TIDE &amp; WEATHER</h1>
-  <span class="page-sub" id="point-name">—</span>
 </header>
 
-<!-- 地点切替タブ（お気に入り地点） -->
-<div class="point-tabs" id="point-tabs"></div>
+<!-- どこを見ているか（D-108）。**ホームと同じ帯・同じ一覧**。
+     前は横スクロールのタブで、17 件あっても 5 件ほどしか見えていなかった -->
+<div id="base-spot-bar" hidden></div>
 
 <main>
   <div id="message" class="message" hidden role="alert"></div>
@@ -98,7 +98,7 @@
     fetchWeatherRange, describeWeather, windDirection,
     fishingScoreOfDay, showFishingScoreHelp, stars, savedScoreBand,
     listSpots, listTidePoints, fetchTideForPoint, tidePointOfSpot,
-    formatLag, pickBaseSpot, spotTidePoint, savedBaseSpot, saveBaseSpot,
+    formatLag, pickBaseSpot, spotTidePoint, savedBaseSpot, saveBaseSpot, attachSpotPicker,
     renderHourlyStrip,
     tideType, TIDE_TYPE_COLORS, isCoordinateInJapan, tideTimelineSvg, sunStripHtml, levelAxisHtml, tideLevelAt, sunTimes,
   } from "./assets/app.js";
@@ -119,10 +119,9 @@
   const byValue = new Map(points.map((p) => [p.value, p]));
 
   /* 選ぶのはスポット（D-105）。地点はスポットから決まる。
-     自分のスポットだけをタブに出す（自分の場所を切り替えるための列なので）。
+     共有スポットも一覧に出す（D-108。D-105 で自分のものだけにしていたのを取り消す）。
      URL の ?spot= はホームから来たとき、?point= は古いリンク用に残す */
   const spots = await listSpots().catch(() => []);
-  const mySpots = spots.filter((s) => s.is_mine);
   const params = new URLSearchParams(location.search);
   const requestedSpot = params.get("spot");
   const requestedPoint = params.get("point");
@@ -143,29 +142,15 @@
      場所を変えても前の場所の予報が出続けていた */
   let tideCache = new Map();
 
-  /* ---------- スポット切替タブ（D-105） ----------
-     前はお気に入りの潮汐地点だった。約 50 ある地点から選ぶための仕組みだが、
-     選ぶものがスポットになったので要らない（自分のスポットは 5〜8 件）。
-     ホームと同じ言葉にすることのほうが大事（D-032 の一部を取り消す）。 */
-  function renderTabs() {
-    const box = document.getElementById("point-tabs");
-    if (!mySpots.length) { box.hidden = true; return; }
-    box.hidden = false;
-    box.innerHTML = mySpots
-      .map((s) => `<button type="button" class="point-tab${s.id === state.spot?.id ? " on" : ""}"
-                           data-id="${escapeHtml(s.id)}">${escapeHtml(s.name ?? "無名スポット")}</button>`)
-      .join("");
-    // ヘッダーは横幅が限られるので、いま見ている場所の名前だけにする
-    document.getElementById("point-name").textContent =
-      state.spot?.name ?? state.point?.name ?? "—";
+  /* ---------- スポットの選択（D-105 / D-108） ----------
+     前は横スクロールのタブだった。17 件あっても画面に 5 件ほどしか出ず、
+     横に流せること自体が伝わっていなかった。**ホームと同じ帯にする。**
+     共有スポットも出す（D-105 で自分のものだけにしていたのを取り消す）。 */
+  function renderSpotBar() {
+    attachSpotPicker(document.getElementById("base-spot-bar"), {
+      spots, selected: state.spot, onPick: selectSpot,
+    });
   }
-
-  document.getElementById("point-tabs").addEventListener("click", (e) => {
-    const tab = e.target.closest(".point-tab");
-    if (!tab || tab.dataset.id === state.spot?.id) return;
-    const chosen = mySpots.find((s) => s.id === tab.dataset.id);
-    if (chosen) selectSpot(chosen);
-  });
 
   /* 淡水スポットには潮汐が無い。空のグラフを出さずに、そう書く（D-105）。
      週間カレンダーは残す（天気と釣行スコアは出せる） */
@@ -603,7 +588,7 @@
   /* ---------- 初期化 ----------
      イベント登録をすべて済ませてから通信する。逆順にすると、タブや週送りが
      見えているのに通信が終わるまで押しても反応しない時間ができる。 */
-  renderTabs();
+  renderSpotBar();
   renderTideAvailability();
   renderWeek();
   applyDate();

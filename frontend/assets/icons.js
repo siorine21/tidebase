@@ -7,6 +7,7 @@ const PATHS = {
   "back": '<path d="m12 19-7-7 7-7" /> <path d="M19 12H5" />',
   "chart": '<path d="M16 7h6v6" /> <path d="m22 7-8.5 8.5-5-5L2 17" />',
   "check": '<path d="M20 6 9 17l-5-5" />',
+  "chevron-down": '<path d="m6 9 6 6 6-6" />',
   "chevron-right": '<path d="m9 18 6-6-6-6" />',
   "clock": '<circle cx="12" cy="12" r="10" /> <path d="M12 6v6l4 2" />',
   "channel": '<path d="M5 3v18" /> <path d="M19 3v18" /> <path d="M9 8q1.5 1.5 3 0t3 0" /> <path d="M9 13q1.5 1.5 3 0t3 0" /> <path d="M9 18q1.5 1.5 3 0t3 0" />',
