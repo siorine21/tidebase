@@ -467,11 +467,25 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .hour-card {
   flex: 0 0 54px; text-align: center; padding: 7px 3px;
   background: var(--bg-deep); border: 1px solid var(--border); border-radius: 8px;
+  /* 日付ラベルの置き場所（D-112）。**全カードで同じだけ空ける**ので、
+     ラベルの有無でカードの中身がずれない。前は時刻と同じ行に日付を入れていて、
+     そこだけ 2 行になり 1 枚だけ下にずれていた */
+  position: relative; padding-top: 22px;
 }
 /* マヅメの時間だけ枠を立てる。行く時間を探すときの目印 */
 .hour-card.highlight { border-color: var(--border-strong); background: var(--mustard-bg); }
 /* 日付が変わるところに区切りを入れる。24 時間ぶんは翌日にまたがる（D-104） */
 .hour-card.newday { border-left: 2px solid var(--border-strong); }
+
+/* 日付ラベル（D-112）。月・日・曜日は 54px に収まらないので、
+   隣のカードの上へはみ出させる。z-index は**あとに来るカードより前に出す**ため。
+   1 なので画面いちばん外側の重なり（ボトムナビ 20）には届かない */
+.hour-card .day {
+  position: absolute; top: 3px; left: 2px; z-index: 1;
+  padding: 1px 6px; border-radius: 4px; white-space: nowrap;
+  background: var(--mustard-bg); border: 1px solid var(--mustard-dk);
+  color: var(--mustard-lt); font-family: 'JetBrains Mono', monospace; font-size: 10px;
+}
 .hour-card .h  { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-secondary); }
 .hour-card .icon { font-size: 18px; margin: 2px 0; }
 .hour-card .t  { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-secondary); }

@@ -111,6 +111,14 @@ export function formatShortDate(isoDate) {
   return `${m}/${d}`;
 }
 
+/** 「8/13(木)」。時間別天気の日付ラベル用（D-112）。
+    横に狭いので 0 埋めはしない。日付だけだと何曜日か分からないので曜日まで出す。 */
+export function formatDayLabel(isoDate) {
+  const [y, m, d] = String(isoDate).slice(0, 10).split("-").map(Number);
+  if (!y || !m || !d) return "";
+  return `${m}/${d}(${WEEKDAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]})`;
+}
+
 /** 「4日前」のような相対表記。 */
 export function relativeDays(isoDate) {
   const target = Date.parse(`${isoDate}T00:00:00+09:00`);
@@ -3494,11 +3502,17 @@ export function renderHourlyStrip(box, {
     const wind = windLevel(w.wind_speed_ms);
     const arrow = windArrowDeg(w.wind_dir_deg);
     const mazume = sunHours.has(w.hour);
-    // 日付が変わるところだけ日付を出す。24 時間ぶんは翌日にまたがる
+    /* 日付は**カードの上のラベル**として出す（D-112）。
+       前は「13日 0時」と時刻と同じ行に入れていて、そこだけ 2 行になり、
+       その 1 枚だけ中身が下にずれていた。
+       全カードに同じだけ上の余白を空けて、ラベルは日が変わるところと先頭にだけ置く。
+       ラベルは隣のカードの上まではみ出してよい（54px に月日曜日は入らない）。 */
     const newDay = i > 0 && String(w.time).slice(0, 10) !== String(rows[i - 1].time).slice(0, 10);
+    const showDay = i === 0 || newDay;
     return `
       <div class="hour-card${mazume ? " highlight" : ""}${newDay ? " newday" : ""}">
-        <div class="h">${newDay ? `${Number(String(w.time).slice(8, 10))}日 ` : ""}${w.hour}時</div>
+        ${showDay ? `<span class="day">${escapeHtml(formatDayLabel(w.time))}</span>` : ""}
+        <div class="h">${w.hour}時</div>
         <div class="icon-wrap">${weatherIcon}</div>
         <!-- 降水確率ではなく**予想雨量**を出す（D-111）。
              確率は気象庁が返さず、出していた値は別モデルのものだった。
