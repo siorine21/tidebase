@@ -874,10 +874,15 @@ export function windDirection(degrees) {
    ただし名指しは「その日その時に気象庁のデータが無ければ何も出ない」を意味する。
    取れなかったときは既定に戻して取り直す。天気が出ないより、
    別モデルでも出たほうがいい。 */
-export const WEATHER_SOURCE = "気象庁 MSM/GSM（Open-Meteo 経由）";
+/* 出典は**実際に出している値のとおり**に書く（D-111）。
+   気象庁のモデルは突風を返さない（48 時間ぶん頼んで 0 件）ので、
+   そこだけ別のモデル（best_match ＝ この地点では ECMWF）で埋めている。
+   「気象庁」とだけ書いていたのは嘘だった。 */
+export const WEATHER_SOURCE = "気象庁 MSM/GSM（突風のみ ECMWF）・Open-Meteo 経由";
 
-/* **降水確率と突風は気象庁のモデルから返ってこない**（D-104）。
-   models=jma_seamless で頼むと、その 2 つだけ全時間 null になる。
+/* **突風は気象庁のモデルから返ってこない**（D-104 / D-111）。
+   models=jma_seamless で頼むと全時間 null になる（48 時間ぶんで 0 件）。
+   降水確率も同じだったが、そちらは出すのをやめた（D-111）。
    既定（best_match）なら 48/48 揃い、しかも共通の項目（気温・風速・天気）は
    気象庁と同じ値だった（この地点では best_match が気象庁を選んでいる）。
 
@@ -889,11 +894,16 @@ const WEATHER_MODELS = "jma_seamless,best_match";
 const WEATHER_MODEL_ORDER = ["jma_seamless", "best_match"];
 const WEATHER_HOURLY =
   "temperature_2m,weather_code,wind_speed_10m,wind_direction_10m";
-/* 1 時間ごとの予報を読むとき用（D-104）。
-   降水確率が無いと「雨が降るのか」を天気記号から推し量ることになる。
-   突風は「キャストできるか」に効くので、平均風速だけでは足りない。 */
+/* 1 時間ごとの予報を読むとき用（D-104 / D-111）。
+   突風は「キャストできるか」に効くので、平均風速だけでは足りない。
+
+   **降水確率は頼まない**（D-111）。気象庁は降水確率を返さないので、
+   出していた 85% は ECMWF の値だった。画面には「出典: 気象庁」と書いてあり、
+   ウェザーニュース（気象庁ベース）の 40% と食い違う原因になっていた。
+   しかもモデル間の開きが大きく（同じ時刻で ICON 0% / GFS 25% / ECMWF 85%）、
+   数字として当てにならない。**気象庁の予想雨量（mm）で語る。** */
 const WEATHER_HOURLY_DETAIL =
-  `${WEATHER_HOURLY},precipitation_probability,precipitation,wind_gusts_10m`;
+  `${WEATHER_HOURLY},precipitation,wind_gusts_10m`;
 
 /** 気象庁のモデルを名指しして取る。だめなら既定（best_match）で取り直す。 */
 async function fetchForecast(query) {
@@ -917,7 +927,7 @@ export async function fetchWeather(lat, lng, date) {
   const marineUrl = "https://marine-api.open-meteo.com/v1/marine?" + base + "&hourly=wave_height";
 
   const [forecastRes, marineRes] = await Promise.all([
-    // 1 地点ぶんなので、降水確率と突風まで取る（D-104）
+    // 1 地点ぶんなので、予想雨量と突風まで取る（D-104 / D-111）
     fetchForecast(`${base}&hourly=${WEATHER_HOURLY_DETAIL}&wind_speed_unit=ms`),
     fetchWithTimeout(marineUrl).catch(() => null),
   ]);
@@ -940,7 +950,7 @@ export async function fetchWeather(lat, lng, date) {
  *
  * models を並べて頼むと `weather_code_jma_seamless` のように接尾辞が付く。
  * **1 時間ずつ、先のモデルから見て最初に値があるものを採る。**
- * 気象庁のモデルは降水確率と突風が全部 null なので、そこだけ既定で埋まる。
+ * 気象庁のモデルは突風が全部 null なので、そこだけ既定（best_match）で埋まる。
  * 接尾辞なし（1 モデルだけ頼んだとき）はそのまま返す。
  */
 export function forecastSeries(hourly, name, models = WEATHER_MODEL_ORDER) {
@@ -955,25 +965,42 @@ export function forecastSeries(hourly, name, models = WEATHER_MODEL_ORDER) {
   });
 }
 
+/* Open-Meteo の 1 時間値は**項目によって意味が違う**（D-111）。
+   - 気温・風速・風向は **その時刻の瞬間値**（`minutely_15` と 24/24 一致した）
+   - 雨量・天気記号・突風は **その時刻までの 1 時間**（雨の降った時間だけで
+     15 分値の合計と突き合わせて、気象庁 22:1・ICON 4:1。天気記号は雨の
+     あるなしが切り替わる 4 か所で 4:0。ICON は 15 分値を自前で持つので循環しない）
+
+   ここを読み違えて「17:00 の値」を「17 時台の値」として出していた。
+   16 時台に降って 17 時前に上がった雨を、17:09 に見て
+   **「いま雨が降っています」**と書いていたのがこれ（本人の指摘で発覚）。
+
+   **「H 時のカード」は H:00〜H+1:00 のこと**に統一する。そのために、
+   区間の値だけ 1 つ後ろからとる。最後の 1 時間は次が無いので落とす。 */
 function mapHourly(h, waves = null) {
   const at = (name) => forecastSeries(h, name) ?? [];
   const temp = at("temperature_2m"), code = at("weather_code");
   const wind = at("wind_speed_10m"), dir = at("wind_direction_10m");
-  const pop = at("precipitation_probability"), mm = at("precipitation");
-  const gust = at("wind_gusts_10m");
-  return h.time.map((time, i) => ({
-    time,
-    hour: Number(time.slice(11, 13)),
-    temp_c: temp[i] ?? null,
-    weather_code: code[i] ?? null,
-    wind_speed_ms: wind[i] ?? null,
-    wind_dir_deg: dir[i] ?? null,
-    // 頼まなかった項目は入らない。無いことと 0 は別物なので null のままにする
-    precip_chance: pop[i] ?? null,
-    precip_mm: mm[i] ?? null,
-    wind_gust_ms: gust[i] ?? null,
-    wave_height_m: waves ? waves[i] : null,
-  }));
+  const mm = at("precipitation"), gust = at("wind_gusts_10m");
+  const rows = h.time.map((time, i) => {
+    const next = i + 1;      // 区間の値はこちらを見る
+    return {
+      time,
+      hour: Number(time.slice(11, 13)),
+      // 瞬間値。その時刻ちょうどの値
+      temp_c: temp[i] ?? null,
+      wind_speed_ms: wind[i] ?? null,
+      wind_dir_deg: dir[i] ?? null,
+      // 区間の値。この時刻から 1 時間ぶん
+      // 頼まなかった項目は入らない。無いことと 0 は別物なので null のままにする
+      weather_code: code[next] ?? null,
+      precip_mm: mm[next] ?? null,
+      wind_gust_ms: gust[next] ?? null,
+      wave_height_m: waves ? waves[i] : null,
+    };
+  });
+  // 最後の 1 時間は区間の値が空になる。中途半端な行を残すより落とす
+  return rows.length > 1 ? rows.slice(0, -1) : rows;
 }
 
 /**
@@ -1021,7 +1048,7 @@ export async function fetchWeatherMulti(points, date) {
  */
 export async function fetchWeatherRange(lat, lng, startDate, endDate) {
   const last = new Date(Date.parse(`${endDate}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
-  /* 降水確率と突風まで取る（D-105）。潮汐詳細の時間別天気がここを使うので、
+  /* 予想雨量と突風まで取る（D-105 / D-111）。潮汐詳細の時間別天気がここを使うので、
      WEATHER_HOURLY だけだと「雨が降るか」がまた出せなくなる。
      8 日 × 24 時間 × 7 項目 × 2 モデルで 30KB ほど。週に 1 回なので許容する */
   const query = `latitude=${lat}&longitude=${lng}&timezone=Asia%2FTokyo`
@@ -3231,9 +3258,10 @@ export async function captureWeatherSnapshot({ lat, lng, date, time }) {
     weather_code: row.weather_code ?? null,
     wind_speed_ms: row.wind_speed_ms ?? null,
     wind_dir_deg: row.wind_dir_deg ?? null,
-    // 降水確率と突風も残す（D-104）。あとから取り直せないのは同じなので、
-    // 取れるようになった時点で一緒に入れておく
-    precip_chance: row.precip_chance ?? null,
+    /* 突風と予想雨量も残す（D-104）。あとから取り直せないのは同じなので、
+       取れるようになった時点で一緒に入れておく。
+       降水確率は入れない（D-111。気象庁の値ではなかったので出すのをやめた）。
+       前に保存した記録には残っているので、読むほうは受け付ける */
     precip_mm: row.precip_mm ?? null,
     wind_gust_ms: row.wind_gust_ms ?? null,
     temp_c: row.temp_c ?? null,
@@ -3253,7 +3281,9 @@ export function weatherSnapshotText(snapshot) {
     parts.push(`${windDirection(snapshot.wind_dir_deg)} ${Number(snapshot.wind_speed_ms).toFixed(1)}m/s`
       + (snapshot.wind_gust_ms != null ? `（突風 ${Math.round(snapshot.wind_gust_ms)}）` : ""));
   }
-  if (snapshot.precip_chance != null) parts.push(`降水 ${snapshot.precip_chance}%`);
+  // 予想雨量。古い記録には降水確率しか無いので、そちらも読めるようにしておく（D-111）
+  if (snapshot.precip_mm != null) parts.push(`雨 ${Number(snapshot.precip_mm).toFixed(1)}mm/h`);
+  else if (snapshot.precip_chance != null) parts.push(`降水 ${snapshot.precip_chance}%`);
   if (snapshot.temp_c != null) parts.push(`${Math.round(snapshot.temp_c)}℃`);
   if (snapshot.wave_height_m != null) parts.push(`波 ${snapshot.wave_height_m}m`);
   return parts.length ? parts.join(" / ") : null;
@@ -3295,15 +3325,16 @@ export function windLevel(ms) {
   return { key: "calm", label: "穏やか" };
 }
 
-/** 降水確率の区切り。傘を持つかの目安に合わせる。 */
-export function rainLevel(chance) {
-  if (chance == null || chance === "") return null;   // 0% は有効な値
-  const v = Number(chance);
+/** 予想雨量（mm/h）の段階（D-111）。前は降水確率で分けていた。
+    区切りは気象庁の雨の強さの言い方に寄せてある。0 は有効な値なので null と分ける。 */
+export function rainLevel(mm) {
+  if (mm == null || mm === "") return null;
+  const v = Number(mm);
   if (!Number.isFinite(v)) return null;
-  if (v >= 70) return { key: "high", label: "降る" };
-  if (v >= 50) return { key: "mid", label: "降りそう" };
-  if (v >= 30) return { key: "low", label: "にわか雨" };
-  return { key: "none", label: "降らなさそう" };
+  if (v >= 10) return { key: "high", label: "強い雨" };
+  if (v >= 3)  return { key: "mid",  label: "雨" };
+  if (v >= 0.1) return { key: "low", label: "弱い雨" };
+  return { key: "none", label: "降らない" };
 }
 
 /** 雨が「降っている」と言える降水量（mm/h）。これ未満は量として意味がない。 */
@@ -3313,94 +3344,77 @@ const RAIN_MM = 0.1;
 const RAIN_WORTH_MM = 0.5;
 
 /**
- * これから先の雨を 1 行にまとめる（D-104 / D-107）。
+ * これから先の雨を 1 行にまとめる（D-104 / D-107 / D-111）。
  * **時間ごとの数字を並べる前に、結論を先に出す。**
  * 24 個の数字を目で追って「何時から雨か」を組み立てるのは、その場でやりたくない。
  *
- * **見るのは降水量（mm）が先、降水確率は後**（D-107）。
- * 前は確率だけで判断していて、2 つ外していた。
- * 1. 先頭が**いまの時刻**でも「◯時ごろから降りそう」と書いていた。
- *    12:05 に見て「12 時ごろから雨になりそうです」は予報ではなく現在の話。
- * 2. 確率 94% でも予想降水量が 0.0mm のことがある（蒸し暑い不安定な空でよく出る）。
- *    そこで「雨になりそう」と言うと、モデルが降ると言っていない雨を宣言してしまう。
+ * **見るのは予想雨量（mm）だけ**（D-111）。降水確率は気象庁が返さず、
+ * 出していた値は別モデルのものだった（同じ時刻で ICON 0% / GFS 25% / ECMWF 85%）ので
+ * 表示ごとやめた。
  *
- * @param {object[]} hours     時刻順に並んだ予報（これから先のぶん）
+ * **「いま降っています」とは書かない**（D-111）。1 時間ぶんの予想雨量から
+ * 現在を断定はできない。実際、16 時台に降って 17 時前に上がった雨を
+ * 17:09 に「いま雨が降っています」と書いて外した。時間帯の予報として書く。
+ *
+ * @param {object[]} hours 時刻順に並んだ予報（これから先のぶん）
  * @param {boolean}  startsNow 先頭が「いまの時間帯」か。今日を今から並べたときだけ true
  * @returns {{key:string, text:string, from:object|null, until:object|null,
- *            peak:object|null}|null}
+ *            heaviest:object|null}|null}
  */
 export function rainOutlook(hours, { startsNow = false } = {}) {
-  const rows = (hours ?? []).filter((h) => h?.precip_chance != null);
+  const rows = (hours ?? []).filter((h) => h?.precip_mm != null);
   if (!rows.length) return null;
 
   const hh = (h) => `${h.hour}時`;
-  const peak = rows.reduce((a, b) => (b.precip_chance > a.precip_chance ? b : a));
-  const wet = (h) => h.precip_mm != null && h.precip_mm >= RAIN_MM;
   const mm = (h) => `${Number(h.precip_mm).toFixed(1)}mm/h`;
+  const wet = (h) => h.precip_mm >= RAIN_MM;
+  const heaviest = rows.reduce((a, b) => (b.precip_mm > a.precip_mm ? b : a));
 
-  /* 降水量が 1 つも届いていないときは確率だけで見るしかない
-     （古いキャッシュや、詳細項目を頼んでいない経路） */
-  const hasMm = rows.some((h) => h.precip_mm != null);
-
-  if (hasMm) {
-    /* 雨の続きを頭から拾う。**降り止む時刻まで一組で持つ**（D-107）。
-       いま降っているかを言うにも、いつやむかを言うにも同じものが要る */
-    const runs = [];
-    for (let i = 0; i < rows.length; i++) {
-      if (!wet(rows[i])) continue;
-      let j = i;
-      while (j + 1 < rows.length && wet(rows[j + 1])) j++;
-      runs.push({
-        from: rows[i], startIndex: i,
-        until: j + 1 < rows.length ? rows[j + 1] : null,   // 窓の端まで続くなら null
-        heaviest: rows.slice(i, j + 1).reduce((a, b) => (b.precip_mm > a.precip_mm ? b : a)),
-        length: j - i + 1,
-      });
-      i = j;
-    }
-    const now = startsNow && runs[0]?.startIndex === 0 ? runs[0] : null;
-    // いま降っているなら、始まりではなく**終わり**を知りたい
-    if (now) {
-      return { key: "rain", peak, from: now.from, until: now.until,
-               text: now.until
-                 ? `いま雨が降っています（${mm(rows[0])}）。${hh(now.until)}ごろにやみそうです`
-                 : `いま雨が降っています（${mm(rows[0])}）。この先 ${rows.length} 時間降り続きそうです` };
-    }
-    /* **1 時間だけの弱い雨で見出しを出さない。** 確率のときと同じ考え方。
-       2 時間以上続くか、まとまった量があるものだけ「降り出す」と書く */
-    const worth = runs.find((r) => r.length >= 2 || r.heaviest.precip_mm >= RAIN_WORTH_MM);
-    if (worth) {
-      return { key: "rain", peak, from: worth.from, until: worth.until,
-               text: `${hh(worth.from)}ごろから雨になりそうです`
-                 + (worth.until ? `（${hh(worth.until)}ごろまで・最大 ${mm(worth.heaviest)}）`
-                                : `（最大 ${mm(worth.heaviest)}）`) };
-    }
-    /* 見出しにするほどの雨は無いのに確率だけ高い。**降ると言い切らない。**
-       釣りに行くかの判断としては「傘は要るが濡れ続けはしない」に近い */
-    if (peak.precip_chance >= 50) {
-      return { key: "maybe", peak, from: null, until: null,
-               text: `降りやすい空です（${hh(peak)}に ${peak.precip_chance}%）。`
-                 + `まとまった雨の予想はありません` };
-    }
+  /* 雨の続きを頭から拾う。**降り止む時刻まで一組で持つ**（D-107）。
+     いつ降り出すかを言うにも、いつやむかを言うにも同じものが要る */
+  const runs = [];
+  for (let i = 0; i < rows.length; i++) {
+    if (!wet(rows[i])) continue;
+    let j = i;
+    while (j + 1 < rows.length && wet(rows[j + 1])) j++;
+    runs.push({
+      from: rows[i], startIndex: i,
+      until: j + 1 < rows.length ? rows[j + 1] : null,   // 窓の端まで続くなら null
+      heaviest: rows.slice(i, j + 1).reduce((a, b) => (b.precip_mm > a.precip_mm ? b : a)),
+      length: j - i + 1,
+    });
+    i = j;
   }
 
-  if (peak.precip_chance < 30) {
-    return { key: "none", peak, from: null, until: null,
-             text: `この先 ${rows.length} 時間、雨の心配は少ないです（最大 ${peak.precip_chance}%）` };
+  /* いまの時間帯が雨なら、始まりではなく**終わり**を知りたい。
+     ただし「いま降っている」ではなく「この時間帯は雨の予想」と書く */
+  const nowRun = startsNow && runs[0]?.startIndex === 0 ? runs[0] : null;
+  if (nowRun) {
+    return { key: "rain", heaviest, from: nowRun.from, until: nowRun.until,
+             text: `${hh(rows[0])}台は雨の予想です（${mm(rows[0])}）。`
+               + (nowRun.until
+                    ? `${hh(nowRun.until)}ごろにやみそうです`
+                    : `この先 ${rows.length} 時間降り続きそうです`) };
   }
-  // 量が届いていないときの従来の判定（1 時間だけ跳ねた値で騒がない）
-  const from = hasMm ? null : (rows.find((h, i) =>
-    h.precip_chance >= 50 && rows[i + 1] && rows[i + 1].precip_chance >= 50) ?? null);
-  if (!from) {
-    return { key: "maybe", peak, from: null, until: null,
-             text: `にわか雨があるかもしれません（${hh(peak)}に最大 ${peak.precip_chance}%）` };
+
+  /* **1 時間だけの弱い雨で見出しを出さない。**
+     2 時間以上続くか、まとまった量があるものだけ「降り出す」と書く */
+  const worth = runs.find((r) => r.length >= 2 || r.heaviest.precip_mm >= RAIN_WORTH_MM);
+  if (worth) {
+    return { key: "rain", heaviest, from: worth.from, until: worth.until,
+             text: `${hh(worth.from)}ごろから雨になりそうです`
+               + (worth.until ? `（${hh(worth.until)}ごろまで・最大 ${mm(worth.heaviest)}）`
+                              : `（最大 ${mm(worth.heaviest)}）`) };
   }
-  if (from === rows[0] && startsNow) {
-    return { key: "rain", peak, from, until: null,
-             text: `いま雨が降っていそうです（${peak.precip_chance}%）` };
+
+  /* ぱらつく程度の予想はある。降ると言い切らず、そう書く */
+  if (runs.length) {
+    return { key: "maybe", heaviest, from: runs[0].from, until: null,
+             text: `${hh(runs[0].from)}ごろに少し降るかもしれません（${mm(runs[0].heaviest)}）` };
   }
-  return { key: "rain", peak, from, until: null,
-           text: `${hh(from)}ごろから雨になりそうです（${hh(peak)}に最大 ${peak.precip_chance}%）` };
+
+  return { key: "none", heaviest, from: null, until: null,
+           text: `この先 ${rows.length} 時間、雨の予想はありません` };
 }
 
 /**
@@ -3476,7 +3490,7 @@ export function renderHourlyStrip(box, {
 
   box.innerHTML = rows.map((w, i) => {
     const { icon: weatherIcon } = describeWeather(w.weather_code);
-    const rain = rainLevel(w.precip_chance);
+    const rain = rainLevel(w.precip_mm);
     const wind = windLevel(w.wind_speed_ms);
     const arrow = windArrowDeg(w.wind_dir_deg);
     const mazume = sunHours.has(w.hour);
@@ -3486,8 +3500,13 @@ export function renderHourlyStrip(box, {
       <div class="hour-card${mazume ? " highlight" : ""}${newDay ? " newday" : ""}">
         <div class="h">${newDay ? `${Number(String(w.time).slice(8, 10))}日 ` : ""}${w.hour}時</div>
         <div class="icon-wrap">${weatherIcon}</div>
+        <!-- 降水確率ではなく**予想雨量**を出す（D-111）。
+             確率は気象庁が返さず、出していた値は別モデルのものだった。
+             0.0 は「降らない」なので「—」（値が無い）とは分けて書く -->
         <div class="pop ${rain?.key ?? "unknown"}">${
-          w.precip_chance != null ? `${w.precip_chance}<span class="pct">%</span>` : "—"}</div>
+          w.precip_mm == null ? "—"
+            : w.precip_mm < 0.1 ? `0<span class="pct">mm</span>`
+            : `${Number(w.precip_mm).toFixed(1)}<span class="pct">mm</span>`}</div>
         <div class="t">${w.temp_c != null ? `${Math.round(w.temp_c)}°` : "—"}</div>
         <div class="wind ${wind?.key ?? "unknown"}">
           ${arrow != null
