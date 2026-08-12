@@ -2491,22 +2491,33 @@ export async function setRecipeTags(recipeId, tagIds) {
  * 分ける基準は「釣り方が変わるかどうか」。地形が違っても狙い方が同じなら分けない
  * （堤防は港湾と実質同じなので「港湾・堤防」にまとめている）。
  */
+/* 色は**種別ごとに必ず違う**こと（D-110）。地図のピンの色と凡例がこれで決まる。
+   もとは 4 組が同じ色だった（磯 = 管理釣り場、サーフ = 汽水湖、
+   水路・運河 = 河川、テトラ帯 = 未設定）。凡例に別々に並んでいるのに
+   地図では見分けられず、凡例が嘘をついている状態だった。
+
+   守っていること（`frontend/tests/spot_colors.test.mjs` が毎回確かめる）:
+   - どの 2 色も Lab 空間で ΔE 22 以上（隣に並べて別の色に見える）
+   - ピンの中の線（rgba(10,21,32,0.85)）と暗い背景の両方に対して 3.5:1 以上。
+     **ピンは色が地、線が暗い**ので、暗い色にすると中身が読めなくなる
+   - サーフの青・磯の緑・港湾のからしは動かさない。
+     画面の他の色（--blue / --green / --mustard）と同じで、覚えられているため */
 export const SPOT_TYPES = [
   // 海
   { value: "surf",          label: "サーフ",     color: "#4A9ECC", iconName: "surf" },
-  { value: "cobble",        label: "ゴロタ場",   color: "#7E9AAE", iconName: "cobble" },
+  { value: "cobble",        label: "ゴロタ場",   color: "#96836D", iconName: "cobble" },
   { value: "rock",          label: "磯",         color: "#4CAF50", iconName: "rock" },
   { value: "port",          label: "港湾・堤防", color: "#C9A84C", iconName: "port" },
-  { value: "tetra",         label: "テトラ帯",   color: "#9AA5B1", iconName: "tetra" },
+  { value: "tetra",         label: "テトラ帯",   color: "#6E7E93", iconName: "tetra" },
   // 汽水
-  { value: "rivermouth",    label: "河口",       color: "#2A9D8F", iconName: "rivermouth" },
-  { value: "tidalflat",     label: "干潟",       color: "#B08968", iconName: "tidalflat" },
-  { value: "brackish_lake", label: "汽水湖",     color: "#4A9ECC", iconName: "lake" },
-  { value: "channel",       label: "水路・運河", color: "#6E9ECF", iconName: "channel" },
+  { value: "rivermouth",    label: "河口",       color: "#1E9E92", iconName: "rivermouth" },
+  { value: "tidalflat",     label: "干潟",       color: "#B0764A", iconName: "tidalflat" },
+  { value: "brackish_lake", label: "汽水湖",     color: "#C078CE", iconName: "lake" },
+  { value: "channel",       label: "水路・運河", color: "#E06E85", iconName: "channel" },
   // 淡水
-  { value: "river",         label: "河川",       color: "#6E9ECF", iconName: "river" },
-  { value: "lake",          label: "湖沼・池",   color: "#5C8AA8", iconName: "lake" },
-  { value: "managed",       label: "管理釣り場", color: "#4CAF50", iconName: "managed" },
+  { value: "river",         label: "河川",       color: "#6A82F0", iconName: "river" },
+  { value: "lake",          label: "湖沼・池",   color: "#6FD6E4", iconName: "lake" },
+  { value: "managed",       label: "管理釣り場", color: "#BEDB6B", iconName: "managed" },
 ];
 
 /* 立ち位置（D-099 / D-100）。**種別（SPOT_TYPES）とは別の軸。**
@@ -2531,8 +2542,9 @@ export const WATER_TYPES = [
 ];
 
 export function spotType(value) {
+  // 未設定も**種別の 1 つとして色を持つ**。テトラ帯と同じ灰色だったので分けた（D-110）
   return SPOT_TYPES.find((t) => t.value === value)
-    ?? { value: null, label: "未設定", color: "#9AA5B1", iconName: "map-pin" };
+    ?? { value: null, label: "未設定", color: "#C9CED3", iconName: "map-pin" };
 }
 
 /* 種別の並び（D-108）。海 → 汽水 → 淡水（SPOT_TYPES のとおり）。

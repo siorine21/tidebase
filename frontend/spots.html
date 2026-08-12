@@ -139,7 +139,9 @@
       + SPOT_TYPES.filter((t) => used.has(t.value))
         .map((t) => `<span><i style="background:${t.color}"></i>${t.label}</span>`).join("")
       + (used.has(null) || used.has(undefined)
-        ? `<span><i style="background:#9AA5B1"></i>未設定</span>` : "")
+        // 色は spotType(null) から引く。ここに直接書くと、種別の色を変えたときに
+        // 凡例だけ取り残されて**地図と食い違う**（D-110 で実際にそうなっていた）
+        ? `<span><i style="background:${spotType(null).color}"></i>未設定</span>` : "")
       + `</div>`
       + (ENTRY_STYLES.some((e) => usedEntry.has(e.value))
         ? `<div class="legend-row legend-entry">`
