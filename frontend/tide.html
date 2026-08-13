@@ -44,6 +44,8 @@
   <div class="week-back">
     <button type="button" class="chip" id="week-today" hidden>今週へ戻る</button>
   </div>
+  <!-- ★が何の点かの案内（D-115）。よく行く時間帯が未設定のときだけ -->
+  <div class="band-hint" id="band-hint" hidden></div>
 
   <!-- 時間別天気（D-114）。**週を選んだ直後に読めるよう、カレンダーの真下に置く。**
        ホームでも同じ帯が見えるようになったので、この画面の役目は
@@ -99,6 +101,7 @@
     todayInJst, formatJstDate, WEEKDAYS_EN, nowInJst, hoursFromHhmm, addJstDays, weekOf,
     fetchWeatherRange, describeWeather, windDirection,
     fishingScoreOfDay, showFishingScoreHelp, stars, savedScoreBand,
+    listRecords, mostCommonBand, timeBandLabel,
     listSpots, listTidePoints, fetchTideForPoint, tidePointOfSpot,
     formatLag, pickBaseSpot, spotTidePoint, savedBaseSpot, saveBaseSpot, attachSpotPicker,
     renderHourlyStrip,
@@ -539,7 +542,20 @@
           date, band: savedScoreBand() })
       : null;
 
-    // 狭いセルなので星は 1 つだけにして数字を添える（★★★★☆ は 7 列に入らない）
+    /* 狭いセルなので星は 1 つだけにして数字を添える（★★★★☆ は 7 列に入らない）。
+
+       **何時の点なのかを添える**（D-115）。日の点は「その日いちばん良い
+       時間帯の点」なので、点だけでは何時の話か分からない。
+       時刻は日によってよく動く（朝 05:04 / 日中 15:00 / 夜 20:00）ので、
+       **点が並んだ週でも「いつ行くか」で選べる。**
+
+       なお ★ が 7 日そろって 5 になることがあるが、これは飽和ではない。
+       13 日ぶん数えたら 5,5,5,5,5,5,4,4,4,2,4,4,5 と散った（長潮・雨の日は 2）。
+       **その週がまるごと良い週だっただけ**なので、点の出し方は変えない。 */
+    const at = day?.best
+      ? `<span class="bt">${escapeHtml(day.best.label.replace("マヅメ", ""))} `
+        + `${escapeHtml(String(day.best.at).slice(0, 5))}</span>`
+      : "";
     const score = day
       ? `<span class="sc"${day.score >= 4 ? ` style="color:var(--green)"` : ""}>★${day.score}</span>`
       : `<span class="sc dim">—</span>`;
@@ -550,7 +566,28 @@
         <span class="tt" style="color:${TIDE_TYPE_COLORS[type]}">${type}</span>
         <span class="wx">${noon == null ? "" : describeWeather(noon.weather_code).icon}</span>
         ${score}
+        ${at}
       </button>`;
+  }
+
+  /* ★が何の点なのかを言う（D-115）。未設定だと毎日「いちばん良い時間帯」の点で、
+     **日によって別の時間帯の点**を並べていることになる。朝しか行かない人に
+     「夜なら 5 です」と言っても意味が無い。**未設定のときだけ**案内を出し、
+     記録から見た傾向も添えて、決めやすくする。 */
+  async function renderBandHint() {
+    const box = document.getElementById("band-hint");
+    if (savedScoreBand()) { box.hidden = true; return; }
+    const records = await listRecords().catch(() => []);
+    const common = mostCommonBand(records, (r) =>
+      isCoordinateInJapan(r.spot_latitude, r.spot_longitude)
+        ? sunTimes(Number(r.spot_latitude), Number(r.spot_longitude), r.fished_at) : null);
+    box.hidden = false;
+    box.innerHTML = `★は「その日いちばん良い時間帯」の点なので、`
+      + `日によって別の時間帯の点を並べています。`
+      + `${common ? `記録では<b>${escapeHtml(timeBandLabel(common.key))}</b>が `
+                    + `${common.total} 件中 ${common.count} 件でいちばん多いようです。` : ""}`
+      + `<a href="settings.html">よく行く時間帯</a>を決めると、`
+      + `いつもその時間帯の点で並びます。`;
   }
 
   document.getElementById("week").addEventListener("click", (e) => {
@@ -595,6 +632,7 @@
   renderSpotBar();
   renderTideAvailability();
   renderWeek();
+  renderBandHint();
   applyDate();
   loadWeekWeather(weekOf(state.week));
   scrollToDate(state.date, "auto");

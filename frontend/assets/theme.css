@@ -1281,6 +1281,22 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
   font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--mustard-lt);
 }
 .week-grid .sc.dim { color: var(--text-muted); }
+/* 何時の点なのか（D-115）。点だけだとどの日も 5 になり、比べる列にならない。
+   1 行足すぶんセルが縦に伸びるので、いちばん小さい字で沈める */
+.week-grid .bt {
+  font-family: 'JetBrains Mono', monospace; font-size: 8px; line-height: 1.4;
+  color: var(--text-muted); white-space: nowrap;
+}
+
+/* ★が何の点かの案内（D-115）。よく行く時間帯が未設定のときだけ出る */
+.band-hint {
+  margin-top: 8px; padding: 8px 10px; border-radius: 8px;
+  font-size: 11px; line-height: 1.7; color: var(--text-muted);
+  background: var(--bg-deep); border: 1px solid var(--border);
+}
+.band-hint[hidden] { display: none; }
+.band-hint b { color: var(--text-secondary); }
+.band-hint a { color: var(--mustard); }
 
 /* ---------- SCR-014 設定 ---------- */
 .app-header .link-btn {
