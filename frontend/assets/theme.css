@@ -507,8 +507,10 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
   flex: 0 0 54px; text-align: center; padding: 7px 3px;
   background: var(--bg-deep); border: 1px solid var(--border); border-radius: 8px;
 }
-/* マヅメの時間だけ枠を立てる。行く時間を探すときの目印 */
-.hour-card.highlight { border-color: var(--border-strong); background: var(--mustard-bg); }
+/* **いまの時間**だけ枠を立てる（D-117）。前はマヅメに付けていたが、
+   横に 24 枚流れる中で「いまどこか」が分からないほうが困る。
+   カラシはこのアプリで「自分のもの・いま」を指す色（スコアの円・ナビの選択中） */
+.hour-card.now { border-color: var(--mustard); background: var(--mustard-bg); }
 /* 日付が変わるところに区切りを入れる。24 時間ぶんは翌日にまたがる（D-104） */
 .hour-card.newday { border-left: 2px solid var(--border-strong); }
 

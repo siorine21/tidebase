@@ -459,7 +459,7 @@
     const next = weatherCache.get(addJstDays(state.date, 1)) ?? [];
     const hours = weather ? [...weather, ...next] : null;
     renderHourlyStrip(document.getElementById("hourly"), {
-      hours, sun: sunOf(state.date), date: state.date,
+      hours, date: state.date,
       leadBox: document.getElementById("hourly-lead"),
       emptyText: "読み込み中…",
       /* 1 時間ごとの釣行スコア（D-116）。**ホームと同じ部品なので同じ★が出る。**

@@ -346,7 +346,7 @@
     } else if (!spot) {
       tags.innerHTML = `<span class="tag tag-gray">スポットを登録すると天気と釣行スコアが表示されます</span>`;
     }
-    renderHourly(weather, sun);
+    renderHourly(weather);
   }
 
   /* 潮回りのタグ（D-116）。**色は週間カレンダーと同じ**（TIDE_TYPE_COLORS）。
@@ -437,9 +437,9 @@
 
   /* 1 時間ごとの予報（D-104）。描画は app.js の共通版に任せる（D-105）。
      前は潮汐詳細にも同じものが別に書いてあり、片方だけ直して取り残した */
-  function renderHourly(weather, sun) {
+  function renderHourly(weather) {
     renderHourlyStrip(document.getElementById("hourly"), {
-      hours: weather, sun, date: todayInJst(),
+      hours: weather, date: todayInJst(),
       leadBox: document.getElementById("hourly-lead"),
       emptyText: "スポットを登録すると天気が表示されます",
       // 1 時間ごとの釣行スコア（D-116）。時間帯 4 つの並びをここに畳んだ
