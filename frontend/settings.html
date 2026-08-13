@@ -67,6 +67,9 @@
       </select>
       <div class="hint">釣行スコアの★を、この時間帯の点で出します。
         スポット一覧の並びもこの点になります。</div>
+      <!-- 記録から見た傾向（D-115）。指定しないと★は「その日いちばん良い
+           時間帯」の点で、日によって別の時間帯の点が並ぶ -->
+      <div class="hint" id="band-observed" hidden></div>
     </div>
   </div>
 
@@ -113,6 +116,7 @@
     APP_VERSION,
     navigate, clearOfflineData,
     TIME_BANDS, timeBandLabel, savedScoreBand, saveScoreBand,
+    listRecords, mostCommonBand, isCoordinateInJapan, sunTimes,
   } from "./assets/app.js";
 
   document.getElementById("app-version").textContent =
@@ -195,6 +199,21 @@
     bandSelect.appendChild(option);
   }
   bandSelect.value = savedScoreBand() ?? "";
+
+  /* 自分の記録を数えて見せる（D-115）。**勝手に切り替えない。**
+     自分でも気づいていない癖かもしれないし、黙って点の意味が変わるほうが困る。
+     決めやすいように材料だけ出す */
+  listRecords().then((records) => {
+    const common = mostCommonBand(records, (r) =>
+      isCoordinateInJapan(r.spot_latitude, r.spot_longitude)
+        ? sunTimes(Number(r.spot_latitude), Number(r.spot_longitude), r.fished_at) : null);
+    if (!common) return;
+    const box = document.getElementById("band-observed");
+    box.hidden = false;
+    box.innerHTML = `記録では<b>${escapeHtml(timeBandLabel(common.key))}</b>が `
+      + `${common.total} 件中 ${common.count} 件でいちばん多いようです。`;
+  }).catch(() => {});
+
   bandSelect.addEventListener("change", () => {
     saveScoreBand(bandSelect.value || null);
     message(bandSelect.value

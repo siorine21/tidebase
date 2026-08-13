@@ -1292,6 +1292,35 @@ export function timeBandLabel(key) {
 }
 
 /**
+ * 自分の記録でいちばん多い時間帯（D-115）。
+ *
+ * 「よく行く時間帯」は設定で選べるが、既定は未設定で、そのとき日の点は
+ * **その日いちばん良い時間帯の点**になる。つまり日によって別の時間帯の点が
+ * 並ぶ。朝しか行かない人に「夜なら 5 です」と言っても、行く判断には使えない。
+ *
+ * **勝手に切り替えない。** 自分でも気づいていない癖かもしれないし、
+ * 黙って点の意味が変わるほうが困る。**数えて見せて、決めてもらう。**
+ *
+ * @param {object[]} records listRecords の戻り（fished_at / fished_time を見る）
+ * @param {(record:object)=>{rise:string,set:string}|null} sunFor その記録の日の出・日没
+ * @returns {{key:string, count:number, total:number}|null}
+ */
+export function mostCommonBand(records, sunFor) {
+  const counts = new Map();
+  let total = 0;
+  for (const record of records ?? []) {
+    if (!record?.fished_time) continue;              // 時刻が無いと分けられない
+    const key = timeBandOf(sunFor(record), String(record.fished_time).slice(0, 5));
+    if (!key) continue;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+    total += 1;
+  }
+  if (!total) return null;
+  const [key, count] = [...counts].reduce((a, b) => (b[1] > a[1] ? b : a));
+  return { key, count, total };
+}
+
+/**
  * その時刻がどの時間帯か。
  * 日の出・日没は呼ぶ側で計算して渡す（sunTimes）。ここを純粋にしておくと
  * 天文計算ぬきで境目を試せる。
@@ -1450,6 +1479,37 @@ export function tideFlowAt(tide, hhmm) {
 }
 
 /**
+ * 1 時間ぶんの点（D-115 で切り出した）。
+ *
+ * 「その日の時間帯」（fishingScoreOfDay）と「これから 24 時間の時間帯」
+ * （fishingScoreAhead）の両方が、これを並べていちばん良い時刻を選ぶ。
+ * **同じ式を 2 か所に書くと、片方だけ直して食い違う。**
+ *
+ * @param {string|null} input.tideType 潮回り
+ * @param {object|null} input.row      予報の 1 行
+ * @param {object|null} input.tide     その時刻の日の潮汐（潮の動きの加減に使う）
+ * @param {string} input.at            "HH:MM"。潮の動きを引く時刻
+ */
+function scoreHour({ tideType, row, tide = null, tideMatters = true, label, at, key = null }) {
+  if (!row) return null;
+  const detail = fishingScoreDetail(tideType, row.weather_code, row.wind_speed_ms, { tideMatters });
+  // 潮の効かない場所では、潮の動きによる加減もしない
+  const flow = tideMatters ? tideFlowAt(tide, at) : null;
+  // 雷雨・雨・強風は潮より優先する。荒れている日を潮の動きで持ち上げない
+  const weatherGate = detail.ruleIndex <= 1;
+  const rule = flow && !weatherGate
+    ? TIDE_FLOW_RULES.find((r) => r.key === flow.key) : null;
+  const adjust = rule?.adjust ?? 0;
+  return {
+    key, label, at, hour: row.hour,
+    weatherCode: row.weather_code, windMs: row.wind_speed_ms,
+    ...detail,
+    base: detail.score, flow, adjust, weatherGate,
+    score: Math.min(5, Math.max(1, detail.score + adjust)),
+  };
+}
+
+/**
  * その日の釣行スコア。**時間帯ごとに判定する**（朝マヅメ・日中・夕マヅメ・夜）。
  * 潮回りは日単位なので、時間帯で差が出るのは天気・風と潮の動きだけ。
  * 日の出・日没が取れない日（予報範囲外など）は 12 時で代表させる。
@@ -1467,24 +1527,8 @@ export function tideFlowAt(tide, hhmm) {
 export function fishingScoreOfDay({
   tideType, hours, sun, tide = null, tideMatters = true, date = null, band = null,
 }) {
-  const evaluate = (label, at, row, key = null) => {
-    if (!row) return null;
-    const detail = fishingScoreDetail(tideType, row.weather_code, row.wind_speed_ms, { tideMatters });
-    // 潮の効かない場所では、潮の動きによる加減もしない
-    const flow = tideMatters ? tideFlowAt(tide, at) : null;
-    // 雷雨・雨・強風は潮より優先する。荒れている日を潮の動きで持ち上げない
-    const weatherGate = detail.ruleIndex <= 1;
-    const rule = flow && !weatherGate
-      ? TIDE_FLOW_RULES.find((r) => r.key === flow.key) : null;
-    const adjust = rule?.adjust ?? 0;
-    return {
-      key, label, at, hour: row.hour,
-      weatherCode: row.weather_code, windMs: row.wind_speed_ms,
-      ...detail,
-      base: detail.score, flow, adjust, weatherGate,
-      score: Math.min(5, Math.max(1, detail.score + adjust)),
-    };
-  };
+  const evaluate = (label, at, row, key = null) =>
+    scoreHour({ tideType, row, tide, tideMatters, label, at, key });
 
   const candidates = bandHours(hours, sun, date);
   const windows = TIME_BANDS.map(({ key, label }) => {
@@ -1524,6 +1568,100 @@ export function fishingScoreOfDay({
   return {
     score: noon.score, best: noon, top: noon, windows: [noon], bands: [noon],
     tideType, tideMatters, fallback: true, preferred: false, band: null,
+  };
+}
+
+/** これから見る時間帯の数。ホームの帯は 4 つ並びなので、そこに合わせる。 */
+export const AHEAD_BANDS = 4;
+
+/**
+ * これから count 時間を、時間帯の**まとまり**に切る（D-115）。
+ *
+ * `bandHours` は「その日の帯」を返す。**夜はその日の未明と夕方以降の両方**が入る
+ * （過去の釣行を分類する `timeBandOf` に合わせてある・D-102）。
+ * これを「これから」に使うと壊れる。10 時に見たとき夜の代表が今日の 02 時になり、
+ * **まだ来ていない今夜が「過ぎた時間帯」として消える**（本人の指摘で発覚）。
+ *
+ * ここでは時刻の順に見て、**同じ帯が続くあいだを 1 つのまとまり**にする。
+ * 日をまたぐ夜は 1 つになり、明日の朝マヅメは別のまとまりになる。
+ * 代表時刻ではなく「まとまりに時間が残っているか」で決まるので、
+ * 過ぎた帯はそもそも出てこない。
+ *
+ * @param {object[]} hours 予報（2 日ぶん）
+ * @param {string} nowIso "YYYY-MM-DDTHH:MM"（JST）
+ * @param {(date:string)=>{rise:string,set:string}|null} sunOf 日付ごとの日の出・日没
+ * @returns {{key:string,label:string,date:string,rows:object[]}[]}
+ */
+export function bandRunsAhead(hours, nowIso, sunOf, count = 24) {
+  const rows = hoursFromNow(uniqueHours(hours), nowIso, count);
+  const runs = [];
+  for (const row of rows) {
+    const date = String(row.time).slice(0, 10);
+    const key = timeBandOf(sunOf(date), `${String(row.hour).padStart(2, "0")}:00`);
+    if (!key) continue;
+    const last = runs.at(-1);
+    if (last && last.key === key) last.rows.push(row);
+    else runs.push({ key, label: timeBandLabel(key), date, rows: [row] });
+  }
+  return runs;
+}
+
+/**
+ * **これから 24 時間**の釣行スコア（D-115）。ホームはこれを使う。
+ *
+ * `fishingScoreOfDay` は「その日」で切るので、10 時に見ても
+ * **もう過ぎた 07 時の点**を大きく出していた（本人の指摘）。
+ * ホームは「今の参考情報」なので、これから取れる点でないと役に立たない。
+ * 時間別天気・潮位グラフと**同じ 24 時間の窓**に揃える。
+ *
+ * @param {object[]} hours 予報（2 日ぶん）
+ * @param {string} nowIso "YYYY-MM-DDTHH:MM"（JST）
+ * @param {(date:string)=>{sun?:object,tide?:object,tideType?:string}|null} contextOf
+ *   日付ごとの日の出・潮汐・潮回り。日をまたぐので**行の日付で引く**
+ * @param {string|null} band よく行く時間帯。あればその帯の点を代表にする
+ */
+export function fishingScoreAhead({
+  hours, nowIso, count = 24, contextOf, tideMatters = true, band = null,
+}) {
+  const today = String(nowIso).slice(0, 10);
+  const ctx = (date) => contextOf(date) ?? {};
+  const runs = bandRunsAhead(hours, nowIso, (date) => ctx(date).sun ?? null, count);
+
+  const windows = runs.map((run) => {
+    const scored = run.rows.map((row) => {
+      const date = String(row.time).slice(0, 10);
+      const at = `${String(row.hour).padStart(2, "0")}:00`;
+      // 潮回りも潮汐も**その行の日付**で引く。夜は日をまたぐ
+      return scoreHour({
+        tideType: ctx(date).tideType ?? null, row,
+        tide: ctx(date).tide ?? null, tideMatters,
+        /* **名前に「明日の」を付けない。** 帯は 4 つ並びで 1 つ 80px ほどしかなく、
+           「明日の朝マヅメ」は 3 行に折り返してそのセルだけ背が伸びる。
+           明日かどうかは tomorrow で持ち、**時刻の行に出す**（「明日 05:07」）。 */
+        label: run.label, at, key: run.key,
+      });
+    }).filter(Boolean);
+    if (!scored.length) return null;
+    const best = scored.reduce((a, b) => (b.score > a.score ? b : a));
+    // マヅメは日の出・日没そのものを時刻として見せる（1 時間刻みに丸めない）
+    const sun = ctx(run.date).sun;
+    const at = run.key === "morning" && sun?.rise ? sun.rise
+      : run.key === "evening" && sun?.set ? sun.set : best.at;
+    return { ...best, at, date: run.date, tomorrow: run.date !== today };
+  }).filter(Boolean)
+    /* 4 つに切る。帯の並びは 4 つぶんの幅しかなく、**出していない時間帯の点が
+       円に出ると読めなくなる**ので、点の対象も同じ 4 つにそろえる。 */
+    .slice(0, AHEAD_BANDS);
+
+  if (!windows.length) return null;
+  const top = windows.reduce((a, b) => (b.score > a.score ? b : a));
+  const chosen = band ? windows.find((w) => w.key === band) : null;
+  const best = chosen ?? top;
+  return {
+    score: best.score, best, top, windows, bands: windows,
+    tideType: ctx(today).tideType ?? null, tideMatters,
+    fallback: false, preferred: Boolean(chosen), band: chosen ? band : null,
+    ahead: true, from: nowIso, count,
   };
 }
 

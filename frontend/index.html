@@ -115,7 +115,8 @@
   import {
     client, requireSession, renderNav, escapeHtml,
     fetchTide, fetchWeather, todayInJst, formatJstDate, relativeDays,
-    describeWeather, windDirection, fishingScoreOfDay, showFishingScoreHelp, savedScoreBand,
+    describeWeather, windDirection, fishingScoreAhead, showFishingScoreHelp, savedScoreBand,
+    tideType,
     renderHourlyStrip,
     listSpots, listRecords, tideCorrelation, icon,
     recordFishName, ownerBadge, nowInJst, hoursFromHhmm, addJstDays,
@@ -223,8 +224,10 @@
       : `出典: ${WEATHER_SOURCE}`;
     scrollToNow("auto");
 
-    // 前後の日をあとから読み足す
-    loadNeighbours(point, weatherAt);
+    // 前後の日をあとから読み足す。明日ぶんが届いたらスコアを描き直す（D-115）
+    loadNeighbours(point, weatherAt,
+      () => renderHero(baseSpot, tideCache.get(today) ?? null, weather, point,
+                       sunCache.get(today) ?? null));
 
     const [recent, correlation] = await Promise.all([
       listRecords({ limit: 2 }).catch(() => []),
@@ -309,13 +312,27 @@
 
     /* スコアは時間帯ごとに判定する（D-051・D-052・D-103）。
        上の天気表示は「いま」なので別物。
-       date を渡すのは、予報を 2 日ぶん取ってあるため（D-103）。
+
+       **窓は「これから 24 時間」**（D-115）。前は「今日」で切っていたので、
+       10 時に見ると 07 時の点を大きく出していた。もう行けない時間の点だった。
+       時間別天気・潮位グラフと同じ窓にそろえて、この画面の中を 1 つの窓にする。
+
+       潮汐と日の出は**日をまたぐので日付で引く**。明日ぶんは
+       loadNeighbours があとから入れるので、届いたら描き直す。
        淡水スポットは潮汐が無いので tideMatters: false で天気だけで採点する
        （D-105。spots.html が前からこの形・D-077） */
+    const nowJst = nowInJst();
     scoreContext = weather?.length
-      ? fishingScoreOfDay({ tideType: tide?.tide_type ?? null, hours: weather, sun,
-                            tide: tide ?? null, tideMatters: Boolean(tide),
-                            date: today, band: savedScoreBand() })
+      ? fishingScoreAhead({
+          hours: weather, nowIso: `${nowJst.date}T${nowJst.hhmm}`,
+          tideMatters: Boolean(tide), band: savedScoreBand(),
+          contextOf: (date) => ({
+            sun: sunCache.get(date) ?? (date === today ? sun : null),
+            tide: tideCache.get(date) ?? (date === today ? tide : null),
+            tideType: (tideCache.get(date) ?? (date === today ? tide : null))?.tide_type
+              ?? (tide ? tideType(date) : null),
+          }),
+        })
       : null;
     if (scoreContext) {
       const { score, best } = scoreContext;
@@ -325,7 +342,8 @@
       tags.innerHTML = [
         tide ? `<span class="tag tag-mustard">${tide.tide_type}</span>` : "",
         `<span class="tag ${score >= 4 ? "tag-green" : "tag-gray"}">釣行スコア ${score >= 4 ? "高" : score >= 3 ? "中" : "低"}</span>`,
-        `<span class="tag tag-blue">${escapeHtml(best.label)} ${escapeHtml(best.at)}</span>`,
+        `<span class="tag tag-blue">${escapeHtml(best.label)} `
+          + `${best.tomorrow ? "明日 " : ""}${escapeHtml(best.at)}</span>`,
         tide && now?.wave_height_m != null ? `<span class="tag tag-blue">波高 ${now.wave_height_m}m</span>` : "",
         tide ? `<span class="tag tag-gray">月齢 ${tide.moon_age}</span>` : "",
       ].join("");
@@ -347,7 +365,8 @@
               data-band="${b.key}">
         <span class="band-name">${escapeHtml(b.label)}</span>
         <span class="band-score">${b.score}</span>
-        <span class="band-at">${escapeHtml(b.at)}</span>
+        <!-- 明日にかかる帯は時刻の行で示す（D-115）。名前に足すと折り返す -->
+        <span class="band-at">${b.tomorrow ? "明日 " : ""}${escapeHtml(b.at)}</span>
       </button>`).join("");
   }
 
@@ -407,7 +426,7 @@
   }
 
   /** 前後の日を読み足してグラフを伸ばす。 */
-  async function loadNeighbours(point, weatherAt) {
+  async function loadNeighbours(point, weatherAt, hero) {
     const others = chartDays.filter((date) => !tideCache.has(date));
     await Promise.all(others.map(async (date) => {
       const [tide, forecast] = await Promise.all([
@@ -416,6 +435,10 @@
       ]);
       tideCache.set(date, tide);
       renderChart();
+      /* **スコアを出し直す**（D-115）。窓が「これから 24 時間」になったので、
+         夕方以降に見ると帯の半分は明日にかかる。明日の潮汐が届くまでは
+         潮の動きぶんの加減が入らず、点が低いまま止まってしまう */
+      if (date === addJstDays(todayInJst(), 1) && hero) hero();
     }));
   }
 
