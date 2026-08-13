@@ -397,7 +397,6 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .score-num { font-family: 'JetBrains Mono', monospace; font-size: 26px; line-height: 1; color: var(--mustard-lt); }
 .score-label { font-size: 10px; color: var(--text-muted); }
 
-.hero-meta { margin-top: 10px; font-size: 13px; color: var(--text-secondary); }
 
 /* 時間別天気を TODAY の中に入れる（D-114）。スコアも時間帯ごとの点も
    この予報から出しているので、根拠が同じ箱の中にある形にする。
@@ -416,6 +415,9 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .tag-blue   { background: var(--blue-bg);   color: var(--blue); border-color: var(--blue-deep); }
 .tag-green  { background: var(--green-light); color: #A5D6A7; border-color: var(--green); }
 .tag-gray   { background: var(--bg-raised); color: var(--text-secondary); border-color: var(--border); }
+/* 潮回り（D-116）。色は週間カレンダーと同じものを画面側から入れる。
+   **枠と文字だけ色を付ける。** 塗ると 5 色が並んだとき目に痛い */
+.tag-tide   { background: var(--bg-raised); font-weight: 700; }
 /* バラシ用（D-092）。惜しかった、という色。赤系はここだけ */
 .tag-red    { background: rgba(198, 91, 76, 0.14); color: #E2907F; border-color: #8E4437; }
 

@@ -50,7 +50,6 @@
         <div class="score-label">/5</div>
       </button>
     </div>
-    <div class="hero-meta" id="hero-meta">読み込み中…</div>
     <div class="tags" id="hero-tags"></div>
     <!-- 時間別天気は TODAY の中に入れる（D-114）。
          スコアも時間帯ごとの点も、この 1 時間ごとの予報から出している。
@@ -111,8 +110,8 @@
   import {
     client, requireSession, renderNav, escapeHtml,
     fetchTide, fetchWeather, todayInJst, formatJstDate, relativeDays,
-    describeWeather, windDirection, fishingScoreAhead, hourScorer,
-    showFishingScoreHelp, savedScoreBand, tideType,
+    fishingScoreAhead, hourScorer,
+    showFishingScoreHelp, savedScoreBand, tideType, TIDE_TYPE_COLORS,
     renderHourlyStrip,
     listSpots, listRecords, tideCorrelation, icon,
     recordFishName, ownerBadge, nowInJst, hoursFromHhmm, addJstDays,
@@ -291,22 +290,16 @@
       + `${point.note ? ` ${point.note}。` : ""}${point.source ? ` 出典: ${point.source}` : ""}`;
   }
 
+  /* ヒーローの見出し（D-116）。
+     **小さい 1 行の羅列（`福田港 / 大潮 / 晴れ / 北 1m`）はやめた。**
+     4 つとも別の場所に、より大きく出ている:
+       スポット名 … 画面いちばん上の帯
+       潮回り     … すぐ下のタグ（色付き）
+       天気・風   … 時間別天気のいまの時間のカード
+     小さくて読みづらいものを重ねて置くより、**大きいほうを 1 つ残す。** */
   function renderHero(spot, tide, weather, point, sun) {
-    const meta = document.getElementById("hero-meta");
     const tags = document.getElementById("hero-tags");
     const now = weather?.find((w) => w.hour === nowInJst().hour) ?? weather?.[0] ?? null;
-
-    const parts = [];
-    // スポット未登録でも、潮汐地点の名前と天気を出して使える状態にする
-    parts.push(`${icon("map-pin", { size: 13 })} `
-      + escapeHtml(spot ? (spot.name ?? "無名スポット") : (point?.label ?? "スポット未登録")));
-    if (tide) parts.push(tide.tide_type);
-    if (now) {
-      const { label, icon: weatherIcon } = describeWeather(now.weather_code);
-      parts.push(`${weatherIcon} ${label}`);
-      parts.push(`${windDirection(now.wind_dir_deg)} ${Math.round(now.wind_speed_ms)}m`);
-    }
-    meta.innerHTML = parts.join(" / ");
 
     /* スコアは時間帯ごとに判定する（D-051・D-052・D-103）。
        上の天気表示は「いま」なので別物。
@@ -333,20 +326,36 @@
     if (scoreContext) {
       document.getElementById("score").textContent = scoreContext.score;
       document.getElementById("score-help").disabled = false;
-      /* **タグは 2 つだけ**（D-116）。前は 5 つ並んでいて、そのうち 3 つが
-         別の場所と同じことを言っていた。
-           - 潮回り … すぐ上の 1 行に同じものが出ている
+      /* **タグを絞る**（D-116）。前は 5 つ並んでいて、2 つが別の場所と
+         同じことを言っていた。
            - 釣行スコア 高 … 12 日中 11 日が「高」で、ほとんど変わらない
            - 日中 09:00 … 時間別天気の★が 1 時間ごとに同じことを言う
-         潮汐が無い場所では波高も月齢も値そのものが無いので出さない */
+
+         **潮回りは残す。** 上の 1 行にも出していたが小さくて読みづらく、
+         タグのほうが一目で分かる（本人の指摘）。上の 1 行のほうを畳んだ。
+         色は週間カレンダーと同じ TIDE_TYPE_COLORS。大潮か長潮かが**色で分かる**。
+         潮汐が無い場所（淡水）では潮回りも波高も月齢も値そのものが無いので出さない */
       tags.innerHTML = [
+        tide ? tideTypeTag(tide.tide_type) : "",
         tide && now?.wave_height_m != null ? `<span class="tag tag-blue">波高 ${now.wave_height_m}m</span>` : "",
         tide ? `<span class="tag tag-gray">月齢 ${tide.moon_age}</span>` : "",
+        // 見出しの 1 行を畳んだので、どこの予報かはここで言う（D-116）
+        spot ? "" : `<span class="tag tag-gray">${escapeHtml(point?.label ?? "既定の地点")}の予報`
+          + `（スポットを登録すると、その場所になります）</span>`,
       ].join("");
     } else if (!spot) {
       tags.innerHTML = `<span class="tag tag-gray">スポットを登録すると天気と釣行スコアが表示されます</span>`;
     }
     renderHourly(weather, sun);
+  }
+
+  /* 潮回りのタグ（D-116）。**色は週間カレンダーと同じ**（TIDE_TYPE_COLORS）。
+     大潮・中潮・小潮・長潮・若潮のどれでも同じ形で出す。 */
+  function tideTypeTag(type) {
+    const color = TIDE_TYPE_COLORS[type];
+    if (!type) return "";
+    return `<span class="tag tag-tide"${color ? ` style="color:${color};border-color:${color}"` : ""}`
+      + `>${escapeHtml(type)}</span>`;
   }
 
   /* 点を出すのに要る、日付ごとの潮汐・潮回り・日の出（D-115 / D-116）。
