@@ -1685,8 +1685,20 @@ export function fishingScoreAhead({
   };
 }
 
-export function stars(score) {
-  return `${"★".repeat(score)}${"☆".repeat(5 - score)}`;
+/**
+ * ★☆ の 5 段階。
+ * @param {number} score 1〜5
+ * @param {boolean} [opt.html] true なら**点いている分と消えている分を分けた HTML**を返す。
+ *   時間別天気のカード（D-118）は段階ごとに色を変えるので、この形が要る。
+ *   文字だけでよい場所（一覧・サマリ）はそのまま文字列で受け取る。
+ */
+export function stars(score, { html = false } = {}) {
+  const n = Math.max(0, Math.min(5, Number(score) || 0));
+  const on = "★".repeat(n);
+  const off = "☆".repeat(5 - n);
+  return html
+    ? `<span class="on">${on}</span><span class="off">${off}</span>`
+    : `${on}${off}`;
 }
 
 /**
@@ -3741,7 +3753,7 @@ export function renderHourlyStrip(box, {
     return `
       <div class="hour-card${isNow ? " now" : ""}${newDay ? " newday" : ""}">
         <div class="h">${w.hour}時</div>
-        ${score ? `<div class="sc sc-${score}">★${score}</div>` : ""}
+        ${score ? `<div class="sc sc-${score}">${stars(score, { html: true })}</div>` : ""}
         <div class="icon-wrap">${weatherIcon}</div>
         <!-- 降水確率ではなく**予想雨量**を出す（D-111）。
              確率は気象庁が返さず、出していた値は別モデルのものだった。

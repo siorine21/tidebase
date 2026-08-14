@@ -25,6 +25,8 @@
   --green:       #4CAF50;
   --green-light: rgba(76, 175, 80, 0.12);
   --red:         #E53935;
+  /* 釣行スコアの段階（D-118）。黄色を基点に、良いほど赤へ寄せる */
+  --orange:      #F58E2A;
   --red-light:   rgba(229, 57, 53, 0.12);
 
   /* Text */
@@ -504,7 +506,10 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 }
 
 .hour-card {
-  flex: 0 0 54px; text-align: center; padding: 7px 3px;
+  /* ★ を 5 つ入れるため左右の余白を 2px にした（D-118）。
+     幅 54px は変えない。中身は 50px。11px の★に -1.7px の字間で 48px 収まる。
+     **字の大きさ・字間・この余白は 3 つで 1 組。**片方だけ変えるとはみ出す */
+  flex: 0 0 54px; text-align: center; padding: 7px 2px;
   background: var(--bg-deep); border: 1px solid var(--border); border-radius: 8px;
 }
 /* **いまの時間**だけ枠を立てる（D-117）。前はマヅメに付けていたが、
@@ -515,17 +520,30 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .hour-card.newday { border-left: 2px solid var(--border-strong); }
 
 .hour-card .h  { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-secondary); }
-/* 1 時間ごとの釣行スコア（D-116）。時間帯 4 つの並びをやめて、ここに移した。
-   **色で流し読みできること**が要る。24 枚の数字を 1 つずつ読むのでは
-   「パッと見で分かる」にならないので、良い時間ほど明るく・沈む時間ほど暗くする。 */
+/* 1 時間ごとの釣行スコア（D-116 / D-118）。時間帯 4 つの並びをやめて、ここに移した。
+   **色で流し読みできること**が要る。24 枚を 1 つずつ読むのでは
+   「パッと見で分かる」にならない。
+
+   **★☆ を 5 つ並べる**（D-118）。数字より段階が目に入る。
+   幅は 54px のカードに収める（`.hour-card` を広げない）ので、
+   小さめの字に負の字間を掛けている。**片方だけ変えるとはみ出す。**
+
+   色は**テーマの黄色を基点に、良いほど赤へ**寄せる。
+   ★1 灰 → ★2 暗い黄 → ★3 黄 → ★4 橙 → ★5 赤。
+   隣どうしの差は ΔE 34 以上、カードの背景（通常・いまの枠）どちらでも
+   コントラスト 3.3 以上を確かめてある。 */
 .hour-card .sc {
-  font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.4;
-  letter-spacing: -0.5px;
+  font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.5;
+  letter-spacing: -1.7px; white-space: nowrap;
 }
-.hour-card .sc-5 { color: var(--green); font-weight: 700; }
-.hour-card .sc-4 { color: #A5D6A7; }
-.hour-card .sc-3 { color: var(--text-secondary); }
-.hour-card .sc-2, .hour-card .sc-1 { color: var(--text-muted); }
+/* 消えている分は「そこまで届いていない」ことだけ示せばよいので沈める。
+   ただし**形が見えなくなると 5 段階に見えない**ので、消しすぎない */
+.hour-card .sc .off { color: #45566A; }
+.hour-card .sc-1 .on { color: #6E7E8E; }
+.hour-card .sc-2 .on { color: var(--mustard-dk); }
+.hour-card .sc-3 .on { color: var(--mustard-lt); }
+.hour-card .sc-4 .on { color: var(--orange); }
+.hour-card .sc-5 .on { color: var(--red); font-weight: 700; }
 .hour-card .icon { font-size: 18px; margin: 2px 0; }
 .hour-card .t  { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-secondary); }
 
