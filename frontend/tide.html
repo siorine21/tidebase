@@ -100,7 +100,7 @@
     requireSession, renderNav, escapeHtml, icon,
     todayInJst, formatJstDate, WEEKDAYS_EN, nowInJst, hoursFromHhmm, addJstDays, weekOf,
     fetchWeatherRange, describeWeather, windDirection,
-    fishingScoreOfDay, showFishingScoreHelp, stars, savedScoreBand,
+    fishingScoreOfDay, hourScorer, showFishingScoreHelp, stars, savedScoreBand,
     listRecords, mostCommonBand, timeBandLabel,
     listSpots, listTidePoints, fetchTideForPoint, tidePointOfSpot,
     formatLag, pickBaseSpot, spotTidePoint, savedBaseSpot, saveBaseSpot, attachSpotPicker,
@@ -459,9 +459,15 @@
     const next = weatherCache.get(addJstDays(state.date, 1)) ?? [];
     const hours = weather ? [...weather, ...next] : null;
     renderHourlyStrip(document.getElementById("hourly"), {
-      hours, sun: sunOf(state.date), date: state.date,
+      hours, date: state.date,
       leadBox: document.getElementById("hourly-lead"),
       emptyText: "読み込み中…",
+      /* 1 時間ごとの釣行スコア（D-116）。**ホームと同じ部品なので同じ★が出る。**
+         片方だけに出すと、また 2 つに分かれて片方が取り残される（D-105） */
+      scoreOf: hourScorer({
+        contextOf: (date) => ({ tide: tideOf(date), tideType: tideType(date) }),
+        tideMatters: Boolean(state.point),
+      }),
     });
   }
 

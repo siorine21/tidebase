@@ -28,9 +28,9 @@ const code = sliceApp([
   ['export function uniqueHours', 'export function renderHourlyStrip'],
 ]);
 
-const { bandRunsAhead, fishingScoreAhead, fishingScoreOfDay, AHEAD_BANDS } =
+const { bandRunsAhead, fishingScoreAhead, fishingScoreOfDay, hourScorer } =
   new Function(code
-    + '; return { bandRunsAhead, fishingScoreAhead, fishingScoreOfDay, AHEAD_BANDS };')();
+    + '; return { bandRunsAhead, fishingScoreAhead, fishingScoreOfDay, hourScorer };')();
 
 let failed = 0;
 const check = (name, ok, extra = '') => {
@@ -82,15 +82,18 @@ const ahead = (hhmm, opt = {}) => fishingScoreAhead({
   tideMatters: false, ...opt,
 });
 
-eq('帯は 4 つまで（並びの幅に合わせる）', ahead('10:00').bands.length, AHEAD_BANDS);
-eq('4 つに切っても順番は「これから」の順',
-  ahead('10:00').bands.map((b) => b.label), ['日中', '夕マヅメ', '夜', '朝マヅメ']);
+/* **切らない**（D-116）。前は 4 つに切っていたが、それは帯の並びが 4 列だったから。
+   並びをやめて 1 時間ごとの★にしたので、円の点は 24 時間の最高点でなければ
+   ★と食い違う。切ると 5 つ目のまとまりの点が円に出なくなる。 */
+eq('まとまりは切らずに全部返す',
+  ahead('10:00').bands.map((b) => b.label), ['日中', '夕マヅメ', '夜', '朝マヅメ', '日中']);
 check('**過ぎた時間帯の点を円に出さない**（今日の朝マヅメは出ない）',
   ahead('10:00').bands.every((b) => !(b.label === '朝マヅメ' && !b.tomorrow)),
   ahead('10:00').bands.map((b) => (b.tomorrow ? '明日の' : '') + b.label).join(' '));
 /* 名前に「明日の」を足さない（4 つ並びで折り返して背が伸びる）。
    明日かどうかは tomorrow で持ち、画面が時刻の行に出す */
-eq('明日にかかる帯は tomorrow が立つ', ahead('10:00').bands.at(-1).tomorrow, true);
+eq('明日にかかる帯は tomorrow が立つ',
+  ahead('10:00').bands.find((b) => b.key === 'morning').tomorrow, true);
 check('**名前には「明日の」を付けない**',
   ahead('10:00').bands.every((b) => !b.label.startsWith('明日')),
   ahead('10:00').bands.map((b) => b.label).join(' '));
@@ -115,6 +118,26 @@ eq('窓に無い帯を指定したら、いちばん良い帯に戻す',
   ahead('10:00', { band: 'morning', count: 6 }).preferred, false);
 eq('そのとき帯は窓のぶんだけ',
   ahead('10:00', { count: 6 }).bands.map((b) => b.label), ['日中']);
+
+/* ---- 円の点と、1 時間ごとの★が食い違わないか（D-116） ----
+   ホームは円（最高点）と★（1 時間ごと）を同じ画面に並べる。
+   **円に出ている点が、どのカードにも無い**という状態を作らないこと。 */
+const scoreOf = hourScorer({ contextOf: () => ({ tideType: '大潮' }), tideMatters: false });
+const windowRows = (hhmm, n = 24) => {
+  const from = `2026-08-13T${hhmm}`;
+  const runs = bandRunsAhead(hours, from, sunOf, n);
+  return runs.flatMap((r) => r.rows);
+};
+for (const at of ['00:30', '10:00', '18:00', '22:00']) {
+  const day = ahead(at);
+  const best = Math.max(...windowRows(at).map((r) => scoreOf(r)));
+  eq(`${at} は円の点＝24 時間の★の最高`, day.score, best);
+}
+eq('1 時間ごとの点は 1〜5', (() => {
+  const all = windowRows('10:00').map((r) => scoreOf(r));
+  return [Math.min(...all) >= 1, Math.max(...all) <= 5];
+})(), [true, true]);
+eq('予報の行が無ければ null', scoreOf(null), null);
 
 eq('予報が無ければ null', fishingScoreAhead({
   hours: [], nowIso: '2026-08-13T10:00', contextOf: () => ({ sun: SUN }) }), null);

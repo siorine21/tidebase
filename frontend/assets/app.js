@@ -1510,6 +1510,29 @@ function scoreHour({ tideType, row, tide = null, tideMatters = true, label, at, 
 }
 
 /**
+ * 1 時間ごとの点を出す関数を作る（D-116）。
+ *
+ * ホームの★を「時間帯 4 つ」から**1 時間ごと**に変えたので、
+ * 予報の 1 行から点を引く口が要る。**式は scoreHour のまま**（点の出し方は変えない）。
+ * 潮汐も潮回りも日をまたぐので、**その行の日付で引く**。
+ *
+ * @param {(date:string)=>{tide?:object,tideType?:string}|null} contextOf
+ * @returns {(row:object)=>number|null} 予報の 1 行 → 1〜5
+ */
+export function hourScorer({ contextOf, tideMatters = true }) {
+  return (row) => {
+    if (!row) return null;
+    const date = String(row.time).slice(0, 10);
+    const ctx = contextOf(date) ?? {};
+    const at = `${String(row.hour).padStart(2, "0")}:00`;
+    return scoreHour({
+      tideType: ctx.tideType ?? null, row, tide: ctx.tide ?? null,
+      tideMatters, label: null, at,
+    })?.score ?? null;
+  };
+}
+
+/**
  * その日の釣行スコア。**時間帯ごとに判定する**（朝マヅメ・日中・夕マヅメ・夜）。
  * 潮回りは日単位なので、時間帯で差が出るのは天気・風と潮の動きだけ。
  * 日の出・日没が取れない日（予報範囲外など）は 12 時で代表させる。
@@ -1570,9 +1593,6 @@ export function fishingScoreOfDay({
     tideType, tideMatters, fallback: true, preferred: false, band: null,
   };
 }
-
-/** これから見る時間帯の数。ホームの帯は 4 つ並びなので、そこに合わせる。 */
-export const AHEAD_BANDS = 4;
 
 /**
  * これから count 時間を、時間帯の**まとまり**に切る（D-115）。
@@ -1648,10 +1668,10 @@ export function fishingScoreAhead({
     const at = run.key === "morning" && sun?.rise ? sun.rise
       : run.key === "evening" && sun?.set ? sun.set : best.at;
     return { ...best, at, date: run.date, tomorrow: run.date !== today };
-  }).filter(Boolean)
-    /* 4 つに切る。帯の並びは 4 つぶんの幅しかなく、**出していない時間帯の点が
-       円に出ると読めなくなる**ので、点の対象も同じ 4 つにそろえる。 */
-    .slice(0, AHEAD_BANDS);
+  }).filter(Boolean);
+  /* **切らない**（D-116）。前は 4 つに切っていたが、それは帯の並びが 4 列
+     だったから。並びをやめて 1 時間ごとの★にしたので、
+     **円の点は帯の並びではなく 24 時間の最高点**になる。切ると食い違う。 */
 
   if (!windows.length) return null;
   const top = windows.reduce((a, b) => (b.score > a.score ? b : a));
@@ -3630,14 +3650,18 @@ export function hoursFromNow(hours, nowIso, count = 24) {
  * @param {HTMLElement} box 帯を入れる箱
  * @param {object}  opt
  * @param {object[]|null} opt.hours 予報（2 日ぶんでもよい）
- * @param {{rise:string,set:string}|null} opt.sun その日の日の出・日没
  * @param {string}  opt.date 見せたい日（"YYYY-MM-DD"）
  * @param {HTMLElement|null} opt.leadBox 雨の要約を出す箱。省くと出さない
  * @param {string}  opt.emptyText 予報が無いときの文言
+ * @param {((row:object)=>number|null)|null} opt.scoreOf
+ *   1 時間ごとの釣行スコア（D-116）。渡すとカードに★を出す。
+ *   前は時間帯 4 つの並びを別に置いていたが、**同じことを 2 か所で言っていた**うえ、
+ *   時間帯の点は「その帯でいちばん良い 1 時間」なので、
+ *   **帯の中のどこが良いのかが消えていた**（1 日の中で 2〜5 に散る）。
  */
 export function renderHourlyStrip(box, {
-  hours, sun = null, date = null, leadBox = null, count = 24,
-  emptyText = "予報がありません",
+  hours, date = null, leadBox = null, count = 24,
+  emptyText = "予報がありません", scoreOf = null,
 } = {}) {
   const hide = (text) => {
     box.innerHTML = `<div class="empty">${escapeHtml(text)}</div>`;
@@ -3671,10 +3695,15 @@ export function renderHourlyStrip(box, {
     }
   }
 
-  // マヅメの印は**その日の日の出・日没から**出す（決め打ちにしない）
-  const sunHours = sun?.rise && sun?.set
-    ? new Set([Number(sun.rise.slice(0, 2)), Number(sun.set.slice(0, 2))])
-    : new Set();
+  /* 色を付けるのは**いまの時間**（D-117）。
+     前はマヅメ（日の出・日没の時間）に色を付けていたが、
+     **いまどこを見ているのかが分からない**ほうが困る、という本人の指摘。
+     マヅメが良い時間かどうかは★が言うので、印を重ねる必要も無くなった。
+     先の日を見ているときは「いま」が窓の中に無いので、どこにも色は付かない。 */
+  /* **now.hour（整数）を使う。** now.hours は `hour + minute/60` の小数で、
+     8:35 なら 8.5833… になる。padStart しても "2026-08-14T8.5833…" にしかならず、
+     **どのカードにも一致せず、色が付かないまま静かに通る。** 1 度これで落とした。 */
+  const nowHour = startsNow ? `${now.date}T${String(now.hour).padStart(2, "0")}` : null;
 
   /* 日付は**カードの上を横に走る帯**として出す（D-112）。
      その日のカードのぶんだけ幅を持ち、日が変わるところで区切れる。
@@ -3703,11 +3732,16 @@ export function renderHourlyStrip(box, {
     const rain = rainLevel(w.precip_mm);
     const wind = windLevel(w.wind_speed_ms);
     const arrow = windArrowDeg(w.wind_dir_deg);
-    const mazume = sunHours.has(w.hour);
+    const isNow = nowHour != null && String(w.time).slice(0, 13) === nowHour;
     const newDay = i > 0 && String(w.time).slice(0, 10) !== String(rows[i - 1].time).slice(0, 10);
+    /* 釣行スコア（D-116）。**時刻のすぐ下**に置く。
+       横に流しながら「何時が良いか」を読むので、時刻と点が離れていると
+       目を上下に往復させることになる。色は週間カレンダーの★と同じ規則。 */
+    const score = scoreOf ? scoreOf(w) : null;
     return `
-      <div class="hour-card${mazume ? " highlight" : ""}${newDay ? " newday" : ""}">
+      <div class="hour-card${isNow ? " now" : ""}${newDay ? " newday" : ""}">
         <div class="h">${w.hour}時</div>
+        ${score ? `<div class="sc sc-${score}">★${score}</div>` : ""}
         <div class="icon-wrap">${weatherIcon}</div>
         <!-- 降水確率ではなく**予想雨量**を出す（D-111）。
              確率は気象庁が返さず、出していた値は別モデルのものだった。

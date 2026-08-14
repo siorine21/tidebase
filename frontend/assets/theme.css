@@ -397,7 +397,6 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .score-num { font-family: 'JetBrains Mono', monospace; font-size: 26px; line-height: 1; color: var(--mustard-lt); }
 .score-label { font-size: 10px; color: var(--text-muted); }
 
-.hero-meta { margin-top: 10px; font-size: 13px; color: var(--text-secondary); }
 
 /* 時間別天気を TODAY の中に入れる（D-114）。スコアも時間帯ごとの点も
    この予報から出しているので、根拠が同じ箱の中にある形にする。
@@ -416,6 +415,9 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .tag-blue   { background: var(--blue-bg);   color: var(--blue); border-color: var(--blue-deep); }
 .tag-green  { background: var(--green-light); color: #A5D6A7; border-color: var(--green); }
 .tag-gray   { background: var(--bg-raised); color: var(--text-secondary); border-color: var(--border); }
+/* 潮回り（D-116）。色は週間カレンダーと同じものを画面側から入れる。
+   **枠と文字だけ色を付ける。** 塗ると 5 色が並んだとき目に痛い */
+.tag-tide   { background: var(--bg-raised); font-weight: 700; }
 /* バラシ用（D-092）。惜しかった、という色。赤系はここだけ */
 .tag-red    { background: rgba(198, 91, 76, 0.14); color: #E2907F; border-color: #8E4437; }
 
@@ -505,12 +507,25 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
   flex: 0 0 54px; text-align: center; padding: 7px 3px;
   background: var(--bg-deep); border: 1px solid var(--border); border-radius: 8px;
 }
-/* マヅメの時間だけ枠を立てる。行く時間を探すときの目印 */
-.hour-card.highlight { border-color: var(--border-strong); background: var(--mustard-bg); }
+/* **いまの時間**だけ枠を立てる（D-117）。前はマヅメに付けていたが、
+   横に 24 枚流れる中で「いまどこか」が分からないほうが困る。
+   カラシはこのアプリで「自分のもの・いま」を指す色（スコアの円・ナビの選択中） */
+.hour-card.now { border-color: var(--mustard); background: var(--mustard-bg); }
 /* 日付が変わるところに区切りを入れる。24 時間ぶんは翌日にまたがる（D-104） */
 .hour-card.newday { border-left: 2px solid var(--border-strong); }
 
 .hour-card .h  { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-secondary); }
+/* 1 時間ごとの釣行スコア（D-116）。時間帯 4 つの並びをやめて、ここに移した。
+   **色で流し読みできること**が要る。24 枚の数字を 1 つずつ読むのでは
+   「パッと見で分かる」にならないので、良い時間ほど明るく・沈む時間ほど暗くする。 */
+.hour-card .sc {
+  font-family: 'JetBrains Mono', monospace; font-size: 12px; line-height: 1.4;
+  letter-spacing: -0.5px;
+}
+.hour-card .sc-5 { color: var(--green); font-weight: 700; }
+.hour-card .sc-4 { color: #A5D6A7; }
+.hour-card .sc-3 { color: var(--text-secondary); }
+.hour-card .sc-2, .hour-card .sc-1 { color: var(--text-muted); }
 .hour-card .icon { font-size: 18px; margin: 2px 0; }
 .hour-card .t  { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-secondary); }
 
@@ -1367,28 +1382,6 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
   margin: 14px 0 8px; font-size: 11px; letter-spacing: 1px; color: var(--text-secondary);
 }
 
-/* 時間帯ごとの点（D-103）。★ 1 つでは「いつの点か」が伝わらないので、
-   4 つ横に並べて、選ばれている時間帯だけ色を付ける */
-.band-strip {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 12px;
-}
-.band-strip[hidden] { display: none; }
-.band-cell {
-  display: flex; flex-direction: column; align-items: center; gap: 1px;
-  padding: 7px 2px; border-radius: 8px; cursor: pointer;
-  background: var(--bg-deep); border: 1px solid var(--border);
-  color: var(--text-secondary); font-family: inherit; width: auto;
-}
-.band-cell.on {
-  border-color: var(--border-strong); background: var(--mustard-bg); color: var(--text-primary);
-}
-.band-name { font-size: 10px; letter-spacing: 0; }
-.band-score {
-  font-family: 'JetBrains Mono', monospace; font-size: 17px; line-height: 1.2;
-  color: var(--text-primary);
-}
-.band-cell.on .band-score { color: var(--mustard-lt); }
-.band-at { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-muted); }
 
 /* ---------- 場所の選択（D-105 / D-108） ----------
    ホームも潮汐詳細も**同じ帯**を先頭に置く。押すと一覧が下から開く。
