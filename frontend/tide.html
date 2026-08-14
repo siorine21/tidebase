@@ -191,7 +191,9 @@
   // 横引き伸ばしが変わり、時刻ラベルが横に潰れて読めなくなる
   const DAY_UNITS = 320 * SCREENS_PER_DAY;
   const CHART_DAYS = 7;
-  const CHART_H = 176, PAD_TOP = 30, PAD_BOTTOM = 30;
+  /* 日付は SVG の外の帯に出るので、上の余白は元どおり。
+     下は時刻だけになったぶん薄くしてある（D-120 / D-121） */
+  const CHART_H = 176, PAD_TOP = 30, PAD_BOTTOM = 24;
   const scroller = document.getElementById("tide-scroller");
   const track = document.getElementById("tide-track");
 
@@ -215,7 +217,8 @@
       axis.innerHTML = "";
       return;
     }
-    track.innerHTML = result.svg + sunStripHtml(result.sunMarks);
+    // 日付の帯はグラフと同じ器に入れる（横スクロールに追従する・D-121）
+    track.innerHTML = result.ruler + result.svg + sunStripHtml(result.sunMarks);
     // 目盛りは SVG と同じ高さの箱に置く（縦は引き伸ばしていないので座標がそのまま px）
     axis.style.height = `${CHART_H}px`;
     axis.innerHTML = levelAxisHtml(result.levelTicks);

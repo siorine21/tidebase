@@ -1255,8 +1255,17 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 /* 日境界と日付ラベル */
 .tide-graph .day-line { stroke: var(--border-strong); stroke-width: 1; }
 .tide-graph text.day-label {
-  font-family: 'JetBrains Mono', monospace; font-size: 9px; fill: var(--mustard);
+  font-family: 'JetBrains Mono', monospace; font-size: 9px; fill: var(--text-secondary);
 }
+/* 日付の帯（D-119 / D-120 / D-121）。**すべての日に 1 つずつ**置き、今日だけ塗る。
+   前は日付のうしろに「TODAY」と書いていて、目盛りの「6:00」とくっついて
+   読めなくなっていた。
+
+   **時間別天気の日付の帯と同じ部品**（.day-seg / .day-name / .day-seg.today）。
+   中の .day-name が sticky なので、**横に送っても日付が画面の中に残る**。
+   1 日 1 枠を flex で等分するだけなので、グラフとずれようがない */
+.tide-days { display: flex; margin-bottom: 3px; }
+.tide-days .day-seg { flex: 1 1 0; min-width: 0; }
 .tide-graph .curve-area { fill: rgba(74,158,204,0.14); stroke: none; }
 .tide-graph .curve-line { fill: none; stroke: var(--blue); stroke-width: 2; }
 .scroll-hint {

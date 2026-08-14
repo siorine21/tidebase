@@ -370,7 +370,7 @@ export function smoothPath(points) {
  * @param {string[]} options.days      連続した日付（昇順）
  * @param {object[]} options.tides     days と同じ並びの潮汐（未取得は null）
  * @param {Map<string,object>} options.suns 日付 → {rise, set}
- * @param {string} options.today       今日の日付（TODAY 表示用）
+ * @param {string} options.today       今日の日付（帯で示す。D-119）
  * @param {number} options.dayUnits    1 日ぶんの viewBox 幅（= 画面 1 枚ぶん）
  * @returns {{svg: string, min: number, max: number}|null} データが無ければ null
  */
@@ -466,16 +466,30 @@ export function tideTimelineSvg({
       marks.push(`<line class="${cls}" x1="${x(d * 24 + h)}" y1="${padTop - 8}"
         x2="${x(d * 24 + h)}" y2="${height - padBottom}"/>`);
     }
-    // 0 時のところは時刻ではなく日付を出す（D-057）。
-    // 日付を上に置くと、満潮のときに「満 15:32」とぶつかって読めなくなる。
-    // 日境界＝0 時なので、時刻を省いても位置は分からなくならない。
-    marks.push(`<text class="day-label" x="${x(d * 24) + 4}" y="${height - 10}">${
-      formatJstDate(date, { weekday: true })}${date === today ? " TODAY" : ""}</text>`);
+    /* 日付は**上の帯**に出す（D-120）。ここには時刻だけを置く。
+       D-057 で日付を下に降ろしたのは「満 15:32」とぶつかったからだが、
+       いまは帯をいちばん上（満潮の印より上）に置くので、ぶつからない。
+       下は時刻だけになり、そのぶん読みやすくなった（本人の指摘）。 */
     for (const h of [6, 12, 18]) {
       marks.push(`<text x="${x(d * 24 + h) + 3}" y="${height - 10}">${h}:00</text>`);
     }
     return marks;
   }).join("");
+
+  /* 日付の帯（D-119 / D-120 / D-121）。**SVG の外に、HTML で出す。**
+
+     SVG のテキストは `position: sticky` にできない。中に置くと、
+     日の頭が画面の外へ出た時点で日付も消える（1 画面 = 1 日なので、
+     少し送っただけでそうなる）。**時間別天気の日付の帯とまったく同じ作り**
+     （`.day-seg` の中の `.day-name` を sticky にする）にして、
+     いま見ている日の日付が画面の中に残るようにする。
+
+     幅の計算は要らない。帯は潮位グラフと同じ器（`.tide-track`）に入れ、
+     1 日 1 枠を `flex: 1` で等分するので、**グラフとずれようがない**。 */
+  const ruler = `<div class="tide-days">${days.map((date) =>
+    `<span class="day-seg${date === today ? " today" : ""}"
+       ><span class="day-name">${escapeHtml(formatJstDate(date, { weekday: true }))}</span></span>`
+  ).join("")}</div>`;
 
   // 日境界。線の上端は目盛り線と揃える（上に日付を置かなくなったので 0 まで伸ばさない）
   const boundaries = days.map((date, d) =>
@@ -548,7 +562,7 @@ export function tideTimelineSvg({
       ${marks}
       ${markerMark}
     </svg>`;
-  return { svg, min, max, sunMarks, levelTicks };
+  return { svg, ruler, min, max, sunMarks, levelTicks };
 }
 
 /**

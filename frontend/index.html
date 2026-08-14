@@ -69,8 +69,11 @@
 
   <!-- 潮汐のある場所だけ。淡水スポットではこの節ごと隠す（D-105） -->
   <div id="tide-block">
+    <!-- 名前は潮汐画面と同じ「TIDE CHART」（D-119）。**同じ部品**を
+         日数だけ変えて出しているのに、名前が 2 つあった（TIDE GRAPH / TIDE CHART）。
+         カードのクラスも tide-chart-card なので、そちらに寄せる -->
     <div class="section-label">
-      <span>TIDE GRAPH — 本日</span>
+      <span>TIDE CHART</span>
       <a class="note" id="tide-detail-link" href="tide.html">詳細 →</a>
     </div>
     <div class="card tide-chart-card">
@@ -379,7 +382,9 @@
     const tides = chartDays.map((date) => tideCache.get(date) ?? null);
     const result = tideTimelineSvg({
       days: chartDays, tides, suns: sunCache, today: todayInJst(),
-      dayUnits: 320, height: CHART_H, padTop: 28, padBottom: 28,
+      /* 日付は SVG の外の帯に出るので、上の余白は元どおり。
+         下は時刻だけになったぶん薄くしてある（D-120 / D-121） */
+      dayUnits: 320, height: CHART_H, padTop: 28, padBottom: 20,
     });
     if (!result) {
       track.innerHTML = `<div class="empty">潮汐データを取得できませんでした</div>`;
@@ -388,7 +393,8 @@
       return;
     }
     // 日の出・日没はグラフの下の帯で示すので、凡例からは外す（D-053）
-    track.innerHTML = result.svg + sunStripHtml(result.sunMarks);
+    // 日付の帯はグラフと同じ器に入れる（横スクロールに追従する・D-121）
+    track.innerHTML = result.ruler + result.svg + sunStripHtml(result.sunMarks);
     // 目盛りは SVG と同じ高さの箱に置く（縦は引き伸ばしていないので座標がそのまま px）
     axis.style.height = `${CHART_H}px`;
     axis.innerHTML = levelAxisHtml(result.levelTicks);
