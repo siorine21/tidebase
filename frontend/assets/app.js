@@ -374,10 +374,20 @@ export function smoothPath(points) {
  * @param {number} options.dayUnits    1 日ぶんの viewBox 幅（= 画面 1 枚ぶん）
  * @returns {{svg: string, min: number, max: number}|null} データが無ければ null
  */
+/* 日付の帯の位置と高さ（D-120）。いちばん上に置く。
+   満潮の印の文字は `満潮の y - 10` に出るので、**padTop はこれより下**でないと
+   ぶつかる。呼ぶ側の padTop は 36 以上にすること（下の DAY_BAND_MIN_PAD_TOP）。 */
+const DAY_BAND_Y = 1;
+const DAY_BAND_H = 15;
+export const DAY_BAND_MIN_PAD_TOP = 36;
+
 export function tideTimelineSvg({
   days, tides, suns = new Map(), today = null, marker = null,
   dayUnits = 320, height = 176, padTop = 30, padBottom = 30,
 }) {
+  /* 日付の帯を置く場所を必ず空ける（D-120）。呼ぶ側が薄い padTop を渡すと
+     満潮の印の文字と帯が重なる。**呼ぶ側の書き間違いで壊れないよう、ここで下限を引く。** */
+  padTop = Math.max(padTop, DAY_BAND_MIN_PAD_TOP);
   const width = dayUnits * days.length;
   const totalHours = days.length * 24;
 
@@ -466,31 +476,36 @@ export function tideTimelineSvg({
       marks.push(`<line class="${cls}" x1="${x(d * 24 + h)}" y1="${padTop - 8}"
         x2="${x(d * 24 + h)}" y2="${height - padBottom}"/>`);
     }
-    /* 0 時のところは時刻ではなく日付を出す（D-057）。
-       日付を上に置くと、満潮のときに「満 15:32」とぶつかって読めなくなる。
-       日境界＝0 時なので、時刻を省いても位置は分からなくならない。
-
-       **今日に「TODAY」とは書かない**（D-119）。「08.14 FRI TODAY」は
-       目盛りの「6:00」とくっついて、そこだけ字が詰まって読めなくなっていた。
-       代わりに**その日の 24 時間ぶんに帯を敷く**。時間別天気の日付の帯
-       （.day-seg.today）と同じ見せ方なので、上下で意味が揃う。 */
-    marks.push(`<text class="day-label${date === today ? " today" : ""}"
-      x="${x(d * 24) + 4}" y="${height - 10}">${
-      formatJstDate(date, { weekday: true })}</text>`);
+    /* 日付は**上の帯**に出す（D-120）。ここには時刻だけを置く。
+       D-057 で日付を下に降ろしたのは「満 15:32」とぶつかったからだが、
+       いまは帯をいちばん上（満潮の印より上）に置くので、ぶつからない。
+       下は時刻だけになり、そのぶん読みやすくなった（本人の指摘）。 */
     for (const h of [6, 12, 18]) {
       marks.push(`<text x="${x(d * 24 + h) + 3}" y="${height - 10}">${h}:00</text>`);
     }
     return marks;
   }).join("");
 
-  /* 今日の帯（D-119）。目盛りの行に、その日の 24 時間ぶん敷く。
-     **文字の幅を測らずに済む**ように、日付だけを囲むのではなく日の幅で引く
+  /* 日付の帯（D-119 / D-120）。**すべての日に 1 つずつ**置き、今日だけ塗る。
+     時間別天気の日付の帯（.day-seg / .day-seg.today）と同じ見せ方。
+
+     置くのは**いちばん上**（満潮の印より上）。前は目盛りと同じ下の行に
+     置いていて、時刻と日付が同じ行に並んで詰まっていた（本人の指摘）。
+     そのぶん padTop を厚くし、padBottom を薄くしてある（曲線の高さは変えない）。
+
+     **文字の幅を測らずに済む**よう、日付だけを囲むのではなく日の幅で引く
      （SVG は preserveAspectRatio="none" で横に伸びるので、
      文字幅から箱を作ると伸び方の見積もりを間違えたときに収まらなくなる）。 */
-  const todayBand = days.map((date, d) => date === today
-    ? `<rect class="today-band" x="${x(d * 24)}" y="${height - 21}"
-         width="${x(24)}" height="17" rx="3"/>`
-    : "").join("");
+  const dayBands = days.map((date, d) => {
+    const on = date === today ? " today" : "";
+    return `<rect class="day-band${on}" x="${x(d * 24) + 1}" y="${DAY_BAND_Y}"
+         width="${Math.max(0, x(24) - 2)}" height="${DAY_BAND_H}" rx="3"/>`
+      /* 文字は帯の**真ん中**に置く（D-120）。左端に置くと、
+         グラフは「いま」を真ん中にして開くので、日の頭が画面の外へ出て
+         日付が切れて見える。真ん中なら、その日を見ているあいだ見えている。 */
+      + `<text class="day-label${on}" x="${x(d * 24 + 12)}" text-anchor="middle"
+         y="${DAY_BAND_Y + DAY_BAND_H - 4}">${formatJstDate(date, { weekday: true })}</text>`;
+  }).join("");
 
   // 日境界。線の上端は目盛り線と揃える（上に日付を置かなくなったので 0 まで伸ばさない）
   const boundaries = days.map((date, d) =>
@@ -552,8 +567,8 @@ export function tideTimelineSvg({
          preserveAspectRatio="none" role="img"
          aria-label="${days[0]} から ${days[days.length - 1]} までの潮位グラフ">
       ${nights}
-      ${todayBand}
       ${grid}
+      ${dayBands}
       ${levelLines}
       ${sunLines}
       <line class="axis" x1="0" y1="${height - padBottom}" x2="${width}" y2="${height - padBottom}"/>

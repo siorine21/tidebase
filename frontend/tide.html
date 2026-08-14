@@ -191,7 +191,9 @@
   // 横引き伸ばしが変わり、時刻ラベルが横に潰れて読めなくなる
   const DAY_UNITS = 320 * SCREENS_PER_DAY;
   const CHART_DAYS = 7;
-  const CHART_H = 176, PAD_TOP = 30, PAD_BOTTOM = 30;
+  /* 日付の帯が上に移ったぶん PAD_TOP を厚く、時刻だけになった下を薄く（D-120）。
+     30+30 → 36+24 で、曲線の高さは 116 → 116 のまま */
+  const CHART_H = 176, PAD_TOP = 36, PAD_BOTTOM = 24;
   const scroller = document.getElementById("tide-scroller");
   const track = document.getElementById("tide-track");
 

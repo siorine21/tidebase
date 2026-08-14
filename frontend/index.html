@@ -382,7 +382,9 @@
     const tides = chartDays.map((date) => tideCache.get(date) ?? null);
     const result = tideTimelineSvg({
       days: chartDays, tides, suns: sunCache, today: todayInJst(),
-      dayUnits: 320, height: CHART_H, padTop: 28, padBottom: 28,
+      /* 日付の帯が上に移ったぶん padTop を厚く、時刻だけになった下を薄く（D-120）。
+         28+28 → 36+20 で、曲線の高さ（96px）は変えていない */
+      dayUnits: 320, height: CHART_H, padTop: 36, padBottom: 20,
     });
     if (!result) {
       track.innerHTML = `<div class="empty">潮汐データを取得できませんでした</div>`;
