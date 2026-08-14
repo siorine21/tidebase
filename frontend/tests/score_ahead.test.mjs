@@ -24,13 +24,14 @@ const code = sliceApp([
   ['export function hoursFromHhmm', 'export function fishingScoreDetail'],
   ['export function fishingScoreDetail', 'export const TIME_BANDS'],
   ['export const TIME_BANDS', 'export function mostCommonBand'],
-  ['export function timeBandOf', 'export function stars'],   // 帯・点・これから 24 時間
+  // 帯・点・これから 24 時間・★の組み立て
+  ['export function timeBandOf', 'export function showFishingScoreHelp'],
   ['export function uniqueHours', 'export function renderHourlyStrip'],
 ]);
 
-const { bandRunsAhead, fishingScoreAhead, fishingScoreOfDay, hourScorer } =
+const { bandRunsAhead, fishingScoreAhead, fishingScoreOfDay, hourScorer, stars } =
   new Function(code
-    + '; return { bandRunsAhead, fishingScoreAhead, fishingScoreOfDay, hourScorer };')();
+    + '; return { bandRunsAhead, fishingScoreAhead, fishingScoreOfDay, hourScorer, stars };')();
 
 let failed = 0;
 const check = (name, ok, extra = '') => {
@@ -152,6 +153,24 @@ check('**「今日」で切ると、10 時でも朝マヅメが並ぶ**（直す
 check('「今日」で切ると夜の代表は未明になりうる',
   Number(String(today.bands.find((b) => b.key === 'night').at).slice(0, 2)) < 5,
   today.bands.find((b) => b.key === 'night').at);
+
+/* ---- ★☆ の組み立て（D-118） ----
+   時間別天気のカードは段階ごとに色を変えるので、
+   **点いている分と消えている分を分けた HTML** が要る。
+   幅は 5 つぶんで固定（54px のカードに収める前提）なので、
+   **どの点でも必ず 5 つ**であること。 */
+eq('★2 は ★★☆☆☆', stars(2), '★★☆☆☆');
+eq('★5 は ★★★★★', stars(5), '★★★★★');
+eq('どの点でも 5 つ（幅が変わらない）',
+  [1, 2, 3, 4, 5].map((n) => stars(n).length), [5, 5, 5, 5, 5]);
+eq('分けた形は on と off の 2 つ', stars(2, { html: true }),
+  '<span class="on">★★</span><span class="off">☆☆☆</span>');
+eq('5 なら off は空', stars(5, { html: true }),
+  '<span class="on">★★★★★</span><span class="off"></span>');
+// 範囲外や壊れた値でも 5 つに収める（repeat は負の数で落ちる）
+eq('0 でも落ちない', stars(0), '☆☆☆☆☆');
+eq('範囲を超えても 5 つ', [stars(9).length, stars(-3).length], [5, 5]);
+eq('数字でなくても落ちない', stars(null), '☆☆☆☆☆');
 
 console.log(failed ? `\n${failed} 件 FAIL` : '\nすべて PASS');
 process.exit(failed ? 1 : 0);
