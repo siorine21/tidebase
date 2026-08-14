@@ -370,7 +370,7 @@ export function smoothPath(points) {
  * @param {string[]} options.days      連続した日付（昇順）
  * @param {object[]} options.tides     days と同じ並びの潮汐（未取得は null）
  * @param {Map<string,object>} options.suns 日付 → {rise, set}
- * @param {string} options.today       今日の日付（TODAY 表示用）
+ * @param {string} options.today       今日の日付（帯で示す。D-119）
  * @param {number} options.dayUnits    1 日ぶんの viewBox 幅（= 画面 1 枚ぶん）
  * @returns {{svg: string, min: number, max: number}|null} データが無ければ null
  */
@@ -466,16 +466,31 @@ export function tideTimelineSvg({
       marks.push(`<line class="${cls}" x1="${x(d * 24 + h)}" y1="${padTop - 8}"
         x2="${x(d * 24 + h)}" y2="${height - padBottom}"/>`);
     }
-    // 0 時のところは時刻ではなく日付を出す（D-057）。
-    // 日付を上に置くと、満潮のときに「満 15:32」とぶつかって読めなくなる。
-    // 日境界＝0 時なので、時刻を省いても位置は分からなくならない。
-    marks.push(`<text class="day-label" x="${x(d * 24) + 4}" y="${height - 10}">${
-      formatJstDate(date, { weekday: true })}${date === today ? " TODAY" : ""}</text>`);
+    /* 0 時のところは時刻ではなく日付を出す（D-057）。
+       日付を上に置くと、満潮のときに「満 15:32」とぶつかって読めなくなる。
+       日境界＝0 時なので、時刻を省いても位置は分からなくならない。
+
+       **今日に「TODAY」とは書かない**（D-119）。「08.14 FRI TODAY」は
+       目盛りの「6:00」とくっついて、そこだけ字が詰まって読めなくなっていた。
+       代わりに**その日の 24 時間ぶんに帯を敷く**。時間別天気の日付の帯
+       （.day-seg.today）と同じ見せ方なので、上下で意味が揃う。 */
+    marks.push(`<text class="day-label${date === today ? " today" : ""}"
+      x="${x(d * 24) + 4}" y="${height - 10}">${
+      formatJstDate(date, { weekday: true })}</text>`);
     for (const h of [6, 12, 18]) {
       marks.push(`<text x="${x(d * 24 + h) + 3}" y="${height - 10}">${h}:00</text>`);
     }
     return marks;
   }).join("");
+
+  /* 今日の帯（D-119）。目盛りの行に、その日の 24 時間ぶん敷く。
+     **文字の幅を測らずに済む**ように、日付だけを囲むのではなく日の幅で引く
+     （SVG は preserveAspectRatio="none" で横に伸びるので、
+     文字幅から箱を作ると伸び方の見積もりを間違えたときに収まらなくなる）。 */
+  const todayBand = days.map((date, d) => date === today
+    ? `<rect class="today-band" x="${x(d * 24)}" y="${height - 21}"
+         width="${x(24)}" height="17" rx="3"/>`
+    : "").join("");
 
   // 日境界。線の上端は目盛り線と揃える（上に日付を置かなくなったので 0 まで伸ばさない）
   const boundaries = days.map((date, d) =>
@@ -537,6 +552,7 @@ export function tideTimelineSvg({
          preserveAspectRatio="none" role="img"
          aria-label="${days[0]} から ${days[days.length - 1]} までの潮位グラフ">
       ${nights}
+      ${todayBand}
       ${grid}
       ${levelLines}
       ${sunLines}
