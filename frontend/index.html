@@ -382,9 +382,9 @@
     const tides = chartDays.map((date) => tideCache.get(date) ?? null);
     const result = tideTimelineSvg({
       days: chartDays, tides, suns: sunCache, today: todayInJst(),
-      /* 日付の帯が上に移ったぶん padTop を厚く、時刻だけになった下を薄く（D-120）。
-         28+28 → 36+20 で、曲線の高さ（96px）は変えていない */
-      dayUnits: 320, height: CHART_H, padTop: 36, padBottom: 20,
+      /* 日付は SVG の外の帯に出るので、上の余白は元どおり。
+         下は時刻だけになったぶん薄くしてある（D-120 / D-121） */
+      dayUnits: 320, height: CHART_H, padTop: 28, padBottom: 20,
     });
     if (!result) {
       track.innerHTML = `<div class="empty">潮汐データを取得できませんでした</div>`;
@@ -393,7 +393,8 @@
       return;
     }
     // 日の出・日没はグラフの下の帯で示すので、凡例からは外す（D-053）
-    track.innerHTML = result.svg + sunStripHtml(result.sunMarks);
+    // 日付の帯はグラフと同じ器に入れる（横スクロールに追従する・D-121）
+    track.innerHTML = result.ruler + result.svg + sunStripHtml(result.sunMarks);
     // 目盛りは SVG と同じ高さの箱に置く（縦は引き伸ばしていないので座標がそのまま px）
     axis.style.height = `${CHART_H}px`;
     axis.innerHTML = levelAxisHtml(result.levelTicks);
