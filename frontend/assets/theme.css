@@ -537,13 +537,17 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
   letter-spacing: -1.7px; white-space: nowrap;
 }
 /* 消えている分は「そこまで届いていない」ことだけ示せばよいので沈める。
-   ただし**形が見えなくなると 5 段階に見えない**ので、消しすぎない */
-.hour-card .sc .off { color: #45566A; }
-.hour-card .sc-1 .on { color: #6E7E8E; }
-.hour-card .sc-2 .on { color: var(--mustard-dk); }
-.hour-card .sc-3 .on { color: var(--mustard-lt); }
-.hour-card .sc-4 .on { color: var(--orange); }
-.hour-card .sc-5 .on { color: var(--red); font-weight: 700; }
+   ただし**形が見えなくなると 5 段階に見えない**ので、消しすぎない。
+
+   **`.hour-card` の下に置かない**（D-122）。週カレンダーのセルも同じ★を出すので、
+   ここを時間別カードだけの色にすると、同じ★が画面ごとに違う色になる。
+   大きさだけ置き場所ごとに変え、色は 1 か所で決める。 */
+.sc .off { color: #45566A; }
+.sc-1 .on { color: #6E7E8E; }
+.sc-2 .on { color: var(--mustard-dk); }
+.sc-3 .on { color: var(--mustard-lt); }
+.sc-4 .on { color: var(--orange); }
+.sc-5 .on { color: var(--red); font-weight: 700; }
 .hour-card .icon { font-size: 18px; margin: 2px 0; }
 .hour-card .t  { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-secondary); }
 
@@ -1318,11 +1322,17 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .week-grid .tt { font-size: 9px; font-weight: 700; }
 .week-grid .wx { height: 18px; display: flex; align-items: center; }
 .week-grid .wx .icon { width: 15px; height: 15px; color: var(--text-secondary); }
-/* 釣行スコア。7 列に ★★★★☆ は入らないので、星 1 つ＋数字にする（D-055） */
+/* 釣行スコア。**時間別カードと同じ ★☆ 5 つ**にする（D-122。D-055 の
+   「星 1 つ＋数字」を取り消す）。同じ点なのに画面ごとに書き方が違うと、
+   ★4 と 4 が同じものだと気づけない。
+   **9px には落とさない**。D-118 で確かめたとおり、☆ は 9px だと輪郭がつぶれて
+   ただの点になり、5 段階に見えなくなる。セルの中身は 39px 使えるので、
+   時間別カードと同じ 11px のまま、字間だけ少し詰めれば 27px で収まる。 */
 .week-grid .sc {
-  font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--mustard-lt);
+  font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.5;
+  letter-spacing: -1.2px; white-space: nowrap;
 }
-.week-grid .sc.dim { color: var(--text-muted); }
+.week-grid .sc.dim { color: var(--text-muted); letter-spacing: normal; }
 /* 何時の点なのか（D-115）。点だけだとどの日も 5 になり、比べる列にならない。
    1 行足すぶんセルが縦に伸びるので、いちばん小さい字で沈める */
 .week-grid .bt {
