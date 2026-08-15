@@ -23,7 +23,7 @@ const code = sliceApp([
   ['export function weatherCategory', 'export function windDirection'],
   ['export function hoursFromHhmm', 'export function fishingScoreDetail'],
   ['export function fishingScoreDetail', 'export const TIME_BANDS'],
-  ['export const TIME_BANDS', 'export function mostCommonBand'],
+  ['export const TIME_BANDS', 'export function timeBandOf'],
   // 帯・点・これから 24 時間・★の組み立て
   ['export function timeBandOf', 'export function showFishingScoreHelp'],
   ['export function uniqueHours', 'export function renderHourlyStrip'],
@@ -105,19 +105,11 @@ eq('夕マヅメの時刻は日没そのもの',
 eq('明日の朝マヅメの時刻は日の出そのもの',
   ahead('10:00').bands.find((b) => b.key === 'morning').at, '05:00');
 
-// よく行く時間帯を指定すると、その帯の点が円になる
-const nightPicked = ahead('10:00', { band: 'night' });
-eq('よく行く時間帯を指定するとその帯が代表', nightPicked.best.key, 'night');
-eq('指定したことが分かる', nightPicked.preferred, true);
-/* 朝マヅメを指定して 10 時に見ると、**明日の朝マヅメ**が代表になる。
-   今日の朝はもう終わっているので、次に行ける朝を出すのが正しい */
-eq('過ぎた帯を指定すると、次に来るその帯（明日の朝マヅメ）',
-  [ahead('10:00', { band: 'morning' }).best.label,
-   ahead('10:00', { band: 'morning' }).best.tomorrow], ['朝マヅメ', true]);
-// 窓の中にその帯が無いときは、いちばん良い帯に戻す（点が出ないより良い）
-eq('窓に無い帯を指定したら、いちばん良い帯に戻す',
-  ahead('10:00', { band: 'morning', count: 6 }).preferred, false);
-eq('そのとき帯は窓のぶんだけ',
+/* 代表はいつでも**窓の中でいちばん良い帯**（D-123。帯を指定する設定はやめた） */
+eq('代表は窓の中でいちばん点の高い帯',
+  ahead('10:00').best.score,
+  Math.max(...ahead('10:00').bands.map((b) => b.score)));
+eq('窓を狭めると帯も窓のぶんだけ',
   ahead('10:00', { count: 6 }).bands.map((b) => b.label), ['日中']);
 
 /* ---- 円の点と、1 時間ごとの★が食い違わないか（D-116） ----

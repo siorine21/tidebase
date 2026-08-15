@@ -19,8 +19,8 @@ const code = sliceApp([
   ['export const MAZUME_WINDOW_MINUTES', '/* ---- 潮の動きによる加減点'],
 ]);
 
-const { hoursOfDate, bandHours, timeBandOf, mostCommonBand } = new Function(
-  code + '; return { hoursOfDate, bandHours, timeBandOf, mostCommonBand };')();
+const { hoursOfDate, bandHours, timeBandOf } = new Function(
+  code + '; return { hoursOfDate, bandHours, timeBandOf };')();
 
 let failed = 0;
 const check = (name, ok, extra = '') => {
@@ -88,32 +88,6 @@ for (const [hour, want] of [[5, 'morning'], [12, 'day'], [19, 'evening'], [22, '
   const key = Object.keys(bands).find((k) => hoursOf(k).includes(hour));
   eq(`${hour} 時は ${want}（スコアと傾向で同じ）`, key ?? timeBandOf(sun, `${hour}:00`), want);
 }
-
-/* ---- 記録でいちばん多い時間帯（D-115） ----
-   よく行く時間帯が未設定だと、★は日によって別の時間帯の点になる。
-   設定を促すときに **勝手に切り替えず、数えて見せる** ための値。 */
-const rec = (date, time) => ({ fished_at: date, fished_time: time });
-const sunFor = () => sun;   // rise 05:00 / set 18:30
-
-eq('いちばん多い時間帯を返す', mostCommonBand([
-  rec('2026-08-11', '21:00'), rec('2026-08-11', '22:30'), rec('2026-08-11', '19:40'),
-  rec('2026-08-12', '05:10'), rec('2026-08-12', '12:00'),
-], sunFor), { key: 'night', count: 3, total: 5 });
-
-// 時刻の無い記録は数に入れない（どの時間帯か決められない）
-eq('時刻が無い記録は数えない', mostCommonBand([
-  rec('2026-08-11', null), rec('2026-08-11', '21:00'),
-], sunFor), { key: 'night', count: 1, total: 1 });
-// 日の出が取れない記録（座標未設定など）も数に入れない
-eq('日の出が引けない記録は数えない',
-  mostCommonBand([rec('2026-08-11', '21:00')], () => null), null);
-eq('時刻つきが 1 件も無ければ null',
-  mostCommonBand([rec('2026-08-11', null)], sunFor), null);
-eq('空でも落ちない', mostCommonBand([], sunFor), null);
-eq('null でも落ちない', mostCommonBand(null, sunFor), null);
-// "HH:MM:SS" で返ってくることがある（time 型）
-eq('秒つきの時刻でも読む',
-  mostCommonBand([rec('2026-08-11', '21:00:00')], sunFor), { key: 'night', count: 1, total: 1 });
 
 console.log(failed ? `\n${failed} 件 FAIL` : '\nすべて PASS');
 process.exit(failed ? 1 : 0);
