@@ -6,6 +6,69 @@
 
 \set ON_ERROR_STOP on
 
+-- ============================================================
+-- 033: 権限が剥がれていないか（安全点検の再発防止・D-124）
+--
+-- **この検査は「戻ってしまう」ことを止めるためにある。**
+-- record_feed は 010 で REVOKE したのに、あとから DROP VIEW → CREATE VIEW で
+-- 作り直したマイグレーション（016 / 025 / 031 / 032）が権限を書き写さず、
+-- 本番では anon に ALL が戻っていた。security_invoker = false のほうは
+-- 毎回きちんと書き写されていたので、**権限だけが落ちる**という壊れ方をする。
+--
+-- ビューを作り直して権限を書き忘れると、ここで authenticated の SELECT が
+-- 消えるため落ちる。本番で起きる「anon に戻る」も同じ原因なので、
+-- どちらの向きの崩れもこの 1 か所で捕まえられる。
+--
+-- **この検査はファイルの先頭に置くこと。** 下のほうにある RLS のテストが
+-- `GRANT ... ON ALL TABLES IN SCHEMA public TO authenticated` を実行するので、
+-- そのあとに置くと「テストが自分で付けた権限」を見てしまい、必ず落ちる
+-- （最初この位置を間違えて、実際に落とした）。
+-- ============================================================
+DO $$
+DECLARE
+  v TEXT;
+BEGIN
+  -- ① SECURITY DEFINER 関数は、ブラウザ側の 2 ロールから実行できてはならない
+  IF has_function_privilege('anon', 'public.copy_default_methods(uuid)', 'EXECUTE')
+     OR has_function_privilege('authenticated', 'public.copy_default_methods(uuid)', 'EXECUTE') THEN
+    RAISE EXCEPTION
+      'TEST FAIL: copy_default_methods を anon/authenticated が実行できる（033 の REVOKE が効いていない）';
+  END IF;
+
+  -- 探索パスの固定（SECURITY DEFINER には必ず付ける）
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+     WHERE n.nspname = 'public' AND p.proname = 'copy_default_methods'
+       AND array_to_string(p.proconfig, ',') LIKE '%search_path%') THEN
+    RAISE EXCEPTION 'TEST FAIL: copy_default_methods に search_path が無い';
+  END IF;
+
+  -- ② ビューは authenticated の SELECT だけ
+  FOREACH v IN ARRAY ARRAY['record_feed', 'spot_feed', 'tide_correlation'] LOOP
+    IF NOT has_table_privilege('authenticated', 'public.' || v, 'SELECT') THEN
+      RAISE EXCEPTION
+        'TEST FAIL: % の SELECT が authenticated から消えている（作り直したときに GRANT を書き忘れた）', v;
+    END IF;
+    IF has_table_privilege('anon', 'public.' || v, 'SELECT') THEN
+      RAISE EXCEPTION 'TEST FAIL: % を anon が読める（ログイン前提のビュー）', v;
+    END IF;
+    IF has_table_privilege('authenticated', 'public.' || v, 'INSERT')
+       OR has_table_privilege('authenticated', 'public.' || v, 'UPDATE')
+       OR has_table_privilege('authenticated', 'public.' || v, 'DELETE') THEN
+      RAISE EXCEPTION 'TEST FAIL: % に書き込み権限が付いている', v;
+    END IF;
+  END LOOP;
+
+  -- ③ 運用専用の表は、いまも触れないこと（012 で剥がしたもの）
+  IF has_table_privilege('anon', 'public.app_admins', 'SELECT')
+     OR has_table_privilege('authenticated', 'public.app_admins', 'SELECT') THEN
+    RAISE EXCEPTION 'TEST FAIL: app_admins が読めてしまう';
+  END IF;
+
+  RAISE NOTICE 'PRIVILEGE LOCKDOWN TESTS PASSED';
+END;
+$$;
+
 -- テストユーザー（handle_new_user トリガーが profiles とメソッドを作る）
 INSERT INTO auth.users (id) VALUES ('11111111-1111-1111-1111-111111111111');
 
