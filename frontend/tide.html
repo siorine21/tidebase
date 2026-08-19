@@ -44,9 +44,6 @@
   <div class="week-back">
     <button type="button" class="chip" id="week-today" hidden>今週へ戻る</button>
   </div>
-  <!-- ★が何の点かの案内（D-115）。よく行く時間帯が未設定のときだけ -->
-  <div class="band-hint" id="band-hint" hidden></div>
-
   <!-- 時間別天気（D-114）。**週を選んだ直後に読めるよう、カレンダーの真下に置く。**
        ホームでも同じ帯が見えるようになったので、この画面の役目は
        「週を送って別の日を見る」ことに寄せる。日を押したらすぐ下に出る、が要る -->
@@ -100,8 +97,7 @@
     requireSession, renderNav, escapeHtml, icon,
     todayInJst, formatJstDate, WEEKDAYS_EN, nowInJst, hoursFromHhmm, addJstDays, weekOf,
     fetchWeatherRange, describeWeather, windDirection,
-    fishingScoreOfDay, hourScorer, showFishingScoreHelp, stars, savedScoreBand,
-    listRecords, mostCommonBand, timeBandLabel,
+    fishingScoreOfDay, hourScorer, showFishingScoreHelp, stars,
     listSpots, listTidePoints, fetchTideForPoint, tidePointOfSpot,
     formatLag, pickBaseSpot, spotTidePoint, savedBaseSpot, saveBaseSpot, attachSpotPicker,
     renderHourlyStrip,
@@ -416,8 +412,7 @@
     // 時間帯ごとに判定し、いちばん良い時間帯をその日のスコアにする（D-051・D-103）
     scoreContext = weather
       ? fishingScoreOfDay({
-          tideType: type, hours: weather, sun: sunOf(date), tide, tideMatters,
-          date, band: savedScoreBand() })
+          tideType: type, hours: weather, sun: sunOf(date), tide, tideMatters, date })
       : null;
     const score = scoreContext?.score ?? null;
 
@@ -431,11 +426,13 @@
     document.getElementById("summary").innerHTML =
       // 淡水では潮回りに意味が無いので「—」にする（暦としては出せるが誤解を招く）
       cell("潮回り", type ? escapeHtml(type) : "—", type ? TIDE_TYPE_COLORS[type] : null)
+      /* ★の色は 1 か所で決めている（D-122）。ここだけ「4 以上なら緑」にすると、
+         同じ日の同じ点が、週カレンダーでは橙、この枠では緑になる。 */
       + cell("釣行スコア", score
-          ? stars(score)
+          ? `<span class="sc sc-${score}">${stars(score, { html: true })}</span>`
             + `<button type="button" class="info-hint" id="score-help"
                        aria-label="釣行スコアの説明">${icon("help", { size: 14 })}</button>`
-          : "—", score >= 4 ? "var(--green)" : null,
+          : "—", null,
           // 朝と夕のどちらが良いかは、開かなくても見えるほうがいい
           scoreContext && !scoreContext.fallback
             ? scoreContext.windows
@@ -547,26 +544,27 @@
     const day = ready
       ? fishingScoreOfDay({
           tideType: tideMatters ? type : null, hours, sun: sunOf(date),
-          tide: tideMatters ? tideOf(date) : null, tideMatters,
-          date, band: savedScoreBand() })
+          tide: tideMatters ? tideOf(date) : null, tideMatters, date })
       : null;
 
-    /* 狭いセルなので星は 1 つだけにして数字を添える（★★★★☆ は 7 列に入らない）。
+    /* **時間別カードと同じ ★☆ 5 つで出す**（D-122）。以前は「★4」と数字で
+       書いていたが、同じ釣行スコアがホームでは ★★★★☆、ここでは ★4 になっていた。
+       色も同じ（★4 橙・★5 赤）なので、2 画面を行き来しても同じものに見える。
 
        **何時の点なのかを添える**（D-115）。日の点は「その日いちばん良い
        時間帯の点」なので、点だけでは何時の話か分からない。
        時刻は日によってよく動く（朝 05:04 / 日中 15:00 / 夜 20:00）ので、
        **点が並んだ週でも「いつ行くか」で選べる。**
 
-       なお ★ が 7 日そろって 5 になることがあるが、これは飽和ではない。
-       13 日ぶん数えたら 5,5,5,5,5,5,4,4,4,2,4,4,5 と散った（長潮・雨の日は 2）。
-       **その週がまるごと良い週だっただけ**なので、点の出し方は変えない。 */
+       点そのものは 75 日ぶん数えると ★5 61%・★4 32%・★3 1%・★2 5%（D-122）。
+       飽和ではないが、**週の 7 日で見ると 2 種類しか出ない週が 10 週中 8 週**あり、
+       日を選ぶ材料としては弱い。だから時刻と潮回りを並べて置いている。 */
     const at = day?.best
       ? `<span class="bt">${escapeHtml(day.best.label.replace("マヅメ", ""))} `
         + `${escapeHtml(String(day.best.at).slice(0, 5))}</span>`
       : "";
     const score = day
-      ? `<span class="sc"${day.score >= 4 ? ` style="color:var(--green)"` : ""}>★${day.score}</span>`
+      ? `<span class="sc sc-${day.score}">${stars(day.score, { html: true })}</span>`
       : `<span class="sc dim">—</span>`;
     return `
       <button type="button" class="${classes.join(" ")}" data-date="${date}">
@@ -577,26 +575,6 @@
         ${score}
         ${at}
       </button>`;
-  }
-
-  /* ★が何の点なのかを言う（D-115）。未設定だと毎日「いちばん良い時間帯」の点で、
-     **日によって別の時間帯の点**を並べていることになる。朝しか行かない人に
-     「夜なら 5 です」と言っても意味が無い。**未設定のときだけ**案内を出し、
-     記録から見た傾向も添えて、決めやすくする。 */
-  async function renderBandHint() {
-    const box = document.getElementById("band-hint");
-    if (savedScoreBand()) { box.hidden = true; return; }
-    const records = await listRecords().catch(() => []);
-    const common = mostCommonBand(records, (r) =>
-      isCoordinateInJapan(r.spot_latitude, r.spot_longitude)
-        ? sunTimes(Number(r.spot_latitude), Number(r.spot_longitude), r.fished_at) : null);
-    box.hidden = false;
-    box.innerHTML = `★は「その日いちばん良い時間帯」の点なので、`
-      + `日によって別の時間帯の点を並べています。`
-      + `${common ? `記録では<b>${escapeHtml(timeBandLabel(common.key))}</b>が `
-                    + `${common.total} 件中 ${common.count} 件でいちばん多いようです。` : ""}`
-      + `<a href="settings.html">よく行く時間帯</a>を決めると、`
-      + `いつもその時間帯の点で並びます。`;
   }
 
   document.getElementById("week").addEventListener("click", (e) => {
@@ -641,7 +619,6 @@
   renderSpotBar();
   renderTideAvailability();
   renderWeek();
-  renderBandHint();
   applyDate();
   loadWeekWeather(weekOf(state.week));
   scrollToDate(state.date, "auto");

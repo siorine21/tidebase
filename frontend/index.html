@@ -114,7 +114,7 @@
     client, requireSession, renderNav, escapeHtml,
     fetchTide, fetchWeather, todayInJst, formatJstDate, relativeDays,
     fishingScoreAhead, hourScorer,
-    showFishingScoreHelp, savedScoreBand, tideType, TIDE_TYPE_COLORS,
+    showFishingScoreHelp, tideType, TIDE_TYPE_COLORS,
     renderHourlyStrip,
     listSpots, listRecords, tideCorrelation, icon,
     recordFishName, ownerBadge, nowInJst, hoursFromHhmm, addJstDays,
@@ -322,7 +322,7 @@
     scoreContext = weather?.length
       ? fishingScoreAhead({
           hours: weather, nowIso: `${nowJst.date}T${nowJst.hhmm}`,
-          tideMatters: Boolean(tide), band: savedScoreBand(),
+          tideMatters: Boolean(tide),
           contextOf: scoreContextOf(tide, sun),
         })
       : null;

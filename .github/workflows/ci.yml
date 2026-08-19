@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+# 読むだけで足りる。外部の Action も秘密も使っていないので、
+# リポジトリ既定の権限（書き込みを含みうる）で走らせる理由が無い（D-124）
+permissions:
+  contents: read
+
 jobs:
   db-tests:
     name: DB migrations & triggers

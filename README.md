@@ -37,6 +37,7 @@
 | [docs/DECISIONS.md](docs/DECISIONS.md) | 技術決定事項ログ(D-001〜D-021) |
 | [docs/design/](docs/design/) | 設計補完書・アーキテクチャ移行設計書 |
 | [docs/ops/委任運用ガイド_v1.0.md](docs/ops/委任運用ガイド_v1.0.md) | Claude Code への作業委任セットアップ |
+| [docs/ops/構成とデプロイの参考資料.md](docs/ops/構成とデプロイの参考資料.md) | この構成を別のシステムで再利用するための一般化した資料 |
 | [db/migrations/](db/migrations/) | DB スキーマ差分(`make db-migrate` で適用) |
 
 ## 開発

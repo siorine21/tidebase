@@ -733,20 +733,6 @@ export function spotTidePoint(spot, points) {
 }
 
 /**
- * よく行く時間帯（D-103）。設定すると、釣行スコアの★がその時間帯の点になる。
- * 端末ごとで構わないので localStorage に置く（潮汐地点と同じ扱い）。
- * 未設定なら null＝いちばん良い時間帯の点を出す。
- */
-export function savedScoreBand() {
-  const value = localStorage.getItem("tidebase.scoreBand");
-  return TIME_BANDS.some((b) => b.key === value) ? value : null;
-}
-export function saveScoreBand(value) {
-  if (value) localStorage.setItem("tidebase.scoreBand", value);
-  else localStorage.removeItem("tidebase.scoreBand");
-}
-
-/**
  * お気に入りの潮汐地点（SCR-003 の地点切替タブ）。端末をまたいで同じ並びに
  * したいので profiles に持つ。存在しない地点コードは読み飛ばす。
  */
@@ -1306,35 +1292,6 @@ export function timeBandLabel(key) {
 }
 
 /**
- * 自分の記録でいちばん多い時間帯（D-115）。
- *
- * 「よく行く時間帯」は設定で選べるが、既定は未設定で、そのとき日の点は
- * **その日いちばん良い時間帯の点**になる。つまり日によって別の時間帯の点が
- * 並ぶ。朝しか行かない人に「夜なら 5 です」と言っても、行く判断には使えない。
- *
- * **勝手に切り替えない。** 自分でも気づいていない癖かもしれないし、
- * 黙って点の意味が変わるほうが困る。**数えて見せて、決めてもらう。**
- *
- * @param {object[]} records listRecords の戻り（fished_at / fished_time を見る）
- * @param {(record:object)=>{rise:string,set:string}|null} sunFor その記録の日の出・日没
- * @returns {{key:string, count:number, total:number}|null}
- */
-export function mostCommonBand(records, sunFor) {
-  const counts = new Map();
-  let total = 0;
-  for (const record of records ?? []) {
-    if (!record?.fished_time) continue;              // 時刻が無いと分けられない
-    const key = timeBandOf(sunFor(record), String(record.fished_time).slice(0, 5));
-    if (!key) continue;
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-    total += 1;
-  }
-  if (!total) return null;
-  const [key, count] = [...counts].reduce((a, b) => (b[1] > a[1] ? b : a));
-  return { key, count, total };
-}
-
-/**
  * その時刻がどの時間帯か。
  * 日の出・日没は呼ぶ側で計算して渡す（sunTimes）。ここを純粋にしておくと
  * 天文計算ぬきで境目を試せる。
@@ -1557,12 +1514,14 @@ export function hourScorer({ contextOf, tideMatters = true }) {
  * @param {object} input
  * @param {string} [input.date] 予報を当日ぶんに絞るための日付（"YYYY-MM-DD"）。
  *   渡さないと 2 日ぶんの配列から探すことになる（D-103 の hoursOfDate を見ること）。
- * @param {string} [input.band] よく行く時間帯。渡すとその時間帯の点を日の点にする。
- *   渡さなければ、いちばん良い時間帯の点（これまでと同じ）。
- * @returns {{score, best, windows, bands, tideType, fallback, preferred}|null}
+ *
+ * **日の点は、いつでも「その日いちばん良い時間帯」の点**（D-123）。
+ * 「よく行く時間帯」で別の帯に固定できるようにしていたが、
+ * 行く時間帯はその都度ちがう、という理由でやめた。
+ * @returns {{score, best, windows, bands, tideType, fallback}|null}
  */
 export function fishingScoreOfDay({
-  tideType, hours, sun, tide = null, tideMatters = true, date = null, band = null,
+  tideType, hours, sun, tide = null, tideMatters = true, date = null,
 }) {
   const evaluate = (label, at, row, key = null) =>
     scoreHour({ tideType, row, tide, tideMatters, label, at, key });
@@ -1588,13 +1547,10 @@ export function fishingScoreOfDay({
       if (w.key === "morning" && sun?.rise) w.at = sun.rise;
       if (w.key === "evening" && sun?.set) w.at = sun.set;
     }
-    const top = windows.reduce((a, b) => (b.score > a.score ? b : a));
-    const chosen = band ? windows.find((w) => w.key === band) : null;
-    const best = chosen ?? top;
+    const best = windows.reduce((a, b) => (b.score > a.score ? b : a));
     return {
-      score: best.score, best, top, windows, bands: windows,
+      score: best.score, best, top: best, windows, bands: windows,
       tideType, tideMatters, fallback: false,
-      preferred: Boolean(chosen), band: chosen ? band : null,
     };
   }
 
@@ -1604,7 +1560,7 @@ export function fishingScoreOfDay({
   if (!noon) return null;
   return {
     score: noon.score, best: noon, top: noon, windows: [noon], bands: [noon],
-    tideType, tideMatters, fallback: true, preferred: false, band: null,
+    tideType, tideMatters, fallback: true,
   };
 }
 
@@ -1652,10 +1608,9 @@ export function bandRunsAhead(hours, nowIso, sunOf, count = 24) {
  * @param {string} nowIso "YYYY-MM-DDTHH:MM"（JST）
  * @param {(date:string)=>{sun?:object,tide?:object,tideType?:string}|null} contextOf
  *   日付ごとの日の出・潮汐・潮回り。日をまたぐので**行の日付で引く**
- * @param {string|null} band よく行く時間帯。あればその帯の点を代表にする
  */
 export function fishingScoreAhead({
-  hours, nowIso, count = 24, contextOf, tideMatters = true, band = null,
+  hours, nowIso, count = 24, contextOf, tideMatters = true,
 }) {
   const today = String(nowIso).slice(0, 10);
   const ctx = (date) => contextOf(date) ?? {};
@@ -1688,14 +1643,11 @@ export function fishingScoreAhead({
      **円の点は帯の並びではなく 24 時間の最高点**になる。切ると食い違う。 */
 
   if (!windows.length) return null;
-  const top = windows.reduce((a, b) => (b.score > a.score ? b : a));
-  const chosen = band ? windows.find((w) => w.key === band) : null;
-  const best = chosen ?? top;
+  const best = windows.reduce((a, b) => (b.score > a.score ? b : a));
   return {
-    score: best.score, best, top, windows, bands: windows,
+    score: best.score, best, top: best, windows, bands: windows,
     tideType: ctx(today).tideType ?? null, tideMatters,
-    fallback: false, preferred: Boolean(chosen), band: chosen ? band : null,
-    ahead: true, from: nowIso, count,
+    fallback: false, ahead: true, from: nowIso, count,
   };
 }
 
@@ -1755,9 +1707,7 @@ export function showFishingScoreHelp(day) {
 
     <div class="list-sub" style="margin-bottom:6px">${fallback
       ? "日の出・日没が取れないので 12 時で見ています"
-      : day.preferred
-        ? `時間帯ごとの判定（設定した「${escapeHtml(best.label)}」がこの日のスコア）`
-        : "時間帯ごとの判定（いちばん良い時間帯がこの日のスコア）"}</div>
+      : "時間帯ごとの判定（いちばん良い時間帯がこの日のスコア）"}</div>
     <ol class="score-rules mazume">${windows.map(windowRow).join("")}</ol>
 
     <div class="list-sub" style="margin:12px 0 6px">${escapeHtml(best.label)}の内訳</div>
