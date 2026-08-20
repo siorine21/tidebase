@@ -24,6 +24,13 @@ const CORS_HEADERS = {
 const cache = new Map<string, { text: string; fetchedAt: number }>();
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 推算値は静的だが念のため 24h
 
+/* 失敗したときだけ 1 行残す（D-125）。
+   ここは以前まったく無言で、502 を返しても見に行く先が無かった。
+   **入れるのは経路と理由だけ。** 利用者を特定できるものは入れない。 */
+function logFail(event: string, detail: Record<string, unknown>): void {
+  console.error(JSON.stringify({ fn: "tide", event, ...detail }));
+}
+
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -83,13 +90,18 @@ Deno.serve(async (request: Request) => {
   } catch (error) {
     const status = (error as { status?: number }).status;
     if (status === 404) {
+      logFail("source_not_found", { station, year });
       return json(404, { error: `観測地点 ${station} の ${year} 年データがありません` });
     }
+    logFail("source_fetch_failed", { station, year, status: status ?? null });
     return json(502, { error: "潮汐データの取得に失敗しました" });
   }
 
   const day = findDay(yearText, date);
   if (day === null) {
+    /* 取得はできたのに読めない＝**気象庁側の書式が変わった可能性**。
+       いちばん気づきにくい壊れ方なので、必ず残す */
+    logFail("parse_miss", { station, date, bytes: yearText.length });
     return json(404, { error: `${date} の潮汐データが見つかりません` });
   }
 

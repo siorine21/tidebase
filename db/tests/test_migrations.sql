@@ -1061,3 +1061,92 @@ BEGIN
   RAISE NOTICE 'SPOT TYPE TESTS PASSED';
 END;
 $$;
+
+-- ============================================================
+-- 034 / 035: 足あとの列と、消し損ねた実体の表（D-125）
+-- ============================================================
+
+/* **updated_at の動作確認は DO ブロックの外でやる。**
+   now() はトランザクション開始時刻なので、1 つの DO ブロックの中で
+   INSERT → UPDATE しても同じ値になり、pg_sleep を挟んでも進まない
+   （最初これで落とした）。psql の文はそれぞれ別トランザクションなので、
+   ここに素の SQL として並べれば実際の使われ方と同じになる。 */
+INSERT INTO public.spots (id, user_id, name, latitude, longitude)
+VALUES ('dddddddd-dddd-dddd-dddd-dddddddddddd',
+        '11111111-1111-1111-1111-111111111111', '足あとテスト', 34.70, 137.60);
+
+UPDATE public.spots SET name = '足あとテスト（改）'
+ WHERE id = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+
+DO $$
+DECLARE
+  c TIMESTAMPTZ;
+  u TIMESTAMPTZ;
+BEGIN
+  SELECT created_at, updated_at INTO c, u
+    FROM public.spots WHERE id = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+  IF u <= c THEN
+    RAISE EXCEPTION 'TEST FAIL: spots を更新しても updated_at が進まない（% → %）', c, u;
+  END IF;
+  DELETE FROM public.spots WHERE id = 'dddddddd-dddd-dddd-dddd-dddddddddddd';
+END;
+$$;
+
+DO $$
+DECLARE
+  t TEXT;
+  u CONSTANT UUID := '11111111-1111-1111-1111-111111111111';
+  before_ts TIMESTAMPTZ;
+  after_ts  TIMESTAMPTZ;
+  sid UUID;
+  failed BOOLEAN := FALSE;
+BEGIN
+  -- ① 5 つの表すべてに updated_at と、それを動かすトリガーがある
+  FOREACH t IN ARRAY ARRAY['fishing_records','spots','lure_recipes','profiles','tackle_items'] LOOP
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_schema='public' AND table_name=t AND column_name='updated_at') THEN
+      RAISE EXCEPTION 'TEST FAIL: % に updated_at が無い', t;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger
+                    WHERE tgrelid = ('public.'||t)::regclass AND tgname = 'touch_'||t
+                      AND NOT tgisinternal) THEN
+      RAISE EXCEPTION 'TEST FAIL: % に updated_at を動かすトリガーが無い', t;
+    END IF;
+  END LOOP;
+
+  -- ③ 消し損ねた実体の表。同じパスは 1 行だけ（掃き出しの取りこぼしを防ぐ）
+  INSERT INTO public.orphan_objects (user_id, bucket, path, reason)
+  VALUES (u, 'catch-photos', 'x/1.webp', 'upload_rollback');
+  BEGIN
+    INSERT INTO public.orphan_objects (user_id, bucket, path, reason)
+    VALUES (u, 'catch-photos', 'x/1.webp', 'delete_failed');
+    failed := TRUE;
+  EXCEPTION WHEN unique_violation THEN
+    NULL;
+  END;
+  IF failed THEN
+    RAISE EXCEPTION 'TEST FAIL: 同じパスが 2 行入ってしまう';
+  END IF;
+
+  -- 知らない理由は弾く（画面側と値がずれたら気づけるように）
+  failed := FALSE;
+  BEGIN
+    INSERT INTO public.orphan_objects (user_id, bucket, path, reason)
+    VALUES (u, 'catch-photos', 'x/2.webp', 'なんとなく');
+    failed := TRUE;
+  EXCEPTION WHEN check_violation THEN
+    NULL;
+  END;
+  IF failed THEN
+    RAISE EXCEPTION 'TEST FAIL: 知らない reason が入ってしまう';
+  END IF;
+
+  -- anon からは触れない（033 と同じ方針）
+  IF has_table_privilege('anon', 'public.orphan_objects', 'SELECT') THEN
+    RAISE EXCEPTION 'TEST FAIL: orphan_objects を anon が読める';
+  END IF;
+
+  DELETE FROM public.orphan_objects WHERE user_id = u;
+  RAISE NOTICE 'UPDATED_AT / ORPHAN TESTS PASSED';
+END;
+$$;

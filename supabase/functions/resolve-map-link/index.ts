@@ -78,6 +78,13 @@ async function isSignedIn(request: Request): Promise<boolean> {
 const MAX_HOPS = 5;
 const FETCH_TIMEOUT_MS = 8000;
 
+/* 失敗したときだけ 1 行残す（D-125）。ここも以前は無言だった。
+   **URL そのものは残さない。** 利用者が共有した場所が分かってしまう。
+   残すのはホスト名と何段目か、という「どこで止まったか」だけ。 */
+function logFail(event: string, detail: Record<string, unknown>): void {
+  console.error(JSON.stringify({ fn: "resolve-map-link", event, ...detail }));
+}
+
 function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -165,6 +172,7 @@ Deno.serve(async (request) => {
         },
       });
     } catch {
+      logFail("fetch_failed", { host: current.hostname, hop });
       return json(502, { error: "リンクを開けませんでした。時間をおいて試してください。" });
     }
 
@@ -172,7 +180,11 @@ Deno.serve(async (request) => {
     if (response.status >= 300 && response.status < 400 && location) {
       const next = isAllowed(new URL(location, current.href).href);
       if (!next) {
-        // 想定外の行き先。ここで止める（追いかけない）
+        /* 想定外の行き先。ここで止める（追いかけない）。
+           **許可ホストの取りこぼしはここに出る**ので、必ず残す */
+        let target = "(解釈できない)";
+        try { target = new URL(location, current.href).hostname; } catch { /* そのまま */ }
+        logFail("redirect_blocked", { from: current.hostname, to: target, hop });
         return json(422, { error: "座標を読み取れませんでした。長い URL を貼り付けてください。" });
       }
       current = next;
@@ -210,5 +222,14 @@ Deno.serve(async (request) => {
     }
   }
 
+  /* **ログのために落ちない。** finalUrl は常に妥当なはずだが、
+     ここで例外を投げたら 422 ではなく 500 になってしまう */
+  let finalHost = "(不明)";
+  try { finalHost = new URL(finalUrl).hostname; } catch { /* そのまま */ }
+  logFail("no_coords", {
+    host: finalHost,
+    had_address: Boolean(label.address),
+    bytes: html.length,
+  });
   return json(422, { error: "この URL からは場所を読み取れませんでした。" });
 });
