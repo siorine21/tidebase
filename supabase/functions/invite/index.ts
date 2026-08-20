@@ -188,7 +188,15 @@ async function handlePost(request: Request): Promise<Response> {
     // 押さえた招待を戻して、同じリンクをもう一度使えるようにする
     await rpc("release_invite", { invite_token: token }).catch(() => {});
     const { userMessage, status } = error as { userMessage?: string; status?: number };
-    console.error("invite signup failed:", error);
+    /* **生のエラー文をそのまま出さない**（D-125）。
+       Auth の応答にはメールアドレスが入ることがあり、ログに残ってしまう。
+       残すのは「どこで、どういう分類で失敗したか」だけ。 */
+    console.error(JSON.stringify({
+      fn: "invite", event: "signup_failed",
+      status: status ?? 502,
+      created_user: Boolean(createdUserId),
+      kind: userMessage ? "handled" : "unexpected",
+    }));
     return json(status ?? 502, {
       error: userMessage ?? "アカウントを作成できませんでした。時間をおいて試してください。",
     });
@@ -212,7 +220,11 @@ Deno.serve(async (request: Request) => {
     }
     return json(405, { error: "GET / POST のみ対応しています" });
   } catch (error) {
-    console.error("invite function error:", error);
+    console.error(JSON.stringify({
+      fn: "invite", event: "unhandled",
+      method: request.method,
+      message: String((error as Error)?.message ?? "").slice(0, 200),
+    }));
     return json(500, { error: "処理に失敗しました。時間をおいて試してください。" });
   }
 });

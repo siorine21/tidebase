@@ -2073,6 +2073,76 @@ export async function preparePhoto(file) {
   }
 }
 
+/* ---- 消し損ねた実体の後始末（D-125） ----
+   上げる途中で失敗したときの巻き戻しは、以前 `.catch(() => {})` で
+   握りつぶしていた。台帳に載っていない実体は photo_visible_to_me が false を
+   返すので**持ち主本人からも見えず**、誰にも気づかれないまま無料枠を食う。
+
+   **消せなかったら書き留めて、次に写真を触ったときに掃き出す。**
+   画面には出さない（使う人には直しようが無い）。 */
+
+/** 消す。消せなければ orphan_objects に書き留める。**ここ自体は投げない。** */
+async function removeOrNote(paths, cause) {
+  const { error } = await client.storage.from(PHOTO_BUCKET).remove(paths)
+    .catch((thrown) => ({ error: thrown }));
+  if (!error) return;
+  await noteOrphans(paths, "upload_rollback", error);
+}
+
+/** 消せなかったパスを書き留める。**ここ自体は投げない。**
+    投げると「写真を上げられません」の理由がすり替わる。 */
+async function noteOrphans(paths, reason, cause) {
+  try {
+    const userId = await requireUserId();
+    await client.from("orphan_objects").upsert(
+      [...new Set(paths.filter(Boolean))].map((path) => ({
+        user_id: userId, bucket: PHOTO_BUCKET, path, reason,
+        // 秘密は入れない。あとで人が読んで見当が付く長さだけ残す
+        detail: String(cause?.message ?? cause ?? "").slice(0, 200),
+      })),
+      { onConflict: "bucket,path", ignoreDuplicates: true },
+    );
+  } catch { /* 元の失敗を上書きしない */ }
+}
+
+/* 1 画面につき 1 回でよい。**待たせない**ので、呼び出し側は await しないこと */
+let sweptThisLoad = false;
+
+/**
+ * 書き留めてある実体を消しに行く。消えたら行も消す。
+ * **1 件ずつ消す。** まとめて消すと、1 つ失敗したときにどれが残ったか分からない。
+ * @returns {Promise<number>} 片付いた件数
+ */
+export async function sweepOrphanObjects(limit = 10) {
+  if (sweptThisLoad) return 0;
+  sweptThisLoad = true;
+  try {
+    const userId = await requireUserId();
+    const { data } = await client.from("orphan_objects")
+      .select("id, path, attempts")
+      .eq("user_id", userId).eq("bucket", PHOTO_BUCKET)
+      .order("created_at").limit(limit);
+    if (!data?.length) return 0;
+
+    let cleaned = 0;
+    for (const row of data) {
+      const { error } = await client.storage.from(PHOTO_BUCKET).remove([row.path])
+        .catch((thrown) => ({ error: thrown }));
+      if (error) {
+        await client.from("orphan_objects")
+          .update({ attempts: (row.attempts ?? 0) + 1, last_tried_at: new Date().toISOString() })
+          .eq("id", row.id);
+        continue;
+      }
+      await client.from("orphan_objects").delete().eq("id", row.id);
+      cleaned += 1;
+    }
+    return cleaned;
+  } catch {
+    return 0;                    // 掃除の失敗で画面を止めない
+  }
+}
+
 /** 釣果に写真を 1 枚追加する（表示用とサムネイルの 2 つを上げる）。 */
 export async function uploadRecordPhoto(recordId, file, sortOrder = 0) {
   const prepared = await preparePhoto(file);
@@ -2098,7 +2168,7 @@ export async function uploadPreparedPhoto(recordId, { full, thumb }, sortOrder =
   const uploadedThumb = await storage.upload(thumbPath, thumb.blob,
     { ...options, contentType: thumb.type });
   if (uploadedThumb.error) {
-    await storage.remove([path]).catch(() => {});
+    await removeOrNote([path], uploadedThumb.error);
     throw uploadedThumb.error;
   }
 
@@ -2111,9 +2181,10 @@ export async function uploadPreparedPhoto(recordId, { full, thumb }, sortOrder =
     .select().single();
   if (error) {
     // 台帳に載らなかった実体は誰からも辿れないので、必ず消す
-    await storage.remove([path, thumbPath]).catch(() => {});
+    await removeOrNote([path, thumbPath], error);
     throw error;
   }
+  sweepOrphanObjects();          // 掃き出しは待たない（D-125）
   return data;
 }
 
@@ -2133,7 +2204,12 @@ export async function deleteRecordPhotos(photos) {
   if (!photos.length) return;
   const paths = photos.flatMap((p) => [p.path, p.thumb_path]);
   const { error } = await client.storage.from(PHOTO_BUCKET).remove(paths);
-  if (error) throw error;
+  if (error) {
+    /* ここは投げる（使う人が消そうとした操作なので、黙って成功に見せない）。
+       ただし**投げる前に書き留める**。やり直してもらえるとは限らない */
+    await noteOrphans(paths, "delete_failed", error);
+    throw error;
+  }
   const removed = await client.from("record_photos")
     .delete().in("id", photos.map((p) => p.id));
   if (removed.error) throw removed.error;
