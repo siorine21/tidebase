@@ -37,6 +37,7 @@
     tideType, TIDE_TYPE_COLORS, sunTimes, isCoordinateInJapan, describeWeather,
     TIME_BANDS, timeBandOf, tally, tideTypeDays,
     spotType, entryStyle, categoryLabel, recordOutcome, OUTCOMES,
+    RECORD_TREND_COLUMNS,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -52,7 +53,12 @@
      「自分がどこで出しているか」を見る画面ではなくなる */
   let records = null;
   try {
-    records = (await listRecords({ limit: 1000 })).filter((r) => r.is_mine);
+    /* **サーバー側で絞る**（D-126）。前は 1000 件を全列で取ってから
+       JS で他人のぶんを捨てていた。運んでから捨てるのは二重の無駄。
+       列も数えるのに要るぶんだけにしてある（RECORD_TREND_COLUMNS）。 */
+    records = await listRecords({
+      limit: 1000, mineOnly: true, columns: RECORD_TREND_COLUMNS,
+    });
   } catch (error) {
     document.getElementById("content").innerHTML = "";
     message(toJapaneseError(error), "error");

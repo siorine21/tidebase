@@ -637,13 +637,50 @@ export async function listTideAreas({ pref = "静岡県" } = {}) {
  * 潮汐地点の選択肢。観測点（補正なし）と細分地点（補正あり）をまとめて返す。
  * value は "ST:MI" / "AR:HN-MURAKUSHI" の形式で、そのまま localStorage に持てる。
  */
+/* 潮位表地点は**年に一度も変わらない**のに、ホーム・潮汐・マップ・スポット詳細の
+   4 画面が毎回 2 クエリ（3.5KB）取り直していた（D-126）。
+   Service Worker は REST をネットワーク優先にしているので、必ず通信が起きる。
+   バイト数より **1 往復（シンガポールまで 60〜70ms）が惜しい**。
+
+   端末に持たせ、**配信の版が変われば捨てる**。地点が増減したときは
+   その配信で拾えるので、別の失効の仕組みを持たなくてよい。 */
+const TIDE_POINT_CACHE_PREFIX = "tidebase.tidePoints.";
+
+function cachedTidePoints(key) {
+  try {
+    const raw = localStorage.getItem(TIDE_POINT_CACHE_PREFIX + key);
+    if (!raw) return null;
+    const points = JSON.parse(raw);
+    return Array.isArray(points) && points.length ? points : null;
+  } catch {
+    return null;                 // 壊れていたら取り直す
+  }
+}
+
+function rememberTidePoints(key, points) {
+  if (!points?.length) return;   // 取れなかったものを覚えない
+  try {
+    // 古い版のぶんは残しておく意味が無いので、この接頭辞のものは消してから入れる
+    for (const k of Object.keys(localStorage)) {
+      if (k.startsWith(TIDE_POINT_CACHE_PREFIX)) localStorage.removeItem(k);
+    }
+    localStorage.setItem(TIDE_POINT_CACHE_PREFIX + key, JSON.stringify(points));
+  } catch {
+    /* 容量いっぱいなら、覚えないだけでよい */
+  }
+}
+
 export async function listTidePoints({ pref = "静岡県" } = {}) {
+  const cacheKey = `${APP_VERSION}.${pref}`;
+  const remembered = cachedTidePoints(cacheKey);
+  if (remembered) return remembered;
+
   const [stations, areas] = await Promise.all([
     listTideStations({ pref }).catch(() => []),
     listTideAreas({ pref }).catch(() => []),
   ]);
   const stationName = new Map(stations.map((s) => [s.code, s.name]));
-  return [
+  const points = [
     ...stations.map((s) => ({
       value: `ST:${s.code}`, group: "潮位表地点（気象庁）", label: s.name, name: s.name,
       station: s.code, area: null, lagMinutes: 0, levelRatio: 1,
@@ -663,6 +700,8 @@ export async function listTidePoints({ pref = "静岡県" } = {}) {
       note: a.note, source: a.source,
     })),
   ];
+  rememberTidePoints(cacheKey, points);
+  return points;
 }
 
 /** 時差を「+2:00」の形で表す。 */
@@ -1863,10 +1902,43 @@ export function recordOutcome(record) {
  * 自分の釣果 + 同じグループの人の公開釣果が、投稿者名つきで返る。
  * 書き込みは fishing_records へ直接行う（他人の行は RLS が拒否する）。
  */
-export async function listRecords({ limit = 50, spotId = null } = {}) {
+/* 取る列を決め打ちにする（D-126）。
+   `select("*")` は record_feed の **44 列**を全部運ぶ。実データで測ると
+   1 行 1,420 バイトのうち **611 バイトが列名**で、平均 10 列は値が空だった。
+   PostgREST は行ごとにキー名を書き出すので、**値より列名のほうが重い**。
+   一覧が使う列だけにすると 1 行 546 バイト（2.6 分の 1）になる。
+
+   **列を減らすと、使っている画面が黙って壊れる。**
+   どの画面がどの列を読んでいるかは frontend/tests/record_columns.test.mjs が
+   走査して見張っている。列を足す・消すときは、まずそのテストを通すこと。 */
+export const RECORD_LIST_COLUMNS = [
+  "id", "is_mine", "owner_name", "fished_at", "fished_time",
+  "outcome", "is_skunked",
+  "fish_label", "fish_name_local", "length_cm", "catch_count", "quantity_note",
+  "tide_type", "water_layer",
+  "spot_id", "spot_name",
+  "lure_label", "lure_category_large", "lure_category_small", "recipe_id",
+  "photo_thumb_path", "photo_count",
+].join(",");
+
+/** 傾向画面が数えるのに要る列だけ。一覧とは必要なものが違う（座標と天気が要る） */
+export const RECORD_TREND_COLUMNS = [
+  "id", "is_mine", "fished_at", "fished_time", "outcome", "is_skunked",
+  "tide_type", "water_layer", "lure_category_large",
+  "spot_name", "spot_spot_type", "spot_entry_style",
+  "spot_latitude", "spot_longitude", "weather_snapshot",
+].join(",");
+
+/**
+ * @param {string} [input.columns] 取る列。既定は一覧に要るぶん
+ * @param {boolean} [input.mineOnly] 自分の記録だけ。**取ってから捨てるのをやめる**（D-126）
+ */
+export async function listRecords({
+  limit = 50, spotId = null, columns = RECORD_LIST_COLUMNS, mineOnly = false,
+} = {}) {
   let query = client
     .from("record_feed")
-    .select("*")
+    .select(columns)
     /* **釣れた日時の降順**（D-106）。
        fished_at は date で、時刻は別列の fished_time に入っている。
        日付だけで並べると、同じ日の中は created_at＝**登録した順**になり、
@@ -1878,6 +1950,8 @@ export async function listRecords({ limit = 50, spotId = null } = {}) {
     .order("created_at", { ascending: false })
     .limit(limit);
   if (spotId) query = query.eq("spot_id", spotId);
+  // **サーバー側で絞る。** 傾向画面は 1000 件取ってから JS で捨てていた
+  if (mineOnly) query = query.eq("user_id", await requireUserId());
   const { data, error } = await query;
   if (error) throw error;
   return data;
