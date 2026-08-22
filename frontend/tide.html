@@ -559,9 +559,16 @@
        点そのものは 75 日ぶん数えると ★5 61%・★4 32%・★3 1%・★2 5%（D-122）。
        飽和ではないが、**週の 7 日で見ると 2 種類しか出ない週が 10 週中 8 週**あり、
        日を選ぶ材料としては弱い。だから時刻と潮回りを並べて置いている。 */
+    /* **時間帯と時刻は 2 行に分ける**（D-127）。
+       1 行の「日中 09:00」は 8px でも 45px あり、7 列に並べると
+       **幅 390px 未満の端末で画面ごと横スクロールしていた**。
+       grid の 1fr は中身の最小幅より細くならないので、この 1 行が
+       セルの下限を決めてしまう。2 行にすれば下限は「09:00」の 24px になる。 */
     const at = day?.best
-      ? `<span class="bt">${escapeHtml(day.best.label.replace("マヅメ", ""))} `
-        + `${escapeHtml(String(day.best.at).slice(0, 5))}</span>`
+      ? `<span class="bt">`
+        + `<span class="bt-band">${escapeHtml(day.best.label.replace("マヅメ", ""))}</span>`
+        + `<span class="bt-at">${escapeHtml(String(day.best.at).slice(0, 5))}</span>`
+        + `</span>`
       : "";
     const score = day
       ? `<span class="sc sc-${day.score}">${stars(day.score, { html: true })}</span>`

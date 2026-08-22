@@ -1306,8 +1306,15 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .week-back { display: flex; justify-content: center; margin-top: 8px; }
 .week-back .chip[hidden] { display: none; }
 .week-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+/* **min-width と overflow は組で要る**（D-127）。
+   grid の 1fr は既定で「中身の最小幅」より細くならない。セルの中に
+   1 つでも折り返せない長い行があると、7 列ぶん積み上がって
+   **画面ごと横スクロールする**。min-width: 0 で細くなれるようにし、
+   それでも溢れたときは**ページを崩さずセルの中で切る**。
+   横スクロールより、星が 1 つ欠けるほうがまだ良い。 */
 .week-grid .day {
   display: flex; flex-direction: column; align-items: center; gap: 2px;
+  min-width: 0; overflow: hidden;
   padding: 7px 2px; cursor: pointer; font-family: inherit;
   background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
 }
@@ -1336,9 +1343,13 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 /* 何時の点なのか（D-115）。点だけだとどの日も 5 になり、比べる列にならない。
    1 行足すぶんセルが縦に伸びるので、いちばん小さい字で沈める */
 .week-grid .bt {
-  font-family: 'JetBrains Mono', monospace; font-size: 8px; line-height: 1.4;
+  display: flex; flex-direction: column; align-items: center;
+  font-family: 'JetBrains Mono', monospace; font-size: 8px; line-height: 1.35;
   color: var(--text-muted); white-space: nowrap;
 }
+/* 時間帯（朝／日中／夕／夜）は全角なので、時刻より先に幅が要る。
+   **時刻だけは必ず読めるように**、時間帯のほうを細らせる */
+.week-grid .bt-band { max-width: 100%; overflow: hidden; }
 
 
 /* ---------- SCR-014 設定 ---------- */
