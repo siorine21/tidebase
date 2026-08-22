@@ -379,6 +379,8 @@
   function renderChart() {
     const track = document.getElementById("tide-track");
     const axis = document.getElementById("level-axis");
+    // 器の幅は日数から決める。CSS 側に日数を書かない（D-128）
+    track.style.setProperty("--chart-days", chartDays.length);
     const tides = chartDays.map((date) => tideCache.get(date) ?? null);
     const result = tideTimelineSvg({
       days: chartDays, tides, suns: sunCache, today: todayInJst(),

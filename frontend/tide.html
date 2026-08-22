@@ -131,6 +131,10 @@
     point: null,          // spot から決まる。淡水スポットでは null
     week: today,          // 表示中の週に含まれる日
     date: today,          // サマリ・天気を出す日（グラフの中央に来ている日）
+    /* グラフの起点（D-128）。**スクロールでは動かさない。**
+       動かすと「送る → 範囲が変わる → 位置がずれる」で暴れる。
+       動くのは日を選んだときと「今週へ戻る」だけ。 */
+    chartAnchor: today,
   };
   /* スポットが 1 件も無いときと、古い ?point= で来たときだけ地点を直接使う */
   state.point = spotTidePoint(state.spot, points)
@@ -186,7 +190,12 @@
   // viewBox 幅も同じ倍率にする。ずれると preserveAspectRatio="none" の
   // 横引き伸ばしが変わり、時刻ラベルが横に潰れて読めなくなる
   const DAY_UNITS = 320 * SCREENS_PER_DAY;
-  const CHART_DAYS = 7;
+  /* グラフが受け持つ範囲（D-128）。**週カレンダーとは別物**。
+     前は週カレンダーと同じ日曜〜土曜を描いていたので、**今日が土曜だと
+     右に 1 日も無く、過去へしか送れなかった**。
+     見ている日を起点に、前日 1 日ぶんと 1 週間先までにする。 */
+  const CHART_BEFORE = 1;
+  const CHART_AFTER = 7;
   /* 日付は SVG の外の帯に出るので、上の余白は元どおり。
      下は時刻だけになったぶん薄くしてある（D-120 / D-121） */
   const CHART_H = 176, PAD_TOP = 30, PAD_BOTTOM = 24;
@@ -196,13 +205,23 @@
   /** 1 日ぶんの実寸（px）。 */
   const dayWidth = () => scroller.clientWidth * SCREENS_PER_DAY;
 
-  /** 日付 → 週の何日目か。 */
+  /** グラフが描く日の並び。起点の前日から 1 週間先まで（D-128）。 */
+  function chartDays() {
+    const total = CHART_BEFORE + 1 + CHART_AFTER;
+    return Array.from({ length: total },
+      (_, i) => addJstDays(state.chartAnchor, i - CHART_BEFORE));
+  }
+
+  /** 日付 → グラフの何日目か。 */
   function dayIndex(date) {
-    return weekOf(state.week).indexOf(date);
+    return chartDays().indexOf(date);
   }
 
   function renderChart() {
-    const days = weekOf(state.week);
+    const days = chartDays();
+    /* 器の幅は日数から決める（D-128）。**CSS 側に日数を書かない。**
+       theme.css と JS の両方に 7 が書いてあり、片方だけ変えるとずれていた */
+    track.style.setProperty("--chart-days", days.length);
     const result = tideTimelineSvg({
       days, tides: days.map((date) => tideOf(date)), suns, today,
       dayUnits: DAY_UNITS, height: CHART_H, padTop: PAD_TOP, padBottom: PAD_BOTTOM,
@@ -223,7 +242,7 @@
 
   function renderLegend(min, max) {
     const now = nowInJst();
-    const showNow = weekOf(state.week).includes(now.date);
+    const showNow = chartDays().includes(now.date);
     const level = showNow
       ? tideLevelAt(tideOf(now.date)?.hourly_levels_cm, Math.min(now.hours, 23)) : null;
     // 日の出・日没はグラフの下の帯で示すので、凡例からは外す（D-053）
@@ -261,7 +280,7 @@
 
   /** いま画面中央に見えている日。 */
   function centeredDate() {
-    const days = weekOf(state.week);
+    const days = chartDays();
     const index = Math.floor((scroller.scrollLeft + scroller.clientWidth / 2) / (dayWidth() || 1));
     return days[Math.min(Math.max(index, 0), days.length - 1)];
   }
@@ -273,13 +292,21 @@
    * 見えている日から先に取りにいくので、グラフの表示は前と同じ速さで出る。
    */
   async function loadWeekDays() {
-    const days = weekOf(state.week);
+    /* **グラフの日とカレンダーの週の合併**（D-128）。範囲が別物になったので、
+       どちらか片方だけ読むと、もう片方に穴が空く（グラフが途切れる／星が出ない）。
+       同じ日は 1 回だけ。loadDay 側もキャッシュで二重取得を防いでいる。 */
+    const days = [...new Set([...chartDays(), ...weekOf(state.week)])];
     const width = dayWidth() || 1;
     const from = Math.floor(scroller.scrollLeft / width) - 1;
     const to = Math.floor((scroller.scrollLeft + scroller.clientWidth) / width) + 1;
-    const near = (date, i) => (i >= from && i <= to ? 0 : 1);
+    /* **並べ替えの基準はグラフ上の位置**。合併した配列の添字ではない
+       （カレンダーぶんはグラフに無いこともあるので、後回しでよい） */
+    const near = (date) => {
+      const i = dayIndex(date);
+      return i >= 0 && i >= from && i <= to ? 0 : 1;
+    };
     const ordered = days
-      .map((date, i) => ({ date, rank: near(date, i) }))
+      .map((date) => ({ date, rank: near(date) }))
       .sort((a, b) => a.rank - b.rank)
       .map((x) => x.date);
     await Promise.all(ordered.map(loadDay));
@@ -322,6 +349,14 @@
       const date = centeredDate();
       if (date && date !== state.date) {
         state.date = date;
+        /* **カレンダーも見ている日へ付いていく**（D-128）。
+           グラフは 1 週間先まで送れるので、送り続けると選択中の日が
+           カレンダーの外へ出る。そのままだと、どの日も選ばれていない
+           カレンダーの下に、その週に無い日のサマリが出ることになる。 */
+        if (!weekOf(state.week).includes(date)) {
+          state.week = date;
+          loadWeekWeather(weekOf(state.week));
+        }
         renderWeek();
         applyDate();
       }
@@ -587,14 +622,28 @@
   document.getElementById("week").addEventListener("click", (e) => {
     const day = e.target.closest(".day");
     if (!day || day.dataset.date === state.date) return;
-    // グラフを該当日までスクロールさせる。反映は scroll ハンドラが行う
-    scrollToDate(day.dataset.date);
+    /* **押した日をグラフの起点にし直す**（D-128）。
+       起点を動かさないと、選んだ日がグラフの範囲の外だったとき
+       （1 週間先まで送ったあとなど）スクロールしても届かない。
+       描き直してから送る。順番が逆だと、まだ無い日へ送ることになる。 */
+    selectDay(day.dataset.date);
   });
+
+  /** その日を見る。グラフの起点にし、位置を合わせ、足りない潮汐を読む。 */
+  function selectDay(date) {
+    state.chartAnchor = date;
+    state.date = date;
+    renderChart();
+    renderWeek();
+    applyDate();
+    scrollToDate(date, "auto");
+    loadWeekDays();
+  }
 
   document.getElementById("week-prev").addEventListener("click", () => changeWeek(-7));
   document.getElementById("week-next").addEventListener("click", () => changeWeek(7));
   document.getElementById("week-today").addEventListener("click", async () => {
-    state.week = today; state.date = today;
+    state.week = today; state.date = today; state.chartAnchor = today;
     renderChart(); renderWeek(); applyDate();
     loadWeekWeather(weekOf(state.week));
     await loadWeekDays();
@@ -605,6 +654,7 @@
     state.week = addJstDays(state.week, days);
     // 週を送ったら、その週の同じ曜日を選ぶ
     state.date = addJstDays(state.date, days);
+    state.chartAnchor = state.date;   // グラフもその日を起点にし直す（D-128）
     renderChart();
     renderWeek();
     applyDate();
@@ -625,6 +675,7 @@
      見えているのに通信が終わるまで押しても反応しない時間ができる。 */
   renderSpotBar();
   renderTideAvailability();
+  renderChart();              // 器の幅（--chart-days）を先に決める（D-128）
   renderWeek();
   applyDate();
   loadWeekWeather(weekOf(state.week));

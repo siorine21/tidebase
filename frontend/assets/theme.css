@@ -1225,12 +1225,13 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .tide-scroller::-webkit-scrollbar { display: none; }
 .tide-scroller:focus-visible { outline: 1px solid var(--border-strong); outline-offset: 2px; }
 /* 画面 1 枚 = 1 日。潮汐が出る画面はすべてこの幅で揃える（D-063）。
-   tide.html の SCREENS_PER_DAY と対になっている */
-.tide-track { width: 700%; }          /* 潮汐画面は週の 7 日ぶん */
-.tide-track-3 { width: 300%; }        /* ホームは昨日〜明日の 3 日ぶん */
+   tide.html の SCREENS_PER_DAY と対になっている。
+
+   **日数は CSS に書かない**（D-128）。ここに 700%、JS に 7 と書いてあり、
+   片方だけ変えるとグラフと器の幅がずれる。描くときに --chart-days を渡す。 */
+.tide-track { width: calc(var(--chart-days, 3) * 100%); }
 .tide-track .tide-graph { width: 100%; }
-.tide-track .empty { width: 14.2857%; }
-.tide-track-3 .empty { width: 33.333%; }
+.tide-track .empty { width: calc(100% / var(--chart-days, 3)); }
 
 /* 潮位の目盛り。横線は SVG の中、ラベルはスクローラの外に重ねる（D-054）。
    スクローラの中に置くと横スクロールで流れていってしまうため */
