@@ -3781,6 +3781,62 @@ const RAIN_MM = 0.1;
 const RAIN_WORTH_MM = 0.5;
 
 /**
+ * その日 1 日を代表する天気（D-130）。週間カレンダーの 1 マスに 1 つだけ出す。
+ *
+ * **12 時の 1 時間で代表させない。** 前はそうしていて、夜に雨が来る日でも
+ * 週カレンダーは晴れのままだった。同じ画面の見出しは
+ * 「21時ごろから雨になりそうです」と書いているのに、カレンダーは晴れ、という
+ * 食い違いが実際に出ていた（本人の指摘）。
+ *
+ * 順番は **雷 → 雨 → 曇り → 晴れ**。釣行の判断がいちばん変わるものを上に置く。
+ *
+ * 雨の物差しは `rainOutlook` の見出しと**同じもの**を使う（2 時間続くか、
+ * 0.5mm/h 以上あるか）。**片方だけ緩めると、見出しは「少し降るかも」なのに
+ * カレンダーは雨、という新しい食い違いを作ることになる。**
+ *
+ * 返すのは**実際にあった時間の WMO コード**。区分に丸めて 61 を返すと、
+ * 霧雨の日も本降りの日も同じアイコンになる。
+ *
+ * @param {object[]} hours その日 24 時間ぶんの予報
+ * @returns {number|null} アイコンに使う WMO コード
+ */
+export function dayWeatherCode(hours) {
+  const rows = (hours ?? []).filter((h) => h?.weather_code != null);
+  if (!rows.length) return null;
+
+  // 雷は 1 時間でもその日の顔になる
+  const storm = rows.filter((h) => h.weather_code >= 95);
+  if (storm.length) return commonest(storm.map((h) => h.weather_code));
+
+  /* 「見出しに書ける雨」があるか。2 時間続くか、まとまった量が 1 時間でもあるか */
+  let run = 0, rainy = false;
+  for (const h of rows) {
+    const wet = (h.precip_mm ?? 0) >= RAIN_MM;
+    run = wet ? run + 1 : 0;
+    if (run >= 2 || (wet && h.precip_mm >= RAIN_WORTH_MM)) { rainy = true; break; }
+  }
+  if (rainy) {
+    // いちばん強く降る時間の顔を使う。無ければ雨の総称（61）
+    const wetRows = rows.filter((h) => (h.precip_mm ?? 0) >= RAIN_MM
+      && weatherCategory(h.weather_code) === "rain");
+    if (!wetRows.length) return 61;
+    return wetRows.reduce((a, b) => (b.precip_mm > a.precip_mm ? b : a)).weather_code;
+  }
+
+  const cloudy = rows.filter((h) => weatherCategory(h.weather_code) === "cloudy");
+  // 1 日の 3 分の 1 が曇りなら、その日は「晴れ」ではない
+  if (cloudy.length * 3 >= rows.length) return commonest(cloudy.map((h) => h.weather_code));
+  return commonest(rows.map((h) => h.weather_code));
+}
+
+/** いちばん多い値。同数なら小さいほう（晴れ寄り）を選ぶ。 */
+function commonest(values) {
+  const count = new Map();
+  for (const v of values) count.set(v, (count.get(v) ?? 0) + 1);
+  return [...count].sort((a, b) => (b[1] - a[1]) || (a[0] - b[0]))[0][0];
+}
+
+/**
  * これから先の雨を 1 行にまとめる（D-104 / D-107 / D-111）。
  * **時間ごとの数字を並べる前に、結論を先に出す。**
  * 24 個の数字を目で追って「何時から雨か」を組み立てるのは、その場でやりたくない。
