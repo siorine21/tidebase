@@ -1488,6 +1488,144 @@ export function tideFlowAt(tide, hhmm) {
   };
 }
 
+/* ---------------- 「いまの潮」（D-129） ----------------
+   ホームで**いちばん知りたいのは、いま海がどう動いているか**。
+   潮位グラフは読み取れば分かるが、読み取りが要る。
+   ここは同じデータ（すでに取ってある潮汐と、計算で出る日の出日没）から
+   文にして出すだけで、通信は増えない。 */
+
+/** 残り時間を「2時間46分」の形にする。過ぎていれば null。 */
+export function formatCountdown(minutes) {
+  if (minutes == null || !Number.isFinite(minutes) || minutes < 0) return null;
+  const m = Math.round(minutes);
+  if (m < 60) return `${m}分`;
+  const h = Math.floor(m / 60);
+  const rest = m % 60;
+  return rest === 0 ? `${h}時間` : `${h}時間${rest}分`;
+}
+
+/**
+ * 次に来る満潮または干潮。
+ *
+ * **翌日ぶんまで見る。** 夜釣りは日をまたぐので、22 時に開いて
+ * 「今日はもう満潮が無い」で終わると、いちばん要る情報が消える。
+ *
+ * @param {object|null} today     その日の潮汐
+ * @param {object|null} tomorrow  翌日の潮汐（無ければ null）
+ * @param {string} hhmm           いまの時刻 "HH:MM"
+ * @returns {{kind:"high"|"low", label:string, time:string, levelCm:number|null,
+ *            inMinutes:number, nextDay:boolean}|null}
+ */
+export function nextTideEvent(today, tomorrow, hhmm) {
+  const nowMin = minutesFromHhmm(hhmm);
+  if (nowMin == null) return null;
+  const events = [
+    ...tideEvents(today, 0),
+    ...tideEvents(tomorrow, 24 * 60),
+  ].filter((e) => e.at > nowMin).sort((a, b) => a.at - b.at);
+  const next = events[0];
+  if (!next) return null;
+  return {
+    kind: next.kind,
+    label: next.kind === "high" ? "満潮" : "干潮",
+    time: next.time,
+    levelCm: next.levelCm,
+    inMinutes: next.at - nowMin,
+    nextDay: next.at >= 24 * 60,
+  };
+}
+
+function tideEvents(tide, offsetMin) {
+  if (!tide) return [];
+  return [
+    ...(tide.high_tides ?? []).map((e) => ({ ...e, kind: "high" })),
+    ...(tide.low_tides ?? []).map((e) => ({ ...e, kind: "low" })),
+  ].flatMap((e) => {
+    const at = minutesFromHhmm(e.time);
+    return at == null ? [] : [{
+      kind: e.kind, time: String(e.time).slice(0, 5),
+      levelCm: e.level_cm ?? null, at: at + offsetMin,
+    }];
+  });
+}
+
+/**
+ * 次に来る日の出か日没。**日没後は翌朝の日の出**を返す。
+ * @param {{rise:string,set:string}|null} today
+ * @param {{rise:string,set:string}|null} tomorrow
+ * @param {string} hhmm
+ * @returns {{kind:"rise"|"set", label:string, time:string, inMinutes:number,
+ *            nextDay:boolean}|null}
+ */
+export function nextSunEvent(today, tomorrow, hhmm) {
+  const nowMin = minutesFromHhmm(hhmm);
+  if (nowMin == null) return null;
+  const list = [
+    { kind: "rise", label: "日の出", time: today?.rise, at: minutesFromHhmm(today?.rise) },
+    { kind: "set", label: "日没", time: today?.set, at: minutesFromHhmm(today?.set) },
+    { kind: "rise", label: "日の出", time: tomorrow?.rise,
+      at: shiftMinutes(minutesFromHhmm(tomorrow?.rise), 24 * 60) },
+  ].filter((e) => e.at != null && e.at > nowMin).sort((a, b) => a.at - b.at);
+  const next = list[0];
+  return next
+    ? { kind: next.kind, label: next.label, time: String(next.time).slice(0, 5),
+        inMinutes: next.at - nowMin, nextDay: next.at >= 24 * 60 }
+    : null;
+}
+
+function shiftMinutes(value, offset) {
+  return value == null ? null : value + offset;
+}
+
+function minutesFromHhmm(hhmm) {
+  const hours = hoursFromHhmm(hhmm);
+  return hours == null ? null : Math.round(hours * 60);
+}
+
+/**
+ * 次の大潮がいつ始まって何日続くか（D-129）。
+ *
+ * 潮回りは月齢だけで決まる（tideType）ので、**通信もデータベースも要らない**。
+ * 週間カレンダーは 1 週間しか映らないため、月末の大潮が視界の外にある。
+ *
+ * **大潮の長さは暦のとおりに返す。** 起点が大潮の途中でも、
+ * 遡って本当の初日から数える。ここを「起点から先だけ」で数えると、
+ * 4 日ある大潮の最終日を起点にしたときに「1 日間」と出て、
+ * 読む人はその大潮を短いものだと受け取ってしまう。
+ * 「あと何日あるか」は remaining のほうで別に返す。
+ *
+ * @param {string} fromIso        起点 "YYYY-MM-DD"（この日を含めて探す）
+ * @param {(iso:string)=>string} typeOf  日付 → 潮回り（tideType を渡す）
+ * @param {number} horizon        何日先まで探すか
+ * @returns {{start:string, end:string, days:number, remaining:number,
+ *            inDays:number, ongoing:boolean}|null}
+ */
+export function nextSpringTide(fromIso, typeOf, horizon = 45) {
+  if (!fromIso || typeof typeOf !== "function") return null;
+  let hit = null;
+  for (let i = 0; i <= horizon; i++) {
+    const iso = addJstDays(fromIso, i);
+    if (typeOf(iso) === "大潮") { hit = { iso, inDays: i }; break; }
+  }
+  if (!hit) return null;
+
+  // 本当の初日まで遡る。大潮は長くても数日なので、念のための上限だけ置く
+  let back = 0;
+  while (back < 10 && typeOf(addJstDays(hit.iso, -back - 1)) === "大潮") back++;
+  const start = addJstDays(hit.iso, -back);
+
+  let days = 0;
+  while (days <= horizon && typeOf(addJstDays(start, days)) === "大潮") days++;
+  return {
+    start,
+    end: addJstDays(start, days - 1),
+    days,
+    remaining: days - back,      // 起点を含めて、あと何日あるか
+    inDays: hit.inDays,
+    ongoing: hit.inDays === 0,
+  };
+}
+
 /**
  * 1 時間ぶんの点（D-115 で切り出した）。
  *
@@ -2475,15 +2613,6 @@ export async function suggestFishName(speciesId, sizeCm) {
     p_fish_species_id: speciesId,
     p_size_cm: sizeCm,
   });
-  if (error) throw error;
-  return data;
-}
-
-export async function tideCorrelation() {
-  const { data, error } = await client
-    .from("tide_correlation")
-    .select("*")
-    .order("score", { ascending: false });
   if (error) throw error;
   return data;
 }

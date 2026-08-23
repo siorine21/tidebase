@@ -44,6 +44,10 @@
   <div class="week-back">
     <button type="button" class="chip" id="week-today" hidden>今週へ戻る</button>
   </div>
+  <!-- 次の大潮（D-129）。**カレンダーは 1 週間しか映らない**ので、
+       月末の大潮が視界の外にある。潮回りは月齢だけで決まる（tideType）ので、
+       何週間先でも通信なしで出せる。見ている週が先なら、その週から数える -->
+  <div class="next-spring" id="next-spring" hidden></div>
   <!-- 時間別天気（D-114）。**週を選んだ直後に読めるよう、カレンダーの真下に置く。**
        ホームでも同じ帯が見えるようになったので、この画面の役目は
        「週を送って別の日を見る」ことに寄せる。日を押したらすぐ下に出る、が要る -->
@@ -102,6 +106,7 @@
     formatLag, pickBaseSpot, spotTidePoint, savedBaseSpot, saveBaseSpot, attachSpotPicker,
     renderHourlyStrip,
     tideType, TIDE_TYPE_COLORS, isCoordinateInJapan, tideTimelineSvg, sunStripHtml, levelAxisHtml, tideLevelAt, sunTimes,
+    nextSpringTide,
   } from "./assets/app.js";
 
   const DEFAULT_POINT = "ST:MI";   // 静岡特化の既定（D-030）
@@ -521,6 +526,34 @@
 
     // 潮回りは月齢から出せるので通信不要。天気は予報の届く範囲だけ載る
     document.getElementById("week").innerHTML = days.map(dayCell).join("");
+    renderSpringTide(days[0]);
+  }
+
+  /* 次の大潮（D-129）。**起点は「今日」か「見ている週の初日」の遅いほう。**
+     今週を見ているときは「いまから何日後か」、先の週を送ったときは
+     「その週から見て次はいつか」を答える。過去の週を見ているときに
+     「その週の次の大潮」を出すと、もう行けない日を案内することになるので、
+     今日より前へは戻さない。 */
+  function renderSpringTide(weekStart) {
+    const box = document.getElementById("next-spring");
+    const from = weekStart > today ? weekStart : today;
+    const run = nextSpringTide(from, tideType);
+    if (!run) { box.hidden = true; box.innerHTML = ""; return; }
+
+    const range = run.days > 1
+      ? `${formatJstDate(run.start, { weekday: true })} — ${formatJstDate(run.end, { weekday: true })}`
+      : formatJstDate(run.start, { weekday: true });
+    // すでに大潮の中にいるなら、知りたいのは「いつまで」。まだなら「いつから」
+    const inside = run.inDays === 0 && from === today;
+    const tail = !inside
+      ? `${run.inDays === 0 ? "" : `${run.inDays} 日後 · `}${run.days} 日間`
+      : run.remaining === 1 ? "今日まで"
+      : `あと ${run.remaining} 日`;
+
+    box.hidden = false;
+    box.innerHTML = `<span class="k">${inside ? "大潮" : "次の大潮"}</span>`
+      + `<span class="v">${escapeHtml(range)}</span>`
+      + `<span class="t">${escapeHtml(tail)}</span>`;
   }
 
   /**

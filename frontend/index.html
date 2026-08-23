@@ -50,6 +50,12 @@
         <div class="score-label">/5</div>
       </button>
     </div>
+    <!-- いまの潮（D-129）。**すでに取ってある潮汐と、計算で出る日の出日没**を
+         文にし直すだけで、通信は増えない。潮位グラフにも同じことは描いてあるが、
+         グラフは「読み取る」のに手間が要る。開いていちばん先に知りたい
+         「いま上げているのか、次の満潮はいつか、暗くなるまでどれだけか」を
+         数字で出す。1 分ごとに書き直す（「いま」なので） -->
+    <div class="hero-now" id="hero-now" hidden></div>
     <div class="tags" id="hero-tags"></div>
     <!-- 時間別天気は TODAY の中に入れる（D-114）。
          スコアも時間帯ごとの点も、この 1 時間ごとの予報から出している。
@@ -100,9 +106,6 @@
 
   <div class="section-label"><span>RECENT CATCH</span><a class="note" href="records.html">すべて見る →</a></div>
   <div id="recent"><div class="empty">読み込み中…</div></div>
-
-  <div class="section-label"><span>TIDE CORRELATION</span><span class="note">過去釣行データより</span></div>
-  <div class="card" id="correlation"><div class="empty">読み込み中…</div></div>
 </main>
 
 <a class="fab" href="record-new.html" title="釣果を記録" data-icon="plus"></a>
@@ -116,13 +119,14 @@
     fishingScoreAhead, hourScorer,
     showFishingScoreHelp, tideType, TIDE_TYPE_COLORS,
     renderHourlyStrip,
-    listSpots, listRecords, tideCorrelation, icon,
+    listSpots, listRecords, icon,
     recordFishName, ownerBadge, nowInJst, hoursFromHhmm, addJstDays,
     listTidePoints, fetchTideForPoint, savedTidePoint, saveTidePoint, formatLag,
     pickBaseSpot, spotTidePoint, savedBaseSpot, saveBaseSpot, attachSpotPicker,
     warmTideCache,
     hasUnreadNews, WEATHER_SOURCE,
     isCoordinateInJapan, tideTimelineSvg, sunStripHtml, levelAxisHtml, tideLevelAt, sunTimes,
+    tideFlowAt, TIDE_FLOW_LABELS, nextTideEvent, nextSunEvent, formatCountdown,
     recordOutcome,
     outcomeLead,
   } from "./assets/app.js";
@@ -216,6 +220,9 @@
     // renderHero が中で renderHourly まで呼ぶ（★を出すのに点の材料が要るため・D-116）
     renderHero(baseSpot, tide, weather, point, sunCache.get(today) ?? null);
     renderChart();
+    renderNow();
+    // 「いま」なので、開きっぱなしでも合っているようにする。通信はしない
+    setInterval(renderNow, 60000);
     // どこの天気なのかを出す。基準スポットが無ければ潮汐地点の座標で取っている
     document.getElementById("weather-source").textContent = weatherAt
       ? `${spotUsable ? (baseSpot.name ?? "無名スポット") : (point?.label ?? "既定の地点")}`
@@ -229,12 +236,7 @@
       () => renderHero(baseSpot, tideCache.get(today) ?? null, weather, point,
                        sunCache.get(today) ?? null));
 
-    const [recent, correlation] = await Promise.all([
-      listRecords({ limit: 2 }).catch(() => []),
-      tideCorrelation().catch(() => []),
-    ]);
-    renderRecent(recent);
-    renderCorrelation(correlation);
+    renderRecent(await listRecords({ limit: 2 }).catch(() => []));
   }
 
   async function loadTide(point, date) {
@@ -376,6 +378,55 @@
   }
 
   /* ---------- 潮汐グラフ（日をまたいで連続・D-036） ---------- */
+  /* 「いまの潮」（D-129）。**新しい通信はしない。**
+     材料は tideCache（すでに描いている潮汐）と sunCache（計算で出る日の出日没）だけ。
+
+     翌日ぶんを渡すのが要点。22 時に開いたとき、今日の満干はもう残っていない。
+     そこで「—」を出すと、**夜釣りでいちばん要る一行が消える**。 */
+  function renderNow() {
+    const box = document.getElementById("hero-now");
+    const now = nowInJst();
+    const tomorrow = addJstDays(now.date, 1);
+    const tide = tideCache.get(now.date) ?? null;
+    if (!tide) { box.hidden = true; box.innerHTML = ""; return; }
+
+    const level = tideLevelAt(tide.hourly_levels_cm, Math.min(now.hours, 23));
+    const flow = tideFlowAt(tide, now.hhmm);
+    const next = nextTideEvent(tide, tideCache.get(tomorrow) ?? null, now.hhmm);
+    const sun = nextSunEvent(sunCache.get(now.date) ?? null,
+                             sunCache.get(tomorrow) ?? null, now.hhmm);
+
+    /* **向きと勢いは別の話**なので、勢いが「潮止まり前後」でも向きは出す。
+       いま止まっていても、これから上げるのか下げるのかで釣り方が変わる。
+       重ねて言うことになるのは、実際に動いていない（向き自体が「潮止まり」）
+       ときだけ。そのときは 1 つにする */
+    const flowText = !flow ? ""
+      : flow.direction === "潮止まり" ? TIDE_FLOW_LABELS.slack
+      : `${flow.direction} · ${TIDE_FLOW_LABELS[flow.key]}`;
+    const dir = flow?.direction === "上げ潮" ? "up" : flow?.direction === "下げ潮" ? "down" : "flat";
+
+    /* 日をまたぐものは**時刻の前に「翌」を付ける**。残り時間の隣に書き足すと
+       「あと 2時間12分 翌日」となって、どちらにかかる言葉か読み取れない */
+    const row = (label, time, minutes, nextDay) => {
+      const left = formatCountdown(minutes);
+      return `<div class="hn-row">`
+        + `<span class="k">${escapeHtml(label)}</span>`
+        + `<span class="v">${nextDay ? `<small>翌</small>` : ""}${escapeHtml(time)}</span>`
+        + `<span class="t">${left ? `あと ${escapeHtml(left)}` : ""}</span>`
+        + `</div>`;
+    };
+
+    box.hidden = false;
+    box.innerHTML =
+      `<div class="hn-head">`
+      + `<span class="hn-when">${icon("clock", { size: 13 })} いま ${now.hhmm}</span>`
+      + (level == null ? "" : `<span class="hn-level">${Math.round(level)}<small>cm</small></span>`)
+      + (flowText ? `<span class="hn-flow hn-${dir}">${escapeHtml(flowText)}</span>` : "")
+      + `</div>`
+      + (next ? row(`次の${next.label}`, next.time, next.inMinutes, next.nextDay) : "")
+      + (sun ? row(sun.label, sun.time, sun.inMinutes, sun.nextDay) : "");
+  }
+
   function renderChart() {
     const track = document.getElementById("tide-track");
     const axis = document.getElementById("level-axis");
@@ -401,11 +452,11 @@
     axis.style.height = `${CHART_H}px`;
     axis.innerHTML = levelAxisHtml(result.levelTicks);
 
+    /* いまの潮位はヒーローの「いまの潮」に大きく出したので、凡例からは落とす（D-129）。
+       **同じ数字を 2 か所に置かない。** ここは縦の目盛りの範囲だけを言う */
     const now = nowInJst();
-    const level = tideLevelAt(tideCache.get(now.date)?.hourly_levels_cm, Math.min(now.hours, 23));
     document.getElementById("tide-legend").innerHTML =
-      `<span class="lg lg-now">${icon("clock", { size: 13 })} 現在 ${now.hhmm}${
-          level != null ? ` · 潮位 ${Math.round(level)}cm` : ""}</span>`
+      `<span class="lg lg-now">${icon("clock", { size: 13 })} 現在 ${now.hhmm}</span>`
       + `<span class="lg">潮位 ${result.min}〜${result.max}cm</span>`;
 
     // 地点名は「推算」かどうかも含めてグラフの下に出す
@@ -436,6 +487,7 @@
       ]);
       tideCache.set(date, tide);
       renderChart();
+      renderNow();          // 翌日ぶんが届くと、夜の「次の満潮」が出せるようになる
       /* **スコアを出し直す**（D-115）。窓が「これから 24 時間」になったので、
          夕方以降に見ると帯の半分は明日にかかる。明日の潮汐が届くまでは
          潮の動きぶんの加減が入らず、点が低いまま止まってしまう */
@@ -483,23 +535,6 @@
           <div class="list-aside">${relativeDays(r.fished_at)}</div>
         </a>`;
     }).join("");
-  }
-
-  function renderCorrelation(rows) {
-    const box = document.getElementById("correlation");
-    if (!rows.length) {
-      box.innerHTML = `<div class="empty">海水・汽水スポットでの釣果が貯まると表示されます</div>`;
-      return;
-    }
-    const maxScore = Math.max(...rows.map((r) => Number(r.score) || 0), 1);
-    box.innerHTML = rows.map((r) => `
-      <div class="corr-row">
-        <div class="corr-head">
-          <span class="name">${escapeHtml(r.tide_type ?? "—")}</span>
-          <span class="stat">釣行 ${r.outing_count}回 / 釣果 ${r.catch_count}匹 / Score ${r.score}</span>
-        </div>
-        <div class="corr-bar"><div class="corr-fill" style="width:${(Number(r.score) / maxScore) * 100}%"></div></div>
-      </div>`).join("");
   }
 
   // ログアウトは設定画面（SCR-014）へ移した
