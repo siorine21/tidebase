@@ -4062,7 +4062,7 @@ export function renderHourlyStrip(box, {
             : w.precip_mm < 0.1 ? `0<span class="pct">mm</span>`
             : `${Number(w.precip_mm).toFixed(1)}<span class="pct">mm</span>`}</div>
         <div class="t">${w.temp_c != null ? `${Math.round(w.temp_c)}°` : "—"}</div>
-        <div class="wind ${wind?.key ?? "unknown"}">
+        <div class="wind wnd-${wind?.key ?? "unknown"}">
           ${arrow != null
             ? `<span class="wind-arrow" style="transform:rotate(${arrow}deg)"
                      title="${escapeHtml(windDirection(w.wind_dir_deg))}の風">${
