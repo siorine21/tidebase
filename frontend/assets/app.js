@@ -1488,6 +1488,144 @@ export function tideFlowAt(tide, hhmm) {
   };
 }
 
+/* ---------------- 「いまの潮」（D-129） ----------------
+   ホームで**いちばん知りたいのは、いま海がどう動いているか**。
+   潮位グラフは読み取れば分かるが、読み取りが要る。
+   ここは同じデータ（すでに取ってある潮汐と、計算で出る日の出日没）から
+   文にして出すだけで、通信は増えない。 */
+
+/** 残り時間を「2時間46分」の形にする。過ぎていれば null。 */
+export function formatCountdown(minutes) {
+  if (minutes == null || !Number.isFinite(minutes) || minutes < 0) return null;
+  const m = Math.round(minutes);
+  if (m < 60) return `${m}分`;
+  const h = Math.floor(m / 60);
+  const rest = m % 60;
+  return rest === 0 ? `${h}時間` : `${h}時間${rest}分`;
+}
+
+/**
+ * 次に来る満潮または干潮。
+ *
+ * **翌日ぶんまで見る。** 夜釣りは日をまたぐので、22 時に開いて
+ * 「今日はもう満潮が無い」で終わると、いちばん要る情報が消える。
+ *
+ * @param {object|null} today     その日の潮汐
+ * @param {object|null} tomorrow  翌日の潮汐（無ければ null）
+ * @param {string} hhmm           いまの時刻 "HH:MM"
+ * @returns {{kind:"high"|"low", label:string, time:string, levelCm:number|null,
+ *            inMinutes:number, nextDay:boolean}|null}
+ */
+export function nextTideEvent(today, tomorrow, hhmm) {
+  const nowMin = minutesFromHhmm(hhmm);
+  if (nowMin == null) return null;
+  const events = [
+    ...tideEvents(today, 0),
+    ...tideEvents(tomorrow, 24 * 60),
+  ].filter((e) => e.at > nowMin).sort((a, b) => a.at - b.at);
+  const next = events[0];
+  if (!next) return null;
+  return {
+    kind: next.kind,
+    label: next.kind === "high" ? "満潮" : "干潮",
+    time: next.time,
+    levelCm: next.levelCm,
+    inMinutes: next.at - nowMin,
+    nextDay: next.at >= 24 * 60,
+  };
+}
+
+function tideEvents(tide, offsetMin) {
+  if (!tide) return [];
+  return [
+    ...(tide.high_tides ?? []).map((e) => ({ ...e, kind: "high" })),
+    ...(tide.low_tides ?? []).map((e) => ({ ...e, kind: "low" })),
+  ].flatMap((e) => {
+    const at = minutesFromHhmm(e.time);
+    return at == null ? [] : [{
+      kind: e.kind, time: String(e.time).slice(0, 5),
+      levelCm: e.level_cm ?? null, at: at + offsetMin,
+    }];
+  });
+}
+
+/**
+ * 次に来る日の出か日没。**日没後は翌朝の日の出**を返す。
+ * @param {{rise:string,set:string}|null} today
+ * @param {{rise:string,set:string}|null} tomorrow
+ * @param {string} hhmm
+ * @returns {{kind:"rise"|"set", label:string, time:string, inMinutes:number,
+ *            nextDay:boolean}|null}
+ */
+export function nextSunEvent(today, tomorrow, hhmm) {
+  const nowMin = minutesFromHhmm(hhmm);
+  if (nowMin == null) return null;
+  const list = [
+    { kind: "rise", label: "日の出", time: today?.rise, at: minutesFromHhmm(today?.rise) },
+    { kind: "set", label: "日没", time: today?.set, at: minutesFromHhmm(today?.set) },
+    { kind: "rise", label: "日の出", time: tomorrow?.rise,
+      at: shiftMinutes(minutesFromHhmm(tomorrow?.rise), 24 * 60) },
+  ].filter((e) => e.at != null && e.at > nowMin).sort((a, b) => a.at - b.at);
+  const next = list[0];
+  return next
+    ? { kind: next.kind, label: next.label, time: String(next.time).slice(0, 5),
+        inMinutes: next.at - nowMin, nextDay: next.at >= 24 * 60 }
+    : null;
+}
+
+function shiftMinutes(value, offset) {
+  return value == null ? null : value + offset;
+}
+
+function minutesFromHhmm(hhmm) {
+  const hours = hoursFromHhmm(hhmm);
+  return hours == null ? null : Math.round(hours * 60);
+}
+
+/**
+ * 次の大潮がいつ始まって何日続くか（D-129）。
+ *
+ * 潮回りは月齢だけで決まる（tideType）ので、**通信もデータベースも要らない**。
+ * 週間カレンダーは 1 週間しか映らないため、月末の大潮が視界の外にある。
+ *
+ * **大潮の長さは暦のとおりに返す。** 起点が大潮の途中でも、
+ * 遡って本当の初日から数える。ここを「起点から先だけ」で数えると、
+ * 4 日ある大潮の最終日を起点にしたときに「1 日間」と出て、
+ * 読む人はその大潮を短いものだと受け取ってしまう。
+ * 「あと何日あるか」は remaining のほうで別に返す。
+ *
+ * @param {string} fromIso        起点 "YYYY-MM-DD"（この日を含めて探す）
+ * @param {(iso:string)=>string} typeOf  日付 → 潮回り（tideType を渡す）
+ * @param {number} horizon        何日先まで探すか
+ * @returns {{start:string, end:string, days:number, remaining:number,
+ *            inDays:number, ongoing:boolean}|null}
+ */
+export function nextSpringTide(fromIso, typeOf, horizon = 45) {
+  if (!fromIso || typeof typeOf !== "function") return null;
+  let hit = null;
+  for (let i = 0; i <= horizon; i++) {
+    const iso = addJstDays(fromIso, i);
+    if (typeOf(iso) === "大潮") { hit = { iso, inDays: i }; break; }
+  }
+  if (!hit) return null;
+
+  // 本当の初日まで遡る。大潮は長くても数日なので、念のための上限だけ置く
+  let back = 0;
+  while (back < 10 && typeOf(addJstDays(hit.iso, -back - 1)) === "大潮") back++;
+  const start = addJstDays(hit.iso, -back);
+
+  let days = 0;
+  while (days <= horizon && typeOf(addJstDays(start, days)) === "大潮") days++;
+  return {
+    start,
+    end: addJstDays(start, days - 1),
+    days,
+    remaining: days - back,      // 起点を含めて、あと何日あるか
+    inDays: hit.inDays,
+    ongoing: hit.inDays === 0,
+  };
+}
+
 /**
  * 1 時間ぶんの点（D-115 で切り出した）。
  *
@@ -2475,15 +2613,6 @@ export async function suggestFishName(speciesId, sizeCm) {
     p_fish_species_id: speciesId,
     p_size_cm: sizeCm,
   });
-  if (error) throw error;
-  return data;
-}
-
-export async function tideCorrelation() {
-  const { data, error } = await client
-    .from("tide_correlation")
-    .select("*")
-    .order("score", { ascending: false });
   if (error) throw error;
   return data;
 }
@@ -3650,6 +3779,62 @@ const RAIN_MM = 0.1;
 /** **これから降り出す**と見出しに書くのに要る量（mm）。いま降っている判定には使わない。
     1 時間だけ 0.2mm のような予想で「雨になりそう」と言うと、外に出るのをやめてしまう。 */
 const RAIN_WORTH_MM = 0.5;
+
+/**
+ * その日 1 日を代表する天気（D-130）。週間カレンダーの 1 マスに 1 つだけ出す。
+ *
+ * **12 時の 1 時間で代表させない。** 前はそうしていて、夜に雨が来る日でも
+ * 週カレンダーは晴れのままだった。同じ画面の見出しは
+ * 「21時ごろから雨になりそうです」と書いているのに、カレンダーは晴れ、という
+ * 食い違いが実際に出ていた（本人の指摘）。
+ *
+ * 順番は **雷 → 雨 → 曇り → 晴れ**。釣行の判断がいちばん変わるものを上に置く。
+ *
+ * 雨の物差しは `rainOutlook` の見出しと**同じもの**を使う（2 時間続くか、
+ * 0.5mm/h 以上あるか）。**片方だけ緩めると、見出しは「少し降るかも」なのに
+ * カレンダーは雨、という新しい食い違いを作ることになる。**
+ *
+ * 返すのは**実際にあった時間の WMO コード**。区分に丸めて 61 を返すと、
+ * 霧雨の日も本降りの日も同じアイコンになる。
+ *
+ * @param {object[]} hours その日 24 時間ぶんの予報
+ * @returns {number|null} アイコンに使う WMO コード
+ */
+export function dayWeatherCode(hours) {
+  const rows = (hours ?? []).filter((h) => h?.weather_code != null);
+  if (!rows.length) return null;
+
+  // 雷は 1 時間でもその日の顔になる
+  const storm = rows.filter((h) => h.weather_code >= 95);
+  if (storm.length) return commonest(storm.map((h) => h.weather_code));
+
+  /* 「見出しに書ける雨」があるか。2 時間続くか、まとまった量が 1 時間でもあるか */
+  let run = 0, rainy = false;
+  for (const h of rows) {
+    const wet = (h.precip_mm ?? 0) >= RAIN_MM;
+    run = wet ? run + 1 : 0;
+    if (run >= 2 || (wet && h.precip_mm >= RAIN_WORTH_MM)) { rainy = true; break; }
+  }
+  if (rainy) {
+    // いちばん強く降る時間の顔を使う。無ければ雨の総称（61）
+    const wetRows = rows.filter((h) => (h.precip_mm ?? 0) >= RAIN_MM
+      && weatherCategory(h.weather_code) === "rain");
+    if (!wetRows.length) return 61;
+    return wetRows.reduce((a, b) => (b.precip_mm > a.precip_mm ? b : a)).weather_code;
+  }
+
+  const cloudy = rows.filter((h) => weatherCategory(h.weather_code) === "cloudy");
+  // 1 日の 3 分の 1 が曇りなら、その日は「晴れ」ではない
+  if (cloudy.length * 3 >= rows.length) return commonest(cloudy.map((h) => h.weather_code));
+  return commonest(rows.map((h) => h.weather_code));
+}
+
+/** いちばん多い値。同数なら小さいほう（晴れ寄り）を選ぶ。 */
+function commonest(values) {
+  const count = new Map();
+  for (const v of values) count.set(v, (count.get(v) ?? 0) + 1);
+  return [...count].sort((a, b) => (b[1] - a[1]) || (a[0] - b[0]))[0][0];
+}
 
 /**
  * これから先の雨を 1 行にまとめる（D-104 / D-107 / D-111）。

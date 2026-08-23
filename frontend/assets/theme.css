@@ -411,6 +411,44 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .hero-hourly-head .note { letter-spacing: 0; font-size: 11px; }
 .hero-hourly .list-sub { margin-top: 10px; }
 
+/* いまの潮（D-129）。ヒーローの中の小さい表。
+   **潮位グラフに描いてあることを、読み取らなくても分かる形で置き直す。**
+   1 行目が「いま」、続く 2 行が「次に来るもの」。
+   時刻と残り時間は等幅にして、桁で目が揃うようにする。 */
+.hero-now {
+  margin-top: 12px; padding: 10px 12px;
+  background: rgba(10, 21, 32, 0.45);
+  border: 1px solid var(--border); border-radius: 8px;
+}
+.hero-now[hidden] { display: none; }
+.hn-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+.hn-when {
+  font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-muted);
+}
+.hn-when .icon { vertical-align: -0.15em; }
+.hn-level {
+  font-family: 'JetBrains Mono', monospace; font-size: 22px; line-height: 1;
+  color: var(--text-primary);
+}
+.hn-level small { font-size: 11px; color: var(--text-muted); margin-left: 1px; }
+.hn-flow { font-size: 12px; margin-left: auto; }
+.hn-up   { color: var(--orange); }
+.hn-down { color: var(--blue); }
+.hn-flat { color: var(--text-secondary); }
+
+.hn-row {
+  display: flex; align-items: baseline; gap: 8px;
+  margin-top: 6px; font-size: 12px;
+}
+.hn-row .k { color: var(--text-secondary); flex-shrink: 0; }
+.hn-row .v { font-family: 'JetBrains Mono', monospace; color: var(--text-primary); }
+.hn-row .t {
+  margin-left: auto; font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; color: var(--text-muted);
+}
+/* 日をまたぐ「翌」。時刻より小さくして、時刻の桁の並びを崩さない */
+.hn-row .v small { font-size: 10px; color: var(--text-muted); margin-right: 3px; }
+
 .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .tag { padding: 3px 9px; border-radius: 999px; font-size: 11px; border: 1px solid transparent; }
 .tag-mustard { background: var(--mustard-bg); color: var(--mustard-lt); border-color: var(--border-strong); }
@@ -542,12 +580,17 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
    **`.hour-card` の下に置かない**（D-122）。週カレンダーのセルも同じ★を出すので、
    ここを時間別カードだけの色にすると、同じ★が画面ごとに違う色になる。
    大きさだけ置き場所ごとに変え、色は 1 か所で決める。 */
+/* 「点 → 色」は 1 か所だけで決める（D-122 / D-130）。
+   出し方は 2 つある（★☆ 5 つ＝時間別カードと SUMMARY / ★ 1 つ＝週間カレンダー）が、
+   **色が違ったら結び付かない。** 点は --sc に写し、描き方のほうがそれを読む。
+   ここに色を書き、あちらにも色を書く、をやると片方だけ直して食い違う。 */
+.sc-1 { --sc: #6E7E8E; }
+.sc-2 { --sc: var(--mustard-dk); }
+.sc-3 { --sc: var(--mustard-lt); }
+.sc-4 { --sc: var(--orange); }
+.sc-5 { --sc: var(--red); --sc-weight: 700; }
+.sc .on { color: var(--sc); font-weight: var(--sc-weight, inherit); }
 .sc .off { color: #45566A; }
-.sc-1 .on { color: #6E7E8E; }
-.sc-2 .on { color: var(--mustard-dk); }
-.sc-3 .on { color: var(--mustard-lt); }
-.sc-4 .on { color: var(--orange); }
-.sc-5 .on { color: var(--red); font-weight: 700; }
 .hour-card .icon { font-size: 18px; margin: 2px 0; }
 .hour-card .t  { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-secondary); }
 
@@ -608,14 +651,6 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .list-aside { flex-shrink: 0; font-size: 11px; color: var(--text-muted); text-align: right; }
 
 .empty { padding: 22px 12px; text-align: center; color: var(--text-muted); font-size: 13px; }
-
-/* ---------- 相関バー ---------- */
-.corr-row { margin-bottom: 10px; }
-.corr-head { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; }
-.corr-head .name { color: var(--text-primary); }
-.corr-head .stat { font-family: 'JetBrains Mono', monospace; color: var(--text-muted); }
-.corr-bar { height: 7px; background: var(--bg-deep); border-radius: 4px; overflow: hidden; }
-.corr-fill { height: 100%; background: linear-gradient(90deg, var(--mustard-dk), var(--mustard)); }
 
 /* ---------- FAB ---------- */
 /* 追加ボタンは画面の右下に浮いているので、その下に本文が来ると隠れる。
@@ -1306,6 +1341,22 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 
 .week-back { display: flex; justify-content: center; margin-top: 8px; }
 .week-back .chip[hidden] { display: none; }
+
+/* 次の大潮（D-129）。カレンダーの外に 1 行だけ。
+   ヒーローの「いまの潮」と同じ組み方（見出し・値・右端に残り）にそろえる */
+.next-spring {
+  display: flex; align-items: baseline; gap: 8px;
+  margin-top: 8px; padding: 8px 12px; font-size: 12px;
+  background: rgba(10, 21, 32, 0.45);
+  border: 1px solid var(--border); border-radius: 8px;
+}
+.next-spring[hidden] { display: none; }
+.next-spring .k { color: var(--text-secondary); flex-shrink: 0; }
+.next-spring .v { font-family: 'JetBrains Mono', monospace; color: var(--mustard-lt); }
+.next-spring .t {
+  margin-left: auto; font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; color: var(--text-muted); flex-shrink: 0;
+}
 .week-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
 /* **min-width と overflow は組で要る**（D-127）。
    grid の 1fr は既定で「中身の最小幅」より細くならない。セルの中に
@@ -1330,17 +1381,25 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .week-grid .tt { font-size: 9px; font-weight: 700; }
 .week-grid .wx { height: 18px; display: flex; align-items: center; }
 .week-grid .wx .icon { width: 15px; height: 15px; color: var(--text-secondary); }
+/* 雨・雷の日だけ色を変える（D-130）。15px の絵を 7 つ並べると形の違いは見落とす。
+   色は時間別天気の見出し（.hourly-lead.rain）と同じ青 */
+.week-grid .wx-wet .icon { color: var(--blue); }
 /* 釣行スコア。**時間別カードと同じ ★☆ 5 つ**にする（D-122。D-055 の
    「星 1 つ＋数字」を取り消す）。同じ点なのに画面ごとに書き方が違うと、
    ★4 と 4 が同じものだと気づけない。
    **9px には落とさない**。D-118 で確かめたとおり、☆ は 9px だと輪郭がつぶれて
    ただの点になり、5 段階に見えなくなる。セルの中身は 39px 使えるので、
    時間別カードと同じ 11px のまま、字間だけ少し詰めれば 27px で収まる。 */
+/* ★は 1 つだけ（D-130。D-122 の「★☆ 5 つ」を取り消す）。
+   点の違いは**色**で言う（時間別カードの★と同じ色）。
+   1 文字ぶんに縮んだので、そのぶん大きくして色を見分けやすくする。
+   ★☆ 5 つを 11px に詰めていたときは 27px 幅あり、7 列に並べたときの
+   セル幅の下限を決めていた（D-127）。1 文字なら 16px で済む。 */
 .week-grid .sc {
-  font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.5;
-  letter-spacing: -1.2px; white-space: nowrap;
+  font-size: 16px; line-height: 1.2; white-space: nowrap;
+  color: var(--sc); font-weight: var(--sc-weight, inherit);
 }
-.week-grid .sc.dim { color: var(--text-muted); letter-spacing: normal; }
+.week-grid .sc.dim { font-size: 11px; color: var(--text-muted); }
 /* 何時の点なのか（D-115）。点だけだとどの日も 5 になり、比べる列にならない。
    1 行足すぶんセルが縦に伸びるので、いちばん小さい字で沈める */
 .week-grid .bt {

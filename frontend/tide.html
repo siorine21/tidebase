@@ -44,6 +44,10 @@
   <div class="week-back">
     <button type="button" class="chip" id="week-today" hidden>今週へ戻る</button>
   </div>
+  <!-- 次の大潮（D-129）。**カレンダーは 1 週間しか映らない**ので、
+       月末の大潮が視界の外にある。潮回りは月齢だけで決まる（tideType）ので、
+       何週間先でも通信なしで出せる。見ている週が先なら、その週から数える -->
+  <div class="next-spring" id="next-spring" hidden></div>
   <!-- 時間別天気（D-114）。**週を選んだ直後に読めるよう、カレンダーの真下に置く。**
        ホームでも同じ帯が見えるようになったので、この画面の役目は
        「週を送って別の日を見る」ことに寄せる。日を押したらすぐ下に出る、が要る -->
@@ -102,6 +106,7 @@
     formatLag, pickBaseSpot, spotTidePoint, savedBaseSpot, saveBaseSpot, attachSpotPicker,
     renderHourlyStrip,
     tideType, TIDE_TYPE_COLORS, isCoordinateInJapan, tideTimelineSvg, sunStripHtml, levelAxisHtml, tideLevelAt, sunTimes,
+    nextSpringTide, dayWeatherCode, weatherCategory,
   } from "./assets/app.js";
 
   const DEFAULT_POINT = "ST:MI";   // 静岡特化の既定（D-030）
@@ -521,6 +526,34 @@
 
     // 潮回りは月齢から出せるので通信不要。天気は予報の届く範囲だけ載る
     document.getElementById("week").innerHTML = days.map(dayCell).join("");
+    renderSpringTide(days[0]);
+  }
+
+  /* 次の大潮（D-129）。**起点は「今日」か「見ている週の初日」の遅いほう。**
+     今週を見ているときは「いまから何日後か」、先の週を送ったときは
+     「その週から見て次はいつか」を答える。過去の週を見ているときに
+     「その週の次の大潮」を出すと、もう行けない日を案内することになるので、
+     今日より前へは戻さない。 */
+  function renderSpringTide(weekStart) {
+    const box = document.getElementById("next-spring");
+    const from = weekStart > today ? weekStart : today;
+    const run = nextSpringTide(from, tideType);
+    if (!run) { box.hidden = true; box.innerHTML = ""; return; }
+
+    const range = run.days > 1
+      ? `${formatJstDate(run.start, { weekday: true })} — ${formatJstDate(run.end, { weekday: true })}`
+      : formatJstDate(run.start, { weekday: true });
+    // すでに大潮の中にいるなら、知りたいのは「いつまで」。まだなら「いつから」
+    const inside = run.inDays === 0 && from === today;
+    const tail = !inside
+      ? `${run.inDays === 0 ? "" : `${run.inDays} 日後 · `}${run.days} 日間`
+      : run.remaining === 1 ? "今日まで"
+      : `あと ${run.remaining} 日`;
+
+    box.hidden = false;
+    box.innerHTML = `<span class="k">${inside ? "大潮" : "次の大潮"}</span>`
+      + `<span class="v">${escapeHtml(range)}</span>`
+      + `<span class="t">${escapeHtml(tail)}</span>`;
   }
 
   /**
@@ -570,7 +603,15 @@
     if (date === state.date) classes.push("selected");
 
     const hours = weatherCache.get(date) ?? null;
-    const noon = hours?.find((w) => w.hour === 12) ?? hours?.[0] ?? null;
+    /* **その日を代表する天気**（D-130）。12 時の 1 時間で代表させると、
+       夜に雨が来る日でも晴れのままだった。同じ画面の見出しが
+       「21時ごろから雨になりそうです」と書いているのに、である */
+    const wxCode = dayWeatherCode(hours);
+    const wx = wxCode == null ? null : describeWeather(wxCode);
+    /* 雨の日だけ色を変える。15px の絵を 7 つ並べると、形の違いは見落とす。
+       色は時間別天気の見出し（.hourly-lead.rain）と同じ青にそろえる */
+    const wet = wxCode != null && weatherCategory(wxCode) !== "sunny"
+      && weatherCategory(wxCode) !== "cloudy";
     /* 潮汐も揃っていないと潮の動きぶんが出せない。揃うまではスコアを出さない
        （途中の点を見せると、あとで数字が変わって見える）。
        ただし**淡水は潮汐を待たない**（永久に来ないので★が出なくなる・D-105） */
@@ -600,20 +641,34 @@
        grid の 1fr は中身の最小幅より細くならないので、この 1 行が
        セルの下限を決めてしまう。2 行にすれば下限は「09:00」の 24px になる。 */
     const at = day?.best
-      ? `<span class="bt">`
+      ? `<span class="bt" aria-hidden="true">`
         + `<span class="bt-band">${escapeHtml(day.best.label.replace("マヅメ", ""))}</span>`
         + `<span class="bt-at">${escapeHtml(String(day.best.at).slice(0, 5))}</span>`
         + `</span>`
       : "";
+    /* **★は 1 つにして、点は色で言う**（D-130。D-122 の「★☆ 5 つ」を取り消す）。
+       5 つ並べても、点そのものは 7 日中 2 種類しか出ない週がほとんど（D-122 で実測）で、
+       ★☆ の数を数えて比べる列にはなっていなかった。色は時間別カードと同じなので、
+       ★が 1 つでも「この日は★5 の時間帯がある」は色で分かる（本人の提案）。
+       1 文字ぶんに縮めたぶん、字を大きくして色を見分けやすくする。 */
     const score = day
-      ? `<span class="sc sc-${day.score}">${stars(day.score, { html: true })}</span>`
-      : `<span class="sc dim">—</span>`;
+      ? `<span class="sc sc-${day.score}" aria-hidden="true">★</span>`
+      : `<span class="sc dim" aria-hidden="true">—</span>`;
+    /* 色だけが頼りにならないよう、読み上げ用の説明はセルに文で持たせる */
+    const label = [
+      formatJstDate(date, { weekday: true }), type,
+      wx ? wx.label : null,
+      day ? `釣行スコア ${day.score}` : null,
+      day?.best ? `いちばん良いのは${day.best.label} ${String(day.best.at).slice(0, 5)}` : null,
+    ].filter(Boolean).join("・");
     return `
-      <button type="button" class="${classes.join(" ")}" data-date="${date}">
-        <span class="wd wd-${weekday}">${WEEKDAYS_EN[weekday]}</span>
-        <span class="dd">${Number(date.slice(8))}</span>
-        <span class="tt" style="color:${TIDE_TYPE_COLORS[type]}">${type}</span>
-        <span class="wx">${noon == null ? "" : describeWeather(noon.weather_code).icon}</span>
+      <button type="button" class="${classes.join(" ")}" data-date="${date}"
+              aria-label="${escapeHtml(label)}">
+        <span class="wd wd-${weekday}" aria-hidden="true">${WEEKDAYS_EN[weekday]}</span>
+        <span class="dd" aria-hidden="true">${Number(date.slice(8))}</span>
+        <span class="tt" aria-hidden="true" style="color:${TIDE_TYPE_COLORS[type]}">${type}</span>
+        <span class="wx${wet ? " wx-wet" : ""}" aria-hidden="true"
+              title="${escapeHtml(wx?.label ?? "")}">${wx?.icon ?? ""}</span>
         ${score}
         ${at}
       </button>`;

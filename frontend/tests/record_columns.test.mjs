@@ -40,7 +40,6 @@ const IGNORE = new Set([
   /* ここから下は**この走査のやり方の限界**。正規表現なので、
      釣果と関係ないものまで拾ってしまう。 */
   'html',                            // href="record.html?id=…" の文字列に当たる
-  'score', 'outing_count',           // ホームの潮回り相関（tide_correlation の行）
 ]);
 
 const used = (source) =>
