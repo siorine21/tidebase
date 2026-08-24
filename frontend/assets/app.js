@@ -4068,9 +4068,14 @@ export function renderHourlyStrip(box, {
                      title="${escapeHtml(windDirection(w.wind_dir_deg))}の風">${
                  icon("wind-arrow", { size: 12 })}</span>`
             : ""}
-          <span class="ms">${w.wind_speed_ms != null ? Number(w.wind_speed_ms).toFixed(1) : "—"}</span>
+          <!-- 単位を添える（本人の指摘）。数字だけだと m/s か km/h か分からない -->
+          <span class="ms">${w.wind_speed_ms != null
+            ? `${Number(w.wind_speed_ms).toFixed(1)}<small>m/s</small>` : "—"}</span>
         </div>
-        <div class="gust">${w.wind_gust_ms != null ? `突 ${Math.round(w.wind_gust_ms)}` : "&nbsp;"}</div>
+        <!-- 「突」だけでは何の略か伝わらない。**最大**（その 1 時間で瞬間的に
+             いちばん強かった風。Open-Meteo の定義もその 1 時間の最大値）と書く -->
+        <div class="gust">${w.wind_gust_ms != null
+          ? `最大${Math.round(w.wind_gust_ms)}<small>m/s</small>` : "&nbsp;"}</div>
       </div>`;
   }).join("");
 

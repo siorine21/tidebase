@@ -549,6 +549,12 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
      **字の大きさ・字間・この余白は 3 つで 1 組。**片方だけ変えるとはみ出す */
   flex: 0 0 54px; text-align: center; padding: 7px 2px;
   background: var(--bg-deep); border: 1px solid var(--border); border-radius: 8px;
+  /* **flex の子は既定で中身より細くならない**（D-127 で週セルにも出た同じ話）。
+     台風並みの風（最大 20m/s 超）で数字の桁が増えると、この幅が動いて
+     日付の帯（HOUR_CARD_W を書き写した固定値・D-112）とずれる。
+     ここは 24 枚横に並ぶので、1 枚でもずれると帯全体が崩れる。
+     min-width: 0 で本来の 54px に留め、はみ出るぶんはセルの中で隠す。 */
+  min-width: 0; overflow: hidden;
 }
 /* **いまの時間**だけ枠を立てる（D-117）。前はマヅメに付けていたが、
    横に 24 枚流れる中で「いまどこか」が分からないほうが困る。
@@ -618,10 +624,16 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .hour-card .wind {
   display: flex; align-items: center; justify-content: center; gap: 1px;
   font-family: 'JetBrains Mono', monospace; font-size: 11px;
-  color: var(--wind, var(--text-secondary));
+  color: var(--wind, var(--text-secondary)); white-space: nowrap;
 }
 .hour-card .wind-arrow { display: flex; line-height: 0; }
-.hour-card .gust { font-size: 9px; color: var(--text-muted); height: 12px; }
+/* 単位は数字より小さく添える（.pop .pct と同じ形）。カードが 54px しか無いので、
+   本体の文字を大きくしたまま単位だけ乗せるとはみ出す */
+.hour-card .ms small { font-size: 8px; margin-left: 1px; color: var(--text-muted); }
+.hour-card .gust {
+  font-size: 9px; color: var(--text-muted); height: 12px; white-space: nowrap;
+}
+.hour-card .gust small { font-size: 7px; margin-left: 1px; }
 
 /* いつ雨か、を先に 1 行で（D-104）。数字を並べる前に結論を出す */
 .hourly-lead {
