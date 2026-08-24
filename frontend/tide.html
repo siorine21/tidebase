@@ -106,7 +106,7 @@
     formatLag, pickBaseSpot, spotTidePoint, savedBaseSpot, saveBaseSpot, attachSpotPicker,
     renderHourlyStrip,
     tideType, TIDE_TYPE_COLORS, isCoordinateInJapan, tideTimelineSvg, sunStripHtml, levelAxisHtml, tideLevelAt, sunTimes,
-    nextSpringTide, dayWeatherCode, weatherCategory,
+    nextSpringTide, dayWeatherCode, weatherCategory, windLevel,
   } from "./assets/app.js";
 
   const DEFAULT_POINT = "ST:MI";   // 静岡特化の既定（D-030）
@@ -651,15 +651,27 @@
        ★☆ の数を数えて比べる列にはなっていなかった。色は時間別カードと同じなので、
        ★が 1 つでも「この日は★5 の時間帯がある」は色で分かる（本人の提案）。
        1 文字ぶんに縮めたぶん、字を大きくして色を見分けやすくする。 */
-    const score = day
-      ? `<span class="sc sc-${day.score}" aria-hidden="true">★</span>`
-      : `<span class="sc dim" aria-hidden="true">—</span>`;
+    /* ★の隣に**その時間帯の風**（D-131）。★は「いちばん良い時間帯の点」なので、
+       同じ時間帯の風を並べても話がずれない。
+       **★が捨てている情報を拾う。** 点の規則で風が効くのは 5m/s 超からで、
+       実測では 86% の時間が 0〜5m/s に入る。つまり★はほとんどの日で
+       風について何も言っていない。投げる側には 2m と 5m はまるで違う。
+       ★を 1 文字にした（D-130）ので、行を増やさずに横に置ける。 */
+    const windMs = day?.best?.windMs;
+    const wind = windMs == null ? null : windLevel(windMs);
+    const score = `<span class="sc-row" aria-hidden="true">`
+      + (day
+          ? `<span class="sc sc-${day.score}">★</span>`
+          : `<span class="sc dim">—</span>`)
+      + (wind ? `<span class="wnd wnd-${wind.key}">${Math.round(windMs)}m</span>` : "")
+      + `</span>`;
     /* 色だけが頼りにならないよう、読み上げ用の説明はセルに文で持たせる */
     const label = [
       formatJstDate(date, { weekday: true }), type,
       wx ? wx.label : null,
       day ? `釣行スコア ${day.score}` : null,
       day?.best ? `いちばん良いのは${day.best.label} ${String(day.best.at).slice(0, 5)}` : null,
+      wind ? `そのとき風 ${Math.round(windMs)}m/s（${wind.label}）` : null,
     ].filter(Boolean).join("・");
     return `
       <button type="button" class="${classes.join(" ")}" data-date="${date}"

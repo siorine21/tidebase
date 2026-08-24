@@ -549,6 +549,12 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
      **字の大きさ・字間・この余白は 3 つで 1 組。**片方だけ変えるとはみ出す */
   flex: 0 0 54px; text-align: center; padding: 7px 2px;
   background: var(--bg-deep); border: 1px solid var(--border); border-radius: 8px;
+  /* **flex の子は既定で中身より細くならない**（D-127 で週セルにも出た同じ話）。
+     台風並みの風（最大 20m/s 超）で数字の桁が増えると、この幅が動いて
+     日付の帯（HOUR_CARD_W を書き写した固定値・D-112）とずれる。
+     ここは 24 枚横に並ぶので、1 枚でもずれると帯全体が崩れる。
+     min-width: 0 で本来の 54px に留め、はみ出るぶんはセルの中で隠す。 */
+  min-width: 0; overflow: hidden;
 }
 /* **いまの時間**だけ枠を立てる（D-117）。前はマヅメに付けていたが、
    横に 24 枚流れる中で「いまどこか」が分からないほうが困る。
@@ -605,16 +611,29 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .hour-card .pop.mid  { color: var(--blue); }
 .hour-card .pop.high { color: var(--blue); font-weight: 700; }
 
+/* 風の強さ → 色は 1 か所だけで決める（D-131。★の --sc と同じ形・D-130）。
+   時間別カードと週間カレンダーの両方が同じ色でないと、
+   「この日は風がある」を色で結び付けられない。
+   段は windLevel が決める（穏やか / やや強い / 強い / 強すぎ）。 */
+.wnd-calm    { --wind: var(--text-secondary); }
+.wnd-fresh   { --wind: var(--text-primary); }
+.wnd-strong  { --wind: var(--mustard-lt); }
+.wnd-danger  { --wind: #E2907F; }
+
 /* 風。矢印は「吹いていく向き」（windArrowDeg で回す） */
 .hour-card .wind {
   display: flex; align-items: center; justify-content: center; gap: 1px;
-  font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-secondary);
+  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  color: var(--wind, var(--text-secondary)); white-space: nowrap;
 }
 .hour-card .wind-arrow { display: flex; line-height: 0; }
-.hour-card .wind.fresh  { color: var(--text-primary); }
-.hour-card .wind.strong { color: var(--mustard-lt); }
-.hour-card .wind.danger { color: #E2907F; }
-.hour-card .gust { font-size: 9px; color: var(--text-muted); height: 12px; }
+/* 単位は数字より小さく添える（.pop .pct と同じ形）。カードが 54px しか無いので、
+   本体の文字を大きくしたまま単位だけ乗せるとはみ出す */
+.hour-card .ms small { font-size: 8px; margin-left: 1px; color: var(--text-muted); }
+.hour-card .gust {
+  font-size: 9px; color: var(--text-muted); height: 12px; white-space: nowrap;
+}
+.hour-card .gust small { font-size: 7px; margin-left: 1px; }
 
 /* いつ雨か、を先に 1 行で（D-104）。数字を並べる前に結論を出す */
 .hourly-lead {
@@ -1395,6 +1414,16 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
    1 文字ぶんに縮んだので、そのぶん大きくして色を見分けやすくする。
    ★☆ 5 つを 11px に詰めていたときは 27px 幅あり、7 列に並べたときの
    セル幅の下限を決めていた（D-127）。1 文字なら 16px で済む。 */
+/* ★とその時間帯の風を 1 行に（D-131）。★が 1 文字になって空いた横を使う。
+   **行は増やさない。** セルは既に 7 段あり、縦に伸ばす余裕が無い（D-127）。 */
+.week-grid .sc-row {
+  display: flex; align-items: baseline; justify-content: center; gap: 3px;
+  min-width: 0; overflow: hidden;
+}
+.week-grid .wnd {
+  font-family: 'JetBrains Mono', monospace; font-size: 10px;
+  color: var(--wind, var(--text-muted));
+}
 .week-grid .sc {
   font-size: 16px; line-height: 1.2; white-space: nowrap;
   color: var(--sc); font-weight: var(--sc-weight, inherit);

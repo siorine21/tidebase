@@ -58,10 +58,40 @@ check('週のセルは stars() を使わない（★は 1 つ）',
   !/stars\(/.test(cell), (cell.match(/stars\([^)]*\)/) ?? [''])[0]);
 check('週のセルの★は sc-<点> の色分けを持つ', /class="sc sc-\$\{day\.score\}"/.test(cell));
 
+/* ---- 風の色も同じ形（D-131） ---- */
+
+const winds = new Map();
+for (const m of css.matchAll(/\.wnd-([a-z]+)\s*\{([^}]*)\}/g)) {
+  const value = /--wind:\s*([^;]+);/.exec(m[2]);
+  if (value) winds.set(m[1], value[1].trim());
+}
+check('風の 4 段が --wind に定義されている',
+  ['calm', 'fresh', 'strong', 'danger'].every((k) => winds.has(k)), [...winds.keys()].join(','));
+check('4 段が別々の色', new Set(winds.values()).size === 4, [...winds.values()].join(' / '));
+
+const windStrays = [...css.matchAll(/\.wnd-[a-z]+[^{]*\{([^}]*)\}/g)]
+  .map((m) => m[1]).filter((body) => /(^|[\s;])color\s*:/.test(body));
+check('.wnd-N が color を直に書いていない', windStrays.length === 0, windStrays.join(' | '));
+
+const hourWind = /\.hour-card\s+\.wind\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
+check('時間別カードの風が --wind を読む', /color:\s*var\(--wind/.test(hourWind), hourWind.trim());
+const weekWind = /\.week-grid\s+\.wnd\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
+check('週カレンダーの風が --wind を読む', /color:\s*var\(--wind/.test(weekWind), weekWind.trim());
+
+/* ---- 週セルの風は「いちばん良い時間帯」のもの ---- */
+
+check('風は day.best から取る（その日の平均や最大ではない）',
+  /const windMs = day\?\.best\?\.windMs;/.test(cell), 'windMs の取り方');
+check('風の段は windLevel が決める（しきい値を書き写さない）',
+  /windLevel\(windMs\)/.test(cell));
+check('★と風は同じ行（セルの段を増やさない）',
+  /class="sc-row"/.test(cell) && !/class="wnd[^"]*"[\s\S]{0,40}<\/span>\s*\n\s*\$\{at\}/.test(cell));
+
 /* ---- 色だけに頼らない ---- */
 
 check('セルに読み上げ用の説明がある', /aria-label="\$\{escapeHtml\(label\)\}"/.test(cell));
 check('その説明に点が入っている', /釣行スコア \$\{day\.score\}/.test(cell));
+check('その説明に風が入っている', /そのとき風 \$\{Math\.round\(windMs\)\}m\/s/.test(cell));
 
 console.log(failed ? `\n${failed} 件失敗` : '\nすべて通過');
 process.exit(failed ? 1 : 0);
