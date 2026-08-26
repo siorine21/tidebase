@@ -913,6 +913,11 @@ const WMO = {
   95: ["雷雨", "storm"], 96: ["雷雨", "storm"], 99: ["雷雨", "storm"],
 };
 
+/** 天気の名前だけ。**アイコンを描かない**ので、SVG を持たない場所からも呼べる。 */
+export function weatherLabel(code) {
+  return (WMO[code] ?? ["—"])[0];
+}
+
 export function describeWeather(code) {
   const [label, iconName] = WMO[code] ?? ["—", "thermometer"];
   return { label, iconName, icon: icon(iconName, { size: 20 }) };
@@ -1202,113 +1207,178 @@ export function hoursFromHhmm(hhmm) {
    起きる。実測でも中潮の上位は大潮の下位を上回る（舞阪の最大流速: 大潮 23〜31、
    中潮 15〜28 cm/h）。ラベルではなく**実際の流速**を見る。 */
 
-/** 荒天のゲート。ここに当たったら、良い条件は数えない（数えても意味がない）。 */
-export const SCORE_GATES = [
-  { score: 1, label: "雷雨、または風速 15m/s 以上",
-    match: (weather, wind) => weather === "storm" || wind >= 15 },
-  { score: 2, label: "雨・雪、または風速 10m/s 超",
-    match: (weather, wind) => weather === "rain" || wind > 10 },
+/* ---- 釣りにならない条件（D-139） --------------------------------------
+
+   **点を付けずに止める。**「条件が悪い」ではなく「そもそも行けない」。
+   だから**狭く、めったに立たない**ものだけを置く。
+   以前はここに「雨・雪、または風速 10m/s 超 → ★2」があり、
+   全 2688 時間の **24% がこれで ★2** になっていた。しかも weather_code 51
+   （霧雨）も雨に含まれるので、本人が実際に釣った 20 件のうち **7 件**が
+   「霧雨・風速 1.0〜4.8m/s」で ★2 と判定されていた。魚が釣れている時間を
+   「釣りにならない」と言っていたことになる。雨は下の係数へ移した。 */
+
+/** これ以上は投げられない風速（m/s）。 */
+export const BLOCK_WIND_MS = 15;
+
+export const SCORE_BLOCKS = [
+  { key: "storm", label: "雷", match: (weather) => weather === "storm" },
+  { key: "gale", label: `風速 ${BLOCK_WIND_MS}m/s 以上`,
+    match: (_weather, wind) => wind >= BLOCK_WIND_MS },
 ];
 
-/** 潮がよく流れていると言える強さ。**その地点の大潮の最大流速に対する比。** */
-export const STRONG_FLOW_RATIO = 0.6;
-/** ほどよい風（m/s）。0〜1 は弱すぎ、5 超はやりにくい（本人の体感）。 */
-export const GOOD_WIND_MIN = 1.5;
-export const GOOD_WIND_MAX = 5;
-/** 気圧が下がっていると言える変化量（hPa / 3 時間）。 */
-export const PRESSURE_FALL_HPA = -1;
+/* ---- 係数（D-139） ----------------------------------------------------
+
+   **すべて 1.0 が「ふつう」。0 は使わない。**
+   幾何平均は対数の平均なので、0 が 1 つ入ると全体が 0 になる。
+   「釣りにならない」は上の SCORE_BLOCKS が受け持つ。 */
 
 /**
- * 揃っていると良い条件（D-135）。**この表がそのままモーダルの一覧になる。**
- * `tide` が true のものは、潮汐の効かない場所では対象から外す。
+ * 折れ線の内挿。表の外側は端の値で頭打ちにする。
+ * 材料が無ければ null（呼ぶ側が 1.0 として分母に残す）。
+ *
+ * **`Number(x)` だけで判定しない。** `Number(null)` も `Number("")` も 0 なので、
+ * 材料が無いのに「x = 0」として表の左端（風なら 0.85）を返してしまう。
+ * 気圧のように 0 が正常値の表もあるので、null と 0 は必ず分ける。
  */
-export const SCORE_CONDITIONS = [
+export function curveAt(points, x) {
+  if (x == null || x === "") return null;
+  const v = Number(x);
+  if (!Number.isFinite(v)) return null;
+  if (v <= points[0][0]) return points[0][1];
+  if (v >= points.at(-1)[0]) return points.at(-1)[1];
+  for (let i = 1; i < points.length; i++) {
+    const [x0, y0] = points[i - 1], [x1, y1] = points[i];
+    if (v <= x1) return y0 + ((y1 - y0) * (v - x0)) / (x1 - x0);
+  }
+  return null;
+}
+
+/** 潮の速さ。**その地点でいちばん速く流れるときに対する比**（D-135）。 */
+export const FLOW_CURVE = [[0, 0.65], [0.3, 0.85], [0.6, 1.15], [0.8, 1.32], [1.0, 1.38]];
+/** 風（m/s）。2〜4 が山。無風だと水面が動かず、強すぎると投げられない（本人の体感）。 */
+export const WIND_CURVE = [[0, 0.85], [1.5, 1.05], [3, 1.20], [5, 1.15],
+                           [8, 1.00], [10, 0.85], [15, 0.65]];
+/** 気圧の変化（hPa / 3 時間）。下がっているほど上がる。 */
+export const PRESSURE_CURVE = [[-3, 1.25], [-1, 1.12], [0, 1.00], [1, 0.90], [3, 0.80]];
+/** 潮の勢いの向き。動き出しは少し上げ、潮止まり前後は少し下げる。 */
+export const FLOW_PHASE_FACTORS = { start: 1.08, run: 1.00, slack: 0.92 };
+/** 雨。**霧雨は下げない。** 強い雨だけ少し引く（weather_code）。 */
+export const RAIN_FACTORS = { 65: 0.85, 75: 0.85, 82: 0.85, 63: 0.95, 73: 0.95, 81: 0.95 };
+
+/**
+ * 掛け合わせる係数（D-139）。**この表がそのままモーダルの一覧になる。**
+ *
+ * **見られないものは分母から外す。** 潮汐の効かない場所の潮も、
+ * 材料が取れなかった係数も、同じ扱いにする（D-135 の applicable と同じ）。
+ *
+ * 一度「材料が無いものは 1.0 で分母に残す（情報が欠けているのだから
+ * 中央に寄るのが正しい）」と考えたが、**測ったら間違いだった。**
+ * 日の点は 24 時間の最大値なので、1.0 を混ぜてばらつきを縮めると
+ * **最大値そのものが下がる**。基準を持たない観測所で日の★が
+ * ★1 20% / ★2 44% / ★3 37% / ★4 0% に潰れた（分母から外せば
+ * ★1 5% / ★2 21% / ★3 74%）。中央に寄るのではなく、低い側に寄っていた。
+ */
+export const SCORE_FACTORS = [
   {
-    key: "flow", tide: true, label: "潮がよく流れている",
-    /* **「大潮」と書かない**（D-137）。点から潮回りのラベルを外したのに、
-       説明に「大潮でいちばん速いときの…」と書いてあったせいで、
-       「大潮でないと加点されない」と読めていた（本人の指摘）。
-       実際は**その場所の中での速さの比**で、潮回りは一切見ていない。 */
-    detail: `ここでいちばん速く流れるときと比べて ${Math.round(STRONG_FLOW_RATIO * 100)}% 以上`,
-    test: (c) => c.flowRatio != null && c.flowRatio >= STRONG_FLOW_RATIO,
-    /* **判定しているのは % のほう**なので、% を落とさない（D-138）。
-       「上げ4分」だけにすると、6 割に届いているのかが読めなくなる。
-       釣りの言葉と、判定に使った数字を並べる */
+    key: "flow", tide: true, label: "潮の流れ",
+    detail: "ここでいちばん速く流れるときに近いほど上がる。潮回りは見ていない",
+    of: (c) => curveAt(FLOW_CURVE, c.flowRatio),
+    /* 「上げ4分」だけにせず**判定に使った % を残す**（D-138）。 */
     describe: (c) => (c.flowRatio == null ? null
       : `${c.phase ? `${c.phase.label} ` : ""}${Math.round(c.flowRatio * 100)}%`),
   },
   {
-    key: "start", tide: true, label: "潮が動き出している",
-    detail: "止まっているときや、緩んでいく途中では付かない",
-    test: (c) => c.flow?.key === "start",
+    key: "start", tide: true, label: "潮の動き",
+    detail: "動き出しは少し上げ、潮止まり前後は少し下げる",
+    of: (c) => (c.flow?.key ? FLOW_PHASE_FACTORS[c.flow.key] ?? 1 : null),
     describe: (c) => (!c.flow ? null : TIDE_FLOW_LABELS[c.flow.key]),
   },
   {
-    key: "band", tide: false, label: "マヅメ",
-    detail: "日の出・日没の前後 1 時間（薄明薄暮）",
-    test: (c) => c.band === "morning" || c.band === "evening",
-    describe: (c) => timeBandLabel(c.band),
-  },
-  {
-    key: "wind", tide: false, label: "風がほどよい",
-    detail: `${GOOD_WIND_MIN}〜${GOOD_WIND_MAX}m/s。無風だと水面が動かず、強すぎると投げられない`,
-    test: (c) => c.wind != null && c.wind >= GOOD_WIND_MIN && c.wind <= GOOD_WIND_MAX,
+    key: "wind", tide: false, label: "風",
+    detail: "2〜4m/s が山。無風だと水面が動かず、強すぎると投げられない",
+    of: (c) => curveAt(WIND_CURVE, c.wind),
     describe: (c) => (c.wind == null ? null : `${Number(c.wind).toFixed(1)}m/s`),
   },
   {
-    key: "press", tide: false, label: "気圧が下がっている",
-    detail: `3 時間で ${-PRESSURE_FALL_HPA}hPa 以上下がると付く`,
-    test: (c) => c.pressureTrend != null && c.pressureTrend <= PRESSURE_FALL_HPA,
+    key: "press", tide: false, label: "気圧",
+    detail: "3 時間前より下がっていれば上がる。上がっていれば下げる",
+    of: (c) => curveAt(PRESSURE_CURVE, c.pressureTrend),
     // 符号は半角で揃える。等幅で桁が並ぶので、＋だけ全角だと崩れる
     describe: (c) => (c.pressureTrend == null ? null
       : `${c.pressureTrend > 0 ? "+" : ""}${c.pressureTrend}hPa/3h`),
   },
+  {
+    key: "rain", tide: false, label: "雨",
+    detail: "霧雨は下げない。強い雨のときだけ少し引く",
+    of: (c) => RAIN_FACTORS[c.weatherCode] ?? 1,
+    // アイコンまで作る describeWeather は使わない（SVG を持たない場所からも呼ぶ）
+    describe: (c) => weatherLabel(c.weatherCode),
+  },
 ];
 
-/** 揃った割合 → 点。**数ではなく割合**で見るので、使える条件が減っても上限は 5 のまま。 */
-export function scoreFromHits(hits, applicable) {
-  if (!applicable) return 3;
-  const ratio = hits / applicable;
-  return ratio >= 0.8 ? 5 : ratio >= 0.6 ? 4 : 3;
+/* ---- ★への割りふり（D-139） ------------------------------------------
+
+   **実測の分布から取った。** 舞阪の 112 日ぶん（潮汐・気象とも実データ）を
+   前半 61 日と後半 51 日に割り、**前半だけで線を引いて後半に当てた**。
+
+     時間  前半 ★1 10 / ★2 20 / ★3 40 / ★4 20 / ★5 10 %
+           後半 ★1  7 / ★2 21 / ★3 37 / ★4 23 / ★5 12 %
+     日    前半 ★1 10 / ★2 21 / ★3 39 / ★4 20 / ★5 10 %
+           後半 ★1 12 / ★2 12 / ★3 51 / ★4 18 / ★5  8 %
+
+   季節をまたいでも崩れないので、**固定の数でよい**（期間ごとに引き直さない）。
+
+   **日と時間で別の線を使う。** 日の点は 24 時間の最大値なので、
+   必ず分布の上端に寄る。時間の線をそのまま使うと ★5 が 79% になった。 */
+export const HOUR_CUTS = [0.918, 0.960, 1.031, 1.082];
+export const DAY_CUTS = [1.051, 1.073, 1.123, 1.140];
+
+/** 掛け合わせた値 → 1〜5。 */
+export function starFromValue(value, cuts = HOUR_CUTS) {
+  if (!Number.isFinite(value)) return 3;
+  return value < cuts[0] ? 1 : value < cuts[1] ? 2
+    : value < cuts[2] ? 3 : value < cuts[3] ? 4 : 5;
 }
 
 /**
  * 1 時間ぶんの判定。**画面の説明はこの戻り値をそのまま並べる**（D-050 の考え方は残す）。
  *
  * @param {object} c 判定の材料
- *   weatherCode / wind（m/s）/ flowRatio（大潮基準に対する比）/ flow（tideFlowAt の結果）
- *   / band（時間帯）/ pressureTrend（hPa/3h）/ tideMatters
+ *   weatherCode / wind（m/s）/ flowRatio（その地点の最大流速に対する比）
+ *   / flow（tideFlowAt の結果）/ phase（tidePhaseAt の結果）
+ *   / pressureTrend（hPa/3h）/ tideMatters
+ * @param {number[]} [cuts] ★に割りふる線。日の点では DAY_CUTS を渡す
  */
-export function fishingScoreDetail(c) {
+export function fishingScoreDetail(c, cuts = HOUR_CUTS) {
   const weather = weatherCategory(c.weatherCode);
   const wind = Number(c.wind) || 0;
   const tideMatters = c.tideMatters !== false;
 
-  const gate = SCORE_GATES.find((g) => g.match(weather, wind)) ?? null;
-  const conditions = SCORE_CONDITIONS.map((cond) => ({
-    key: cond.key, label: cond.label, detail: cond.detail,
-    applicable: tideMatters || !cond.tide,
-    hit: (tideMatters || !cond.tide) && Boolean(cond.test(c)),
-    /* **いまいくつなのかを添える**（D-137）。しきい値だけ書いても、
-       自分がどのあたりにいるか分からないと「よく分からない」で終わる */
-    value: cond.describe ? cond.describe(c) : null,
-  }));
-  /* 材料が無い条件は「外れ」ではなく「対象外」にする（D-135）。
-     気圧が取れない時間帯で、外れ扱いにして点を下げるのは筋が違う。
-     潮の強さは、その観測所の大潮基準（spring_flow_cm_h）が無いと出せない */
-  if (c.flowRatio == null) {
-    const flow = conditions.find((x) => x.key === "flow");
-    flow.applicable = false; flow.hit = false;
-  }
-  if (c.pressureTrend == null) {
-    const press = conditions.find((x) => x.key === "press");
-    press.applicable = false; press.hit = false;
-  }
+  const block = SCORE_BLOCKS.find((b) => b.match(weather, wind)) ?? null;
+  const factors = SCORE_FACTORS.map((f) => {
+    const applicable = tideMatters || !f.tide;
+    const raw = applicable ? f.of(c) : null;
+    return {
+      key: f.key, label: f.label, detail: f.detail,
+      applicable,
+      known: applicable && raw != null,
+      factor: raw ?? 1,
+      value: applicable ? f.describe(c) : null,
+    };
+  });
 
-  const applicable = conditions.filter((x) => x.applicable).length;
-  const hits = conditions.filter((x) => x.hit).length;
-  const score = gate ? gate.score : scoreFromHits(hits, applicable);
-  return { score, gate, conditions, hits, applicable, weather, wind, tideMatters };
+  const used = factors.filter((x) => x.known);
+  /* 対数で足してから割る（幾何平均）。掛けてから累乗根を取ると、
+     係数が増えたときに桁が小さくなって精度を落とす */
+  const value = used.length
+    ? Math.exp(used.reduce((s, x) => s + Math.log(x.factor), 0) / used.length)
+    : 1;
+  /* 釣りにならない時間も **★1 として並べる**。null を返すと、
+     ★を比べている場所（週セル・時間別・いちばん良い時間帯）が全部
+     null を扱う羽目になる。★1 は「いちばん悪い」なので意味も合う。
+     「なぜ ★1 なのか」は block を見て画面が「釣行不可」と言う */
+  const score = block ? 1 : starFromValue(value, cuts);
+  return { score, value, block, factors, weather, wind, tideMatters };
 }
 
 export function fishingScore(input) {
@@ -1804,10 +1874,12 @@ export function tidePhaseAt(tide, hhmm, { previous = null, next = null } = {}) {
  */
 function scoreHour({
   row, tide = null, point = null, tideMatters = true,
-  label, at, key = null, band = null, around = undefined,
+  label, at, key = null, band = null, around = undefined, cuts = HOUR_CUTS,
 }) {
   if (!row) return null;
   const flow = tideMatters ? tideFlowAt(tide, at) : null;
+  /* **時間帯（マヅメ）は点に渡さない**（D-139）。狙う魚と釣り方で
+     良し悪しが逆になるので、アプリが一律に決めない。band は画面が使う */
   const detail = fishingScoreDetail({
     weatherCode: row.weather_code,
     wind: row.wind_speed_ms,
@@ -1815,12 +1887,11 @@ function scoreHour({
     // 「上げ4分」（D-138）。説明にだけ使うので、取れなければ取れないでよい
     phase: tideMatters ? tidePhaseAt(tide, at, around ?? {}) : null,
     flowRatio: tideMatters ? springFlowRatio(flow, point) : null,
-    band: band ?? key,
     pressureTrend: row.pressure_trend_hpa ?? null,
     tideMatters,
-  });
+  }, cuts);
   return {
-    key, label, at, hour: row.hour,
+    key, label, at, hour: row.hour, band: band ?? key,
     weatherCode: row.weather_code, windMs: row.wind_speed_ms,
     pressureTrend: row.pressure_trend_hpa ?? null,
     flow, tide,
@@ -1862,10 +1933,11 @@ export function hourScorer({ contextOf, tideMatters = true, point = null }) {
     const date = String(row.time).slice(0, 10);
     const ctx = contextOf(date) ?? {};
     const at = `${String(row.hour).padStart(2, "0")}:00`;
+    /* 時間帯は点に入らなくなった（D-139）ので、sun は要らない。
+       それでも contextOf から受け取れる形は残す（画面が band を使う） */
     return scoreHour({
       row, tide: ctx.tide ?? null, point: ctx.point ?? point,
       tideMatters, label: null, at,
-      // マヅメかどうかは時刻から引く（D-135。点に時間帯が入るようになった）
       band: timeBandOf(ctx.sun ?? null, at),
     })?.score ?? null;
   };
@@ -1894,6 +1966,12 @@ export function fishingScoreOfDay({
   const evaluate = (label, at, row, key = null) =>
     scoreHour({ row, tide, point, tideMatters, label, at, key, band: key });
 
+  /* **★ではなく掛け合わせた値で比べる**（D-139）。★は 5 段しかないので、
+     同点だらけになって「何時がいちばん良いか」が最初の 1 件で決まってしまう。
+     釣りにならない時間（雷・暴風）は、値が高くても代表にしない */
+  const rank = (h) => (h.block ? -1 : h.value);
+  const better = (a, b) => (rank(b) > rank(a) ? b : a);
+
   const candidates = bandHours(hours, sun, date);
   const windows = TIME_BANDS.map(({ key, label }) => {
     const rows = candidates[key] ?? [];
@@ -1906,7 +1984,7 @@ export function fishingScoreOfDay({
       .filter(Boolean);
     // 初期値に null を置いて reduce すると、1 周目で a.score を読んで落ちる
     if (!scored.length) return null;
-    return scored.reduce((a, b) => (b.score > a.score ? b : a));
+    return scored.reduce(better);
   }).filter(Boolean);
 
   if (windows.length) {
@@ -1915,9 +1993,14 @@ export function fishingScoreOfDay({
       if (w.key === "morning" && sun?.rise) w.at = sun.rise;
       if (w.key === "evening" && sun?.set) w.at = sun.set;
     }
-    const best = windows.reduce((a, b) => (b.score > a.score ? b : a));
+    const best = windows.reduce(better);
+    /* **日の★は日用の線で引く**（D-139）。日の点は 24 時間の最大値なので、
+       時間の線をそのまま使うと必ず上端に寄る（実測で ★5 が 79%）。
+       windows の中の score は時間の線のまま（あちらは実際に 1 時間だから） */
     return {
-      score: best.score, best, top: best, windows, bands: windows,
+      score: best.block ? 1 : starFromValue(best.value, DAY_CUTS),
+      value: best.value, block: best.block,
+      best, top: best, windows, bands: windows,
       tideType, tideMatters, fallback: false,
     };
   }
@@ -1927,7 +2010,9 @@ export function fishingScoreOfDay({
   const noon = evaluate("昼", "12:00", sameDay.find((h) => h.hour === 12) ?? sameDay[0]);
   if (!noon) return null;
   return {
-    score: noon.score, best: noon, top: noon, windows: [noon], bands: [noon],
+    score: noon.block ? 1 : starFromValue(noon.value, DAY_CUTS),
+    value: noon.value, block: noon.block,
+    best: noon, top: noon, windows: [noon], bands: [noon],
     tideType, tideMatters, fallback: true,
   };
 }
@@ -2000,7 +2085,9 @@ export function fishingScoreAhead({
       });
     }).filter(Boolean);
     if (!scored.length) return null;
-    const best = scored.reduce((a, b) => (b.score > a.score ? b : a));
+    // ★ではなく掛け合わせた値で比べる（D-139。fishingScoreOfDay と同じ理由）
+    const best = scored.reduce((a, b) =>
+      ((b.block ? -1 : b.value) > (a.block ? -1 : a.value) ? b : a));
     // マヅメは日の出・日没そのものを時刻として見せる（1 時間刻みに丸めない）
     const sun = ctx(run.date).sun;
     const at = run.key === "morning" && sun?.rise ? sun.rise
@@ -2012,9 +2099,13 @@ export function fishingScoreAhead({
      **円の点は帯の並びではなく 24 時間の最高点**になる。切ると食い違う。 */
 
   if (!windows.length) return null;
-  const best = windows.reduce((a, b) => (b.score > a.score ? b : a));
+  const best = windows.reduce((a, b) =>
+    ((b.block ? -1 : b.value) > (a.block ? -1 : a.value) ? b : a));
   return {
-    score: best.score, best, top: best, windows, bands: windows,
+    // 円の点は「これから 24 時間」のまとめなので、日と同じ線で引く（D-139）
+    score: best.block ? 1 : starFromValue(best.value, DAY_CUTS),
+    value: best.value, block: best.block,
+    best, top: best, windows, bands: windows,
     tideType: ctx(today).tideType ?? null, tideMatters,
     fallback: false, ahead: true, from: nowIso, count,
   };
@@ -2047,80 +2138,101 @@ export function showFishingScoreHelp(day) {
   if (!best) return null;
 
   /* **このモーダルの役目は「なぜこの点なのか」を見せることだけ**（D-136）。
-     時間帯ごとの★は時間別天気の帯にもう並んでいるので、ここには載せない。
-     以前は 5 つの時間帯を全文で並べていて、同じことを 2 か所で言っていた。 */
+     時間帯ごとの★は時間別天気の帯にもう並んでいるので、ここには載せない。 */
 
-  /* **材料は条件の行に載せる**（D-137）。前はここにチップで並べていたが、
-     風も気圧も潮の動きも下の条件と同じ話で、同じことを 2 か所で言っていた。
-     天気だけは条件ではなく**ゲートの入力**なので、ここに残す */
-  const weather = describeWeather(best.weatherCode).label;
-
-  /* 荒天のときは条件を数えない。**なぜ数えないのかを書く。**
-     「雨だから★2」で止まると、良い条件が揃っていた日に納得できない */
-  const gateBlock = !best.gate ? "" : `
+  /* 釣りにならないときは係数を掛けない。**なぜ掛けないのかを書く。**
+     「雷だから ★1」で止まると、潮が良かった日に納得できない */
+  const blockBlock = !best.block ? "" : `
     <div class="score-gate">
       <div class="sg-head">${icon("warning", { size: 15 })}
-        <b>${escapeHtml(best.gate.label)}</b></div>
+        <b>${escapeHtml(best.block.label)}　釣行不可</b></div>
       <div class="sg-body">この日はここで決まります。
-        荒れているときは、潮や時間帯が良くても釣りになりません。</div>
+        潮がどれだけ良くても、雷や暴風のなかでは釣りになりません。</div>
     </div>`;
 
-  const rows = (best.conditions ?? []).map((c) => `
-    <li class="${c.hit ? "hit" : c.applicable ? "" : "off"}">
-      <span class="cond-mark">${c.applicable
-        ? (c.hit ? icon("check", { size: 14 }) : "")
-        : "—"}</span>
-      <span class="cond-body">
-        <span class="cond-head">
-          <span class="cond-name">${escapeHtml(c.label)}</span>
-          ${c.applicable && c.value
-            ? `<span class="cond-value">${escapeHtml(c.value)}</span>` : ""}
-        </span>
-        <span class="cond-detail">${escapeHtml(
-          c.applicable ? c.detail : "この場所では判定できません")}</span>
+  /* **掛け算だと分かる形で出す**（D-139）。
+     真ん中が 1.0（ふつう）で、右に伸びれば上げ、左に伸びれば下げ。
+     数字だけ並べても「どれが効いたのか」が読み取れない。 */
+  const bar = (f) => {
+    const span = 0.4;                       // 0.6〜1.4 を端から端に割り当てる
+    const w = Math.min(50, (Math.abs(f - 1) / span) * 50);
+    return f >= 1
+      ? `<span class="fb-fill up" style="left:50%;width:${w}%"></span>`
+      : `<span class="fb-fill down" style="right:50%;width:${w}%"></span>`;
+  };
+  const rows = (best.factors ?? []).filter((f) => f.applicable).map((f) => `
+    <li class="${!f.known ? "off" : f.factor >= 1.02 ? "up" : f.factor <= 0.98 ? "down" : ""}">
+      <span class="fac-head">
+        <span class="fac-name">${escapeHtml(f.label)}</span>
+        <span class="fac-value">${escapeHtml(f.known ? (f.value ?? "—") : "取れません")}</span>
+        <span class="fac-mul">×${f.factor.toFixed(2)}</span>
       </span>
+      <span class="fac-bar">${bar(f.factor)}<span class="fb-mid"></span></span>
+      <span class="fac-detail">${escapeHtml(f.detail)}</span>
     </li>`).join("");
 
-  const meter = best.gate ? "" : `
-    <div class="score-count">
-      <span class="sc-n">${best.hits}</span>
-      <span class="sc-of">/ ${best.applicable}</span>
-      <span class="sc-label">の条件がそろっています</span>
+  const off = (best.factors ?? []).filter((f) => !f.applicable);
+  const unknown = (best.factors ?? []).filter((f) => f.applicable && !f.known);
+
+  /* **次の★までいくつ足りないかを書く**。
+     係数が全部 1 を超えているのに ★3、という画面になることがある。
+     日の★は「24 時間でいちばん良い時刻どうし」の比べっこなので、
+     線が 1.0 ではなく 1.05〜1.14 に引いてある。そこを書かないと
+     「全部プラスなのに、なぜ 3 なのか」が読めない（実機で気づいた）。 */
+  // このモーダルは日（またはこれから 24 時間）の点なので、線は日のもの
+  const nextCut = score < 5 ? DAY_CUTS[score - 1] : null;
+  const body = best.block ? "" : `
+    <ul class="fac-list">${rows}</ul>
+    <div class="fac-total">
+      <span class="ft-label">掛け合わせ</span>
+      <span class="ft-value">${(best.value ?? 1).toFixed(3)}</span>
+      <span class="ft-arrow">→</span>
+      <span class="ft-star sc sc-${score}">${stars(score, { html: true })}</span>
     </div>
-    <ul class="cond-list">${rows}</ul>
+    ${nextCut == null ? "" : `
+      <div class="fac-next">★${score + 1} は <b>${nextCut.toFixed(3)}</b> から。
+        日の★は「その日いちばん良い時刻」どうしを比べるので、
+        1.00（ふつうの 1 時間）より高いところに線があります。</div>`}
     <div class="list-sub" style="margin-top:8px;line-height:1.6">
-      そろった割合で決まります。8 割以上で ★5、6 割以上で ★4、それ未満は ★3。
-      ${best.applicable < (best.conditions?.length ?? 5)
-        ? "この場所で判定できない条件は、割合の分母から外しています。" : ""}
+      ひとつずつの足し引きではなく、<b>掛け合わせ</b>で決まります。
+      どれかが大きく下がれば全体が下がります。
+      ${off.length ? `この場所では${off.map((f) => f.label).join("・")}を見ていません。` : ""}
+      ${unknown.length
+        ? `${unknown.map((f) => f.label).join("・")}は材料が無いので 1.00（ふつう）で置いています。`
+        : ""}
     </div>`;
 
   return showInfoDialog("釣行スコア", `
     <div class="score-top">
       <!-- **sc も付ける**（D-130）。色は .sc .on が --sc から取るので、
            sc-N だけだと色が乗らず、★4 が橙にならない -->
-      <span class="score-stars sc sc-${score}"><span class="on">${"★".repeat(score)}</span
-        ><span class="off">${"☆".repeat(5 - score)}</span></span>
+      <span class="score-stars sc sc-${score}">${stars(score, { html: true })}</span>
       <span class="score-num-sm">${score} / 5</span>
     </div>
 
     <div class="score-input">
-      いちばん良い時間帯は <b>${escapeHtml(best.label ?? "—")}
-      ${escapeHtml(String(best.at ?? "").slice(0, 5))}</b>（天気は${escapeHtml(weather)}）。
-      この時間の条件で判定しています。
+      いちばん良いのは <b>${escapeHtml(best.label ?? "—")}
+      ${escapeHtml(String(best.at ?? "").slice(0, 5))}</b>。この時間の条件で判定しています。
     </div>
 
-    ${gateBlock}
-    ${meter}
+    ${blockBlock}
+    ${body}
 
     <details class="score-note">
       <summary>この判定の細かいところ</summary>
       <div class="list-sub" style="line-height:1.7">
-        天気と風は、その時刻にいちばん近い予報を代表値にしています。
+        <p><b>時間帯（マヅメ・夜）は点に入れていません。</b>
+        狙う魚と釣り方で良し悪しが逆になるためです。日の出・日没は
+        潮位グラフの下に出しているので、そこはご自分で判断してください。</p>
+        <p>天気と風は、その時刻にいちばん近い予報を代表値にしています。
         ${tideMatters ? `潮の強さは<strong>その場所の中での速さの比</strong>で見ます。
         大潮か小潮かは見ていません。潮位の振れが小さい湾の奥でも、
-        そこでよく流れる時間帯には付きます。` : ""}
-        気圧は 3 時間前との差です。窓の先頭では前が無いので判定できません。
-        目安であり、釣れることを保証するものではありません。
+        そこでよく流れる時間帯には上がります。` : ""}
+        気圧は 3 時間前との差です。</p>
+        <p>★の切れ目は、この地域の実測 112 日ぶんの分布から決めています。
+        日の★と時間の★では切れ目が違います（日の点は 24 時間のうちいちばん
+        良い時間なので、そのぶん高く出るため）。
+        目安であり、釣れることを保証するものではありません。</p>
       </div>
     </details>`);
 }

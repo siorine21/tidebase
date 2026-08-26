@@ -20,6 +20,8 @@
 import { sliceApp, END } from './_slice.mjs';
 
 const code = sliceApp([
+  // 雨の係数が天気の名前を出すので（D-139）、WMO の表と weatherLabel が要る
+  ['const WMO = {', 'export function describeWeather'],
   ['export function weatherCategory', 'export function windDirection'],
   ['export function hoursFromHhmm', 'export function fishingScoreDetail'],
   ['export function fishingScoreDetail', 'export const TIME_BANDS'],
@@ -29,9 +31,18 @@ const code = sliceApp([
   ['export function uniqueHours', 'export function renderHourlyStrip'],
 ]);
 
-const { bandRunsAhead, fishingScoreAhead, fishingScoreOfDay, hourScorer, stars } =
+const { bandRunsAhead, fishingScoreAhead, fishingScoreOfDay, hourScorer, stars,
+  fishingScoreDetail, HOUR_CUTS, DAY_CUTS, starFromValue } =
   new Function(code
-    + '; return { bandRunsAhead, fishingScoreAhead, fishingScoreOfDay, hourScorer, stars };')();
+    + '; return { bandRunsAhead, fishingScoreAhead, fishingScoreOfDay, hourScorer, stars,'
+    + ' fishingScoreDetail, HOUR_CUTS, DAY_CUTS, starFromValue };')();
+
+/** 予報の 1 行 → 判定の中身（★だけでなく掛け合わせた値も見るため） */
+const detailOf = (row) => fishingScoreDetail({
+  weatherCode: row.weather_code, wind: row.wind_speed_ms,
+  flow: null, flowRatio: null,
+  pressureTrend: row.pressure_trend_hpa ?? null, tideMatters: false,
+});
 
 let failed = 0;
 const check = (name, ok, extra = '') => {
@@ -112,34 +123,52 @@ eq('代表は窓の中でいちばん点の高い帯',
 eq('窓を狭めると帯も窓のぶんだけ',
   ahead('10:00', { count: 6 }).bands.map((b) => b.label), ['日中']);
 
-/* ---- 円の点と、1 時間ごとの★が食い違わないか（D-116） ----
-   ホームは円（最高点）と★（1 時間ごと）を同じ画面に並べる。
-   **円に出ている点が、どのカードにも無い**という状態を作らないこと。 */
-/* **文脈には日の出日没を入れる。** 点にマヅメが入るようになったので（D-135）、
-   これを渡さないと 1 時間ごとの★だけマヅメを知らないことになり、
-   円の点（fishingScoreAhead）と食い違う。実際その形で 4 件落ちた。 */
+/* ---- 円の点と、1 時間ごとの★が食い違わないか（D-116 → D-139 で言い直し） ----
+
+   ホームは円（まとめ）と★（1 時間ごと）を同じ画面に並べる。
+   **円に出ている点が、どのカードにも無い**という状態を作らないこと。
+
+   D-139 で、円と 1 時間ごとで★の切れ目を分けた（日の点は 24 時間の最大値なので、
+   時間の線をそのまま使うと必ず上端に張り付く。実測で ★5 が 79%）。
+   そのため「円の★＝カードの★の最高」はもう成り立たない。
+
+   **守るべきものは変わっていない。** 円が指している時刻が実在すること、
+   そして円の中身が、カードと**同じ値から**出ていること。
+   ここが崩れると、どのカードにも無い時刻・値が円に出る。 */
 const scoreOf = hourScorer({ contextOf: () => ({ sun: SUN }), tideMatters: false });
 const windowRows = (hhmm, n = 24) => {
   const from = `2026-08-13T${hhmm}`;
   const runs = bandRunsAhead(hours, from, sunOf, n);
   return runs.flatMap((r) => r.rows);
 };
+const valueOf = (r) => detailOf(r).value;
 for (const at of ['00:30', '10:00', '18:00', '22:00']) {
   const day = ahead(at);
-  const best = Math.max(...windowRows(at).map((r) => scoreOf(r)));
-  eq(`${at} は円の点＝24 時間の★の最高`, day.score, best);
+  const rows = windowRows(at);
+  check(`${at} 円の値＝24 時間の値の最高`,
+    Math.abs(day.value - Math.max(...rows.map(valueOf))) < 1e-12,
+    `${day.value?.toFixed(4)} vs ${Math.max(...rows.map(valueOf)).toFixed(4)}`);
+  check(`${at} 円が指す時刻は窓の中に実在する`,
+    rows.some((r) => `${String(r.hour).padStart(2, '0')}:00` === String(day.best.at).slice(0, 5))
+    // マヅメは日の出・日没そのものを出すので、1 時間刻みには乗らない
+    || ['morning', 'evening'].includes(day.best.key),
+    `${day.best.at} (${day.best.key})`);
 }
 
-/* **時間帯が点に効いていること。** 上の一致だけだと、両方ともマヅメを
-   見ていなくても通ってしまう（実際、日の出日没を渡し忘れると両方 0 件になる） */
+/* **時間帯が点に効いていないこと**（D-139）。
+   「シーバスでもデイゲームのほうが釣れる時があるし、フラットフィッシュも
+   午前中が釣れるケースも多い」（本人）。狙う魚と釣り方で逆になるものを、
+   アプリが一律に決めない。日の出・日没は画面に出したままなので材料は残る。
+
+   罠: マヅメを係数に戻すと、ここで落ちる。 */
 {
   const blind = hourScorer({ contextOf: () => ({}), tideMatters: false });
   const rows = windowRows('00:30');
   const withSun = rows.map((r) => scoreOf(r));
   const without = rows.map((r) => blind(r));
-  check('日の出日没を渡すと、渡さないときより高い時間がある',
-    withSun.some((v, i) => v > without[i]),
-    `マヅメで上がった時間 ${withSun.filter((v, i) => v > without[i]).length} 個`);
+  check('日の出日没を渡しても点は変わらない',
+    withSun.every((v, i) => v === without[i]),
+    `変わった時間 ${withSun.filter((v, i) => v !== without[i]).length} 個`);
 }
 eq('1 時間ごとの点は 1〜5', (() => {
   const all = windowRows('10:00').map((r) => scoreOf(r));

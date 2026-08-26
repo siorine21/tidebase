@@ -874,6 +874,61 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .cond-list li.hit .cond-value { color: var(--mustard-lt); }
 .cond-detail { font-size: 11px; color: var(--text-muted); line-height: 1.5; }
 
+/* 釣行スコアの係数（D-139）。**掛け算だと分かる形**にする。
+   真ん中が 1.0（ふつう）、右へ伸びれば上げ、左へ伸びれば下げ。 */
+.fac-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.fac-list li {
+  display: grid; gap: 3px;
+  padding: 8px 10px; border-radius: 8px;
+  background: var(--bg-raised); border: 1px solid var(--border);
+}
+.fac-list li.up { border-color: rgba(201, 168, 76, 0.45); }
+.fac-list li.down { border-color: rgba(110, 126, 147, 0.5); }
+.fac-list li.off { opacity: 0.55; }
+.fac-head { display: flex; align-items: baseline; gap: 8px; font-size: 13px; }
+.fac-name { flex: 0 0 auto; }
+.fac-value {
+  flex: 1; min-width: 0; text-align: right;
+  font-family: 'JetBrains Mono', monospace; font-size: 12px;
+  color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fac-mul {
+  flex: 0 0 auto; font-family: 'JetBrains Mono', monospace; font-size: 12px;
+  color: var(--text-muted);
+}
+.fac-list li.up .fac-mul { color: var(--mustard-lt); }
+.fac-list li.down .fac-mul { color: #9FB0C4; }
+/* 棒は真ん中が 1.0。position: relative を忘れると fill が親の外へ飛ぶ */
+.fac-bar {
+  position: relative; display: block; height: 5px; border-radius: 3px;
+  background: var(--bg-deep); overflow: hidden;
+}
+.fac-bar .fb-fill { position: absolute; top: 0; bottom: 0; }
+.fac-bar .fb-fill.up { background: var(--mustard-lt); border-radius: 0 3px 3px 0; }
+.fac-bar .fb-fill.down { background: #6E7E93; border-radius: 3px 0 0 3px; }
+.fac-bar .fb-mid {
+  position: absolute; left: 50%; top: 0; bottom: 0; width: 1px;
+  background: var(--text-muted); opacity: 0.7;
+}
+.fac-detail { font-size: 11px; color: var(--text-muted); line-height: 1.5; }
+.fac-total {
+  display: flex; align-items: center; gap: 8px; margin-top: 10px;
+  padding: 9px 10px; border-radius: 8px;
+  background: var(--bg-raised); border: 1px solid var(--border-strong);
+}
+.fac-total .ft-label { font-size: 12px; color: var(--text-secondary); }
+.fac-total .ft-value {
+  font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 700;
+  color: var(--text-primary);
+}
+.fac-total .ft-arrow { color: var(--text-muted); }
+.fac-total .ft-star { margin-left: auto; font-size: 15px; letter-spacing: 1px; }
+.fac-next {
+  margin-top: 6px; font-size: 11px; line-height: 1.6; color: var(--text-muted);
+}
+.fac-next b { color: var(--text-secondary); font-family: 'JetBrains Mono', monospace; }
+
 .score-note { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 8px; }
 .score-note > summary {
   cursor: pointer; font-size: 12px; color: var(--text-secondary); padding: 4px 0;
