@@ -1231,14 +1231,17 @@ export const SCORE_CONDITIONS = [
        実際は**その場所の中での速さの比**で、潮回りは一切見ていない。 */
     detail: `ここでいちばん速く流れるときと比べて ${Math.round(STRONG_FLOW_RATIO * 100)}% 以上`,
     test: (c) => c.flowRatio != null && c.flowRatio >= STRONG_FLOW_RATIO,
-    describe: (c) => (c.flowRatio == null ? null : `${Math.round(c.flowRatio * 100)}%`),
+    /* **判定しているのは % のほう**なので、% を落とさない（D-138）。
+       「上げ4分」だけにすると、6 割に届いているのかが読めなくなる。
+       釣りの言葉と、判定に使った数字を並べる */
+    describe: (c) => (c.flowRatio == null ? null
+      : `${c.phase ? `${c.phase.label} ` : ""}${Math.round(c.flowRatio * 100)}%`),
   },
   {
     key: "start", tide: true, label: "潮が動き出している",
     detail: "止まっているときや、緩んでいく途中では付かない",
     test: (c) => c.flow?.key === "start",
-    describe: (c) => (!c.flow ? null
-      : `${c.flow.direction}・${TIDE_FLOW_LABELS[c.flow.key]}`),
+    describe: (c) => (!c.flow ? null : TIDE_FLOW_LABELS[c.flow.key]),
   },
   {
     key: "band", tide: false, label: "マヅメ",
@@ -1716,6 +1719,77 @@ export function nextSpringTide(fromIso, typeOf, horizon = 45) {
 }
 
 /**
+ * 「上げ 4 分」の形で、潮のどのあたりかを返す（D-138）。
+ *
+ * **N 分は潮位の絶対位置**（干潮を 0 分、満潮を 10 分とした 10 等分）。
+ * 時間の割合ではない。下げ潮では数字が 10 → 0 と減っていくので、
+ * 「上げ三分」と「下げ七分」はどちらも**転換から 3 割動いた点**を指す。
+ * 釣りの言い回しでこの 2 つが対で語られるのはそのため。
+ *
+ * 実測（舞阪 112 日・上げ下げ 309 区間）では、区間の最大流速に対して
+ * 転換直後の 1 割で 31% → 70% と一気に立ち上がり、3〜7 割の間は 85〜98% で
+ * ほぼ平ら、最後の 1 割でまた一気に落ちる。**立ち上がりが急で真ん中は平ら**。
+ *
+ * 満干は毎時値から求める。**`tideFlowAt` と同じ系列から出す**ので、
+ * 「上げ 4 分」と流速の判定が食い違わない。
+ * high_tides / low_tides を使うと出どころが 2 つになって、ずれる目が出る。
+ *
+ * @param {object|null} tide その日の潮汐
+ * @param {string} hhmm     "HH:MM"
+ * @param {object} [around] 前後の日の潮汐。区間が日をまたぐときに要る
+ * @returns {{tenth:number, rising:boolean, label:string}|null}
+ */
+export function tidePhaseAt(tide, hhmm, { previous = null, next = null } = {}) {
+  const at = hoursFromHhmm(hhmm);
+  const levels = tide?.hourly_levels_cm;
+  if (at == null || !levels?.length) return null;
+
+  // 前後の日をつないだ 72 時間の系列にする（区間は 6 時間ほどあり、日をまたぐ）
+  const series = [
+    ...(previous?.hourly_levels_cm ?? Array(24).fill(null)),
+    ...levels,
+    ...(next?.hourly_levels_cm ?? Array(24).fill(null)),
+  ];
+  /* **tideLevelAt は使えない。** あちらは 23 で頭打ちにする作りで、
+     1 日ぶんの配列を前提にしている。ここは 72 時間つないでいるので、
+     fetchTideForPoint と同じ interpolate を使う */
+  const value = (h) => interpolate(series, h);
+  const here = 24 + at;
+
+  /* 前後の極値を探す。0.1 時間刻みで、傾きの向きが変わるところ。
+     見つからない（材料が足りない）なら null を返して、呼び側は今までの表示に戻す */
+  const STEP = 0.1;
+  const slope = (h) => {
+    const a = value(h - STEP), b = value(h + STEP);
+    return a == null || b == null ? null : b - a;
+  };
+  const findEdge = (dir) => {
+    const s0 = slope(here);
+    if (s0 == null || s0 === 0) return null;
+    for (let h = here + dir * STEP; h >= 0 && h <= 71.9; h += dir * STEP) {
+      const s = slope(h);
+      if (s == null) return null;
+      if (s === 0 || (s > 0) !== (s0 > 0)) return { h, v: value(h) };
+    }
+    return null;
+  };
+  const back = findEdge(-1), forward = findEdge(+1);
+  if (!back || !forward || back.v == null || forward.v == null) return null;
+
+  const span = Math.abs(forward.v - back.v);
+  if (span < 1) return null;                       // ほぼ平ら。分で言う意味がない
+  const level = value(here);
+  if (level == null) return null;
+
+  const rising = forward.v > back.v;
+  // 干潮を 0、満潮を 1 とした位置。上げでも下げでも同じ測り方
+  const low = Math.min(back.v, forward.v);
+  const fraction = Math.min(1, Math.max(0, (level - low) / span));
+  const tenth = Math.round(fraction * 10);
+  return { tenth, rising, label: `${rising ? "上げ" : "下げ"}${tenth}分` };
+}
+
+/**
  * 1 時間ぶんの点（D-115 で切り出した）。
  *
  * 「その日の時間帯」（fishingScoreOfDay）と「これから 24 時間の時間帯」
@@ -1730,7 +1804,7 @@ export function nextSpringTide(fromIso, typeOf, horizon = 45) {
  */
 function scoreHour({
   row, tide = null, point = null, tideMatters = true,
-  label, at, key = null, band = null,
+  label, at, key = null, band = null, around = undefined,
 }) {
   if (!row) return null;
   const flow = tideMatters ? tideFlowAt(tide, at) : null;
@@ -1738,6 +1812,8 @@ function scoreHour({
     weatherCode: row.weather_code,
     wind: row.wind_speed_ms,
     flow,
+    // 「上げ4分」（D-138）。説明にだけ使うので、取れなければ取れないでよい
+    phase: tideMatters ? tidePhaseAt(tide, at, around ?? {}) : null,
     flowRatio: tideMatters ? springFlowRatio(flow, point) : null,
     band: band ?? key,
     pressureTrend: row.pressure_trend_hpa ?? null,

@@ -126,7 +126,7 @@
     warmTideCache,
     hasUnreadNews, WEATHER_SOURCE,
     isCoordinateInJapan, tideTimelineSvg, sunStripHtml, levelAxisHtml, tideLevelAt, sunTimes,
-    tideFlowAt, TIDE_FLOW_LABELS, nextTideEvent, nextSunEvent, formatCountdown,
+    tideFlowAt, TIDE_FLOW_LABELS, tidePhaseAt, nextTideEvent, nextSunEvent, formatCountdown,
     recordOutcome,
     outcomeLead,
   } from "./assets/app.js";
@@ -396,11 +396,19 @@
     const sun = nextSunEvent(sunCache.get(now.date) ?? null,
                              sunCache.get(tomorrow) ?? null, now.hhmm);
 
-    /* **向きと勢いは別の話**なので、勢いが「潮止まり前後」でも向きは出す。
-       いま止まっていても、これから上げるのか下げるのかで釣り方が変わる。
-       重ねて言うことになるのは、実際に動いていない（向き自体が「潮止まり」）
-       ときだけ。そのときは 1 つにする */
-    const flowText = !flow ? ""
+    /* **釣りの言葉で言う**（D-138）。「上げ潮 · よく流れている」より
+       「上げ4分」のほうが短くて、しかも情報が多い。
+       N 分は潮位の位置なので、向き（上げ／下げ）と、転換からどれだけ動いたかが
+       1 語で分かる。0〜5 分なら速くなっていく途中、5〜10 分なら緩んでいく。
+
+       材料が足りないとき（前後の日の潮汐がまだ来ていないなど）は
+       今までの言い方に落とす。**出ないより粗くても出るほうがいい** */
+    const phase = tidePhaseAt(tide, now.hhmm, {
+      previous: tideCache.get(addJstDays(now.date, -1)) ?? null,
+      next: tideCache.get(tomorrow) ?? null,
+    });
+    const flowText = phase ? phase.label
+      : !flow ? ""
       : flow.direction === "潮止まり" ? TIDE_FLOW_LABELS.slack
       : `${flow.direction} · ${TIDE_FLOW_LABELS[flow.key]}`;
     const dir = flow?.direction === "上げ潮" ? "up" : flow?.direction === "下げ潮" ? "down" : "flat";
