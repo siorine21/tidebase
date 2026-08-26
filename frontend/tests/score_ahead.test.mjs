@@ -115,7 +115,10 @@ eq('窓を狭めると帯も窓のぶんだけ',
 /* ---- 円の点と、1 時間ごとの★が食い違わないか（D-116） ----
    ホームは円（最高点）と★（1 時間ごと）を同じ画面に並べる。
    **円に出ている点が、どのカードにも無い**という状態を作らないこと。 */
-const scoreOf = hourScorer({ contextOf: () => ({ tideType: '大潮' }), tideMatters: false });
+/* **文脈には日の出日没を入れる。** 点にマヅメが入るようになったので（D-135）、
+   これを渡さないと 1 時間ごとの★だけマヅメを知らないことになり、
+   円の点（fishingScoreAhead）と食い違う。実際その形で 4 件落ちた。 */
+const scoreOf = hourScorer({ contextOf: () => ({ sun: SUN }), tideMatters: false });
 const windowRows = (hhmm, n = 24) => {
   const from = `2026-08-13T${hhmm}`;
   const runs = bandRunsAhead(hours, from, sunOf, n);
@@ -125,6 +128,18 @@ for (const at of ['00:30', '10:00', '18:00', '22:00']) {
   const day = ahead(at);
   const best = Math.max(...windowRows(at).map((r) => scoreOf(r)));
   eq(`${at} は円の点＝24 時間の★の最高`, day.score, best);
+}
+
+/* **時間帯が点に効いていること。** 上の一致だけだと、両方ともマヅメを
+   見ていなくても通ってしまう（実際、日の出日没を渡し忘れると両方 0 件になる） */
+{
+  const blind = hourScorer({ contextOf: () => ({}), tideMatters: false });
+  const rows = windowRows('00:30');
+  const withSun = rows.map((r) => scoreOf(r));
+  const without = rows.map((r) => blind(r));
+  check('日の出日没を渡すと、渡さないときより高い時間がある',
+    withSun.some((v, i) => v > without[i]),
+    `マヅメで上がった時間 ${withSun.filter((v, i) => v > without[i]).length} 個`);
 }
 eq('1 時間ごとの点は 1〜5', (() => {
   const all = windowRows('10:00').map((r) => scoreOf(r));

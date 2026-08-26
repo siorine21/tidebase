@@ -367,12 +367,54 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL: 浜名湖の潮汐地点の基準観測点または時差が不正';
   END IF;
 
-  -- 出典どおりの時差になっていること（村櫛 2 時間 / 細江湖・猪鼻瀬戸 3 時間 / 湖口 0）
-  IF (SELECT lag_minutes FROM public.tide_areas WHERE code = 'HN-MURAKUSHI') <> 120
-     OR (SELECT lag_minutes FROM public.tide_areas WHERE code = 'HN-HOSOE') <> 180
-     OR (SELECT lag_minutes FROM public.tide_areas WHERE code = 'HN-SETO') <> 180
-     OR (SELECT lag_minutes FROM public.tide_areas WHERE code = 'HN-IMAGIRI') <> 0 THEN
-    RAISE EXCEPTION 'TEST FAIL: 浜名湖の時差が出典と一致しない';
+  -- 出典どおりの時差・潮高比になっていること（036・D-133）。
+  -- **いちばん確かな 1 点を固定する。** 猪鼻湖だけは地点そのものを測った値が
+  -- あるので（海岸工学論文集 第48巻 2001・1999 年水圧計連続観測）、
+  -- ここが動いたら出典を読み直すことになる。
+  IF (SELECT lag_minutes FROM public.tide_areas WHERE code = 'HN-INOHANA') <> 180
+     OR (SELECT level_ratio FROM public.tide_areas WHERE code = 'HN-INOHANA') <> 0.55 THEN
+    RAISE EXCEPTION 'TEST FAIL: 猪鼻湖の実測値（時差 180 分・潮高比 0.55）と一致しない';
+  END IF;
+  -- 湖口は舞阪に準じる（時差 0）
+  IF (SELECT lag_minutes FROM public.tide_areas WHERE code = 'HN-IMAGIRI') <> 0 THEN
+    RAISE EXCEPTION 'TEST FAIL: 湖口の時差が 0 でない';
+  END IF;
+
+  -- **潮高比が全部 1.00 に戻っていないこと。**
+  -- 036 より前がその状態で、奥浜名湖でも外海と同じだけ潮位が振れる計算だった。
+  -- 「時差だけ入れて振幅を入れ忘れる」は、画面を見ても気づきにくい
+  IF NOT EXISTS (SELECT 1 FROM public.tide_areas
+                 WHERE water_body = '浜名湖' AND level_ratio < 1.00) THEN
+    RAISE EXCEPTION 'TEST FAIL: 浜名湖の潮高比が全地点 1.00 のまま（振幅の減衰が入っていない）';
+  END IF;
+
+  -- **奥へ行くほど遅く、小さい。** 個々の値より、この並びのほうが壊れにくい。
+  -- 弁天島（湖口寄り）→ 村櫛（表浜名湖）→ 猪鼻湖（最奥）で単調になっていること
+  IF NOT (
+    (SELECT lag_minutes FROM public.tide_areas WHERE code = 'HN-BENTEN')
+      < (SELECT lag_minutes FROM public.tide_areas WHERE code = 'HN-MURAKUSHI')
+    AND (SELECT lag_minutes FROM public.tide_areas WHERE code = 'HN-MURAKUSHI')
+      < (SELECT lag_minutes FROM public.tide_areas WHERE code = 'HN-INOHANA')
+    AND (SELECT level_ratio FROM public.tide_areas WHERE code = 'HN-BENTEN')
+      > (SELECT level_ratio FROM public.tide_areas WHERE code = 'HN-MURAKUSHI')
+    AND (SELECT level_ratio FROM public.tide_areas WHERE code = 'HN-MURAKUSHI')
+      >= (SELECT level_ratio FROM public.tide_areas WHERE code = 'HN-INOHANA')
+  ) THEN
+    RAISE EXCEPTION 'TEST FAIL: 湖口→表浜名湖→奥浜名湖で「遅く・小さく」の並びになっていない';
+  END IF;
+
+  -- 潮高比が現実的な範囲か（狭窄部で増幅する湖口を含めても 0.3〜1.5）
+  IF EXISTS (SELECT 1 FROM public.tide_areas
+             WHERE water_body = '浜名湖' AND level_ratio NOT BETWEEN 0.3 AND 1.5) THEN
+    RAISE EXCEPTION 'TEST FAIL: 浜名湖の潮高比が現実的な範囲にない';
+  END IF;
+
+  -- **出典を書き忘れない。** 確かさの段階（①②③）を note の先頭に置く決まり
+  IF EXISTS (SELECT 1 FROM public.tide_areas
+             WHERE water_body = '浜名湖'
+               AND (source IS NULL OR note IS NULL
+                    OR note !~ '^[①②③]')) THEN
+    RAISE EXCEPTION 'TEST FAIL: 浜名湖の潮汐地点に出典または確かさの段階が無い';
   END IF;
 
   -- 湖内スポットは細分地点が自動設定される（村櫛のすぐ近く）
@@ -395,8 +437,52 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL: 浜名湖圏外で潮汐地点が付いてしまう';
   END IF;
 
-  -- 淡水スポットは潮汐地点も NULL になること
-  UPDATE public.spots SET water_type = 'freshwater' WHERE id = spot_target;
+  ------------------------------------------------------------
+  -- 感潮（tide_influence）は塩分とは別の軸（037・D-134）
+  ------------------------------------------------------------
+  -- **淡水でも「潮汐あり」を選べば潮汐地点が付く（感潮域）。**
+  -- 037 より前は water_type = 'freshwater' で強制的に NULL にしていたので、
+  -- 5km 上流の「淡水だが感潮」のスポットが潮汐を持てなかった。
+  UPDATE public.spots
+     SET water_type = 'freshwater', tide_influence = 'tidal'
+   WHERE id = spot_target;
+  IF (SELECT tide_area_code FROM public.spots WHERE id = spot_target) IS NULL THEN
+    RAISE EXCEPTION 'TEST FAIL: 淡水＋潮汐ありで潮汐地点が付かない（感潮域が表せない）';
+  END IF;
+
+  -- 逆に、海水でも「潮汐なし」を選べば外れる（湖のそばの野池など）
+  UPDATE public.spots
+     SET water_type = 'saltwater', tide_influence = 'none'
+   WHERE id = spot_target;
+  IF (SELECT tide_area_code FROM public.spots WHERE id = spot_target) IS NOT NULL
+     OR (SELECT tide_station_code FROM public.spots WHERE id = spot_target) IS NOT NULL THEN
+    RAISE EXCEPTION 'TEST FAIL: 潮汐なしを選んでも潮汐地点が残る';
+  END IF;
+
+  -- 「なし」から自動へ戻したら、また割り当て直される
+  UPDATE public.spots SET tide_influence = NULL WHERE id = spot_target;
+  IF (SELECT tide_area_code FROM public.spots WHERE id = spot_target) IS NULL THEN
+    RAISE EXCEPTION 'TEST FAIL: 自動へ戻しても潮汐地点が割り当て直されない';
+  END IF;
+
+  -- 値は 3 通りだけ
+  BEGIN
+    UPDATE public.spots SET tide_influence = 'maybe' WHERE id = spot_target;
+    RAISE EXCEPTION 'TEST FAIL: tide_influence に想定外の値が入る';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  UPDATE public.spots SET tide_influence = NULL WHERE id = spot_target;
+
+  -- 一覧のビューから読めること（画面がラベルを出すのに要る）
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_schema = 'public' AND table_name = 'spot_feed'
+                   AND column_name = 'tide_influence') THEN
+    RAISE EXCEPTION 'TEST FAIL: spot_feed に tide_influence が無い';
+  END IF;
+
+  -- 自動（NULL）のときは、いままでどおり水域で決まる
+  UPDATE public.spots SET water_type = 'freshwater', tide_influence = NULL
+   WHERE id = spot_target;
   IF (SELECT tide_area_code FROM public.spots WHERE id = spot_target) IS NOT NULL THEN
     RAISE EXCEPTION 'TEST FAIL: 淡水化しても潮汐地点が残る';
   END IF;

@@ -613,7 +613,8 @@ export function sunStripHtml(marks) {
 
 /** 気象庁の潮位表地点。pref を指定すると絞り込む（既定は静岡県）。 */
 export async function listTideStations({ pref = "静岡県" } = {}) {
-  let query = client.from("tide_stations").select("code, name, lat, lng, pref").order("lng");
+  let query = client.from("tide_stations")
+    .select("code, name, lat, lng, pref, spring_flow_cm_h").order("lng");
   if (pref) query = query.eq("pref", pref);
   const { data, error } = await query;
   if (error) throw error;
@@ -680,11 +681,15 @@ export async function listTidePoints({ pref = "静岡県" } = {}) {
     listTideAreas({ pref }).catch(() => []),
   ]);
   const stationName = new Map(stations.map((s) => [s.code, s.name]));
+  const springByStation = new Map(stations.map((s) =>
+    [s.code, s.spring_flow_cm_h == null ? null : Number(s.spring_flow_cm_h)]));
   const points = [
     ...stations.map((s) => ({
       value: `ST:${s.code}`, group: "潮位表地点（気象庁）", label: s.name, name: s.name,
       station: s.code, area: null, lagMinutes: 0, levelRatio: 1,
       lat: Number(s.lat), lng: Number(s.lng),
+      // 大潮の最大流速（D-135）。無い観測所では潮の強さの条件を対象外にする
+      springFlow: s.spring_flow_cm_h == null ? null : Number(s.spring_flow_cm_h),
     })),
     ...areas.map((a) => ({
       value: `AR:${a.code}`,
@@ -696,6 +701,8 @@ export async function listTidePoints({ pref = "静岡県" } = {}) {
       station: a.base_station_code, area: a.code,
       lagMinutes: a.lag_minutes, levelRatio: Number(a.level_ratio),
       lat: Number(a.lat), lng: Number(a.lng),
+      // 細分地点は基準観測点の値を使う（潮高比は springFlowRatio の中で掛ける）
+      springFlow: springByStation.get(a.base_station_code) ?? null,
       baseName: stationName.get(a.base_station_code) ?? a.base_station_code,
       note: a.note, source: a.source,
     })),
@@ -850,8 +857,11 @@ export async function fetchTideForPoint(point, date) {
   return {
     ...base,
     hourly_levels_cm: shifted,
-    high_tides: shiftEvents(base.high_tides, point.lagMinutes),
-    low_tides: shiftEvents(base.low_tides, point.lagMinutes),
+    /* **満干の潮位も潮高比で縮める**（D-133）。時刻だけずらして潮位をそのままに
+       すると、曲線は縮んでいるのに満干の点だけ元の高さに残り、**点がグラフから浮く**。
+       潮高比が全地点 1.00 だった間は現れなかった。036 で実際の比を入れて表に出た */
+    high_tides: shiftEvents(base.high_tides, point.lagMinutes, mean, point.levelRatio),
+    low_tides: shiftEvents(base.low_tides, point.lagMinutes, mean, point.levelRatio),
     point,
     corrected: true,
     base_station: base.station,
@@ -872,7 +882,11 @@ function interpolate(series, index) {
 }
 
 /** 満潮・干潮の時刻を時差ぶんずらす。日をまたぐものは落とす。 */
-function shiftEvents(events, lagMinutes) {
+/**
+ * 満干の時刻を時差ぶんずらし、潮位を潮高比で縮める。
+ * **縮め方は毎時値と同じ（日内平均のまわり）**でなければ、点が曲線から外れる。
+ */
+function shiftEvents(events, lagMinutes, mean = 0, levelRatio = 1) {
   return (events ?? []).flatMap((e) => {
     if (!e.time) return [];
     const [h, m] = e.time.split(":").map(Number);
@@ -881,6 +895,8 @@ function shiftEvents(events, lagMinutes) {
     return [{
       ...e,
       time: `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`,
+      level_cm: e.level_cm == null ? null
+        : Math.round(mean + (e.level_cm - mean) * levelRatio),
     }];
   });
 }
@@ -946,7 +962,7 @@ export const WEATHER_SOURCE = "気象庁 MSM/GSM（突風のみ ECMWF）・Open-
 const WEATHER_MODELS = "jma_seamless,best_match";
 const WEATHER_MODEL_ORDER = ["jma_seamless", "best_match"];
 const WEATHER_HOURLY =
-  "temperature_2m,weather_code,wind_speed_10m,wind_direction_10m";
+  "temperature_2m,weather_code,wind_speed_10m,wind_direction_10m,pressure_msl";
 /* 1 時間ごとの予報を読むとき用（D-104 / D-111）。
    突風は「キャストできるか」に効くので、平均風速だけでは足りない。
 
@@ -1035,6 +1051,7 @@ function mapHourly(h, waves = null) {
   const temp = at("temperature_2m"), code = at("weather_code");
   const wind = at("wind_speed_10m"), dir = at("wind_direction_10m");
   const mm = at("precipitation"), gust = at("wind_gusts_10m");
+  const pressure = at("pressure_msl");
   const rows = h.time.map((time, i) => {
     const next = i + 1;      // 区間の値はこちらを見る
     return {
@@ -1044,6 +1061,13 @@ function mapHourly(h, waves = null) {
       temp_c: temp[i] ?? null,
       wind_speed_ms: wind[i] ?? null,
       wind_dir_deg: dir[i] ?? null,
+      pressure_hpa: pressure[i] ?? null,
+      /* **3 時間前との差**（D-135）。気象で気圧変化量に使う定番の窓。
+         「高気圧から低気圧に変わるとき活性が高い」を点に入れるのに要る。
+         窓の先頭 3 時間は前が無いので null。**無いことと 0 は別物**なので分ける */
+      pressure_trend_hpa: pressure[i] != null && pressure[i - 3] != null
+        ? Math.round((pressure[i] - pressure[i - 3]) * 10) / 10
+        : null,
       // 区間の値。この時刻から 1 時間ぶん
       // 頼まなかった項目は入らない。無いことと 0 は別物なので null のままにする
       weather_code: code[next] ?? null,
@@ -1162,65 +1186,115 @@ export function hoursFromHhmm(hhmm) {
 
 /* ---------------- 釣行スコア（設計補完書 7 章・D-018） ---------------- */
 
-/**
- * 釣行スコアの判定規則。上から順に当てはめ、最初に一致したものを採用する。
- * 画面の説明と実装がずれないよう、判定そのものをこの表から行う（D-050）。
- */
-export const FISHING_SCORE_RULES = [
-  {
-    score: 1, label: "雷雨、または風速 15m/s 以上",
-    match: (t, w, wind) => w === "storm" || wind >= 15,
-  },
-  {
-    score: 2, label: "雨・雪、または風速 10m/s 超",
-    match: (t, w, wind) => w === "rain" || wind > 10,
-  },
-  {
-    score: 5, label: "大潮 + 晴れか曇り + 風速 5m/s 以下",
-    match: (t, w, wind) => t === "大潮" && (w === "sunny" || w === "cloudy") && wind <= 5,
-  },
-  {
-    score: 4, label: "中潮 + 晴れか曇り + 風速 7m/s 以下",
-    match: (t, w, wind) => t === "中潮" && (w === "sunny" || w === "cloudy") && wind <= 7,
-  },
-  { score: 3, label: "上のどれにも当てはまらない", match: () => true },
-];
+/* 釣行スコアの決め方（D-135。D-018 / D-050 の規則表を取り消す）。
 
-/**
- * 潮の効かない場所（管理釣り場・河川・湖沼など）の規則（D-077）。
- *
- * 上の規則をそのまま使うと、潮の条件に永久に当たらないので **最高でも 3 点**になる。
- * 管理釣り場は天気の影響しか受けないのに、晴れて無風でも 3 点では意味がない。
- * 潮の項を落として、天気と風だけで同じ 1〜5 の幅を使う。
- */
-export const FISHING_SCORE_RULES_NO_TIDE = [
+   **2 段になっている。**
+     ① 荒天のゲート … 雷雨・強風・雨は、それだけで点が決まる（★1・★2）
+     ② 良い条件の数 … それ以外の日は、揃った条件の割合で ★3〜★5
+
+   以前は「大潮 + 晴れ + 風 5m/s 以下 → ★5」のような組み合わせ表だった。
+   実データ 112 日で測ると **97% の日が ★4 か ★5** になり、
+   日を選ぶ材料になっていなかった。原因は、大潮と中潮で 1 か月の 2/3 を占め、
+   そこに晴れが重なると上限に張り付くこと。
+
+   **潮回りのラベルは使わない**（本人の指摘）。
+   「大潮が釣れやすい」は、砕くと「潮がよく流れるから」で、それは他の潮回りでも
+   起きる。実測でも中潮の上位は大潮の下位を上回る（舞阪の最大流速: 大潮 23〜31、
+   中潮 15〜28 cm/h）。ラベルではなく**実際の流速**を見る。 */
+
+/** 荒天のゲート。ここに当たったら、良い条件は数えない（数えても意味がない）。 */
+export const SCORE_GATES = [
   { score: 1, label: "雷雨、または風速 15m/s 以上",
-    match: (t, w, wind) => w === "storm" || wind >= 15 },
+    match: (weather, wind) => weather === "storm" || wind >= 15 },
   { score: 2, label: "雨・雪、または風速 10m/s 超",
-    match: (t, w, wind) => w === "rain" || wind > 10 },
-  { score: 5, label: "晴れか曇り + 風速 5m/s 以下",
-    match: (t, w, wind) => (w === "sunny" || w === "cloudy") && wind <= 5 },
-  { score: 4, label: "晴れか曇り + 風速 7m/s 以下",
-    match: (t, w, wind) => (w === "sunny" || w === "cloudy") && wind <= 7 },
-  { score: 3, label: "上のどれにも当てはまらない", match: () => true },
+    match: (weather, wind) => weather === "rain" || wind > 10 },
 ];
 
+/** 潮がよく流れていると言える強さ。**その地点の大潮の最大流速に対する比。** */
+export const STRONG_FLOW_RATIO = 0.6;
+/** ほどよい風（m/s）。0〜1 は弱すぎ、5 超はやりにくい（本人の体感）。 */
+export const GOOD_WIND_MIN = 1.5;
+export const GOOD_WIND_MAX = 5;
+/** 気圧が下がっていると言える変化量（hPa / 3 時間）。 */
+export const PRESSURE_FALL_HPA = -1;
+
 /**
- * スコアと、その根拠になった規則。画面で「なぜこの点か」を出すのに使う。
- * @param {boolean} tideMatters 潮の効く場所か。**渡す側が決める**（D-077）。
- *   tideType が null かどうかで判断しない。海のスポットで潮汐が取れなかっただけ、
- *   という場合まで「潮は関係ない」と扱ってしまい、点を甘く出してしまう。
+ * 揃っていると良い条件（D-135）。**この表がそのままモーダルの一覧になる。**
+ * `tide` が true のものは、潮汐の効かない場所では対象から外す。
  */
-export function fishingScoreDetail(tideType, weatherCode, windMs, { tideMatters = true } = {}) {
-  const rules = tideMatters ? FISHING_SCORE_RULES : FISHING_SCORE_RULES_NO_TIDE;
-  const weather = weatherCategory(weatherCode);
-  const wind = Number(windMs) || 0;
-  const index = rules.findIndex((r) => r.match(tideType, weather, wind));
-  return { score: rules[index].score, ruleIndex: index, weather, wind, rules, tideMatters };
+export const SCORE_CONDITIONS = [
+  {
+    key: "flow", tide: true, label: "潮がよく流れている",
+    detail: "その場所の大潮でいちばん速いときの 6 割以上",
+    test: (c) => c.flowRatio != null && c.flowRatio >= STRONG_FLOW_RATIO,
+  },
+  {
+    key: "start", tide: true, label: "潮が動き出している",
+    detail: "これから速くなっていく時間帯",
+    test: (c) => c.flow?.key === "start",
+  },
+  {
+    key: "band", tide: false, label: "マヅメ",
+    detail: "日の出・日没の前後 1 時間（薄明薄暮）",
+    test: (c) => c.band === "morning" || c.band === "evening",
+  },
+  {
+    key: "wind", tide: false, label: `風が ${GOOD_WIND_MIN}〜${GOOD_WIND_MAX}m/s`,
+    detail: "無風だと水面が動かず、強すぎると投げられない",
+    test: (c) => c.wind != null && c.wind >= GOOD_WIND_MIN && c.wind <= GOOD_WIND_MAX,
+  },
+  {
+    key: "press", tide: false, label: "気圧が下がっている",
+    detail: `3 時間で ${-PRESSURE_FALL_HPA}hPa 以上`,
+    test: (c) => c.pressureTrend != null && c.pressureTrend <= PRESSURE_FALL_HPA,
+  },
+];
+
+/** 揃った割合 → 点。**数ではなく割合**で見るので、使える条件が減っても上限は 5 のまま。 */
+export function scoreFromHits(hits, applicable) {
+  if (!applicable) return 3;
+  const ratio = hits / applicable;
+  return ratio >= 0.8 ? 5 : ratio >= 0.6 ? 4 : 3;
 }
 
-export function fishingScore(tideType, weatherCode, windMs) {
-  return fishingScoreDetail(tideType, weatherCode, windMs).score;
+/**
+ * 1 時間ぶんの判定。**画面の説明はこの戻り値をそのまま並べる**（D-050 の考え方は残す）。
+ *
+ * @param {object} c 判定の材料
+ *   weatherCode / wind（m/s）/ flowRatio（大潮基準に対する比）/ flow（tideFlowAt の結果）
+ *   / band（時間帯）/ pressureTrend（hPa/3h）/ tideMatters
+ */
+export function fishingScoreDetail(c) {
+  const weather = weatherCategory(c.weatherCode);
+  const wind = Number(c.wind) || 0;
+  const tideMatters = c.tideMatters !== false;
+
+  const gate = SCORE_GATES.find((g) => g.match(weather, wind)) ?? null;
+  const conditions = SCORE_CONDITIONS.map((cond) => ({
+    key: cond.key, label: cond.label, detail: cond.detail,
+    applicable: tideMatters || !cond.tide,
+    hit: (tideMatters || !cond.tide) && Boolean(cond.test(c)),
+  }));
+  /* 材料が無い条件は「外れ」ではなく「対象外」にする（D-135）。
+     気圧が取れない時間帯で、外れ扱いにして点を下げるのは筋が違う。
+     潮の強さは、その観測所の大潮基準（spring_flow_cm_h）が無いと出せない */
+  if (c.flowRatio == null) {
+    const flow = conditions.find((x) => x.key === "flow");
+    flow.applicable = false; flow.hit = false;
+  }
+  if (c.pressureTrend == null) {
+    const press = conditions.find((x) => x.key === "press");
+    press.applicable = false; press.hit = false;
+  }
+
+  const applicable = conditions.filter((x) => x.applicable).length;
+  const hits = conditions.filter((x) => x.hit).length;
+  const score = gate ? gate.score : scoreFromHits(hits, applicable);
+  return { score, gate, conditions, hits, applicable, weather, wind, tideMatters };
+}
+
+export function fishingScore(input) {
+  return fishingScoreDetail(input).score;
 }
 
 const WEATHER_CATEGORY_LABELS = {
@@ -1633,28 +1707,52 @@ export function nextSpringTide(fromIso, typeOf, horizon = 45) {
  * （fishingScoreAhead）の両方が、これを並べていちばん良い時刻を選ぶ。
  * **同じ式を 2 か所に書くと、片方だけ直して食い違う。**
  *
- * @param {string|null} input.tideType 潮回り
- * @param {object|null} input.row      予報の 1 行
- * @param {object|null} input.tide     その時刻の日の潮汐（潮の動きの加減に使う）
- * @param {string} input.at            "HH:MM"。潮の動きを引く時刻
+ * @param {object|null} input.row   予報の 1 行
+ * @param {object|null} input.tide  その時刻の日の潮汐
+ * @param {object|null} input.point 潮汐地点（大潮基準と潮高比を持つ）
+ * @param {string|null} input.band  時間帯の key（マヅメ判定に使う）
+ * @param {string} input.at         "HH:MM"。潮の動きを引く時刻
  */
-function scoreHour({ tideType, row, tide = null, tideMatters = true, label, at, key = null }) {
+function scoreHour({
+  row, tide = null, point = null, tideMatters = true,
+  label, at, key = null, band = null,
+}) {
   if (!row) return null;
-  const detail = fishingScoreDetail(tideType, row.weather_code, row.wind_speed_ms, { tideMatters });
-  // 潮の効かない場所では、潮の動きによる加減もしない
   const flow = tideMatters ? tideFlowAt(tide, at) : null;
-  // 雷雨・雨・強風は潮より優先する。荒れている日を潮の動きで持ち上げない
-  const weatherGate = detail.ruleIndex <= 1;
-  const rule = flow && !weatherGate
-    ? TIDE_FLOW_RULES.find((r) => r.key === flow.key) : null;
-  const adjust = rule?.adjust ?? 0;
+  const detail = fishingScoreDetail({
+    weatherCode: row.weather_code,
+    wind: row.wind_speed_ms,
+    flow,
+    flowRatio: tideMatters ? springFlowRatio(flow, point) : null,
+    band: band ?? key,
+    pressureTrend: row.pressure_trend_hpa ?? null,
+    tideMatters,
+  });
   return {
     key, label, at, hour: row.hour,
     weatherCode: row.weather_code, windMs: row.wind_speed_ms,
+    pressureTrend: row.pressure_trend_hpa ?? null,
+    flow, tide,
     ...detail,
-    base: detail.score, flow, adjust, weatherGate,
-    score: Math.min(5, Math.max(1, detail.score + adjust)),
   };
+}
+
+/**
+ * いまの流速が、**その地点の大潮の最大流速の何割か**（D-135）。
+ *
+ * 絶対値（cm/h）で見ないのは、潮高比のわずかな誤差でスコアが大きく動くため
+ * （潮高比 0.75 と 0.95 で条件の当たる時間が 11% と 22%・D-133）。
+ * 比なら、分子の流速も分母の基準も同じ潮高比が掛かるので**約分される**。
+ *
+ * 基準を持っていない観測所では null を返す。呼び出し側で「対象外」にする。
+ */
+export function springFlowRatio(flow, point) {
+  const base = Number(point?.springFlow);
+  if (!flow || !Number.isFinite(base) || base <= 0) return null;
+  const ratio = Number(point?.levelRatio);
+  // 細分地点は潮高比ぶん小さく振れるので、基準も同じだけ小さくする
+  const reference = base * (Number.isFinite(ratio) && ratio > 0 ? ratio : 1);
+  return Math.abs(flow.cmPerHour) / reference;
 }
 
 /**
@@ -1667,15 +1765,17 @@ function scoreHour({ tideType, row, tide = null, tideMatters = true, label, at, 
  * @param {(date:string)=>{tide?:object,tideType?:string}|null} contextOf
  * @returns {(row:object)=>number|null} 予報の 1 行 → 1〜5
  */
-export function hourScorer({ contextOf, tideMatters = true }) {
+export function hourScorer({ contextOf, tideMatters = true, point = null }) {
   return (row) => {
     if (!row) return null;
     const date = String(row.time).slice(0, 10);
     const ctx = contextOf(date) ?? {};
     const at = `${String(row.hour).padStart(2, "0")}:00`;
     return scoreHour({
-      tideType: ctx.tideType ?? null, row, tide: ctx.tide ?? null,
+      row, tide: ctx.tide ?? null, point: ctx.point ?? point,
       tideMatters, label: null, at,
+      // マヅメかどうかは時刻から引く（D-135。点に時間帯が入るようになった）
+      band: timeBandOf(ctx.sun ?? null, at),
     })?.score ?? null;
   };
 }
@@ -1698,10 +1798,10 @@ export function hourScorer({ contextOf, tideMatters = true }) {
  * @returns {{score, best, windows, bands, tideType, fallback}|null}
  */
 export function fishingScoreOfDay({
-  tideType, hours, sun, tide = null, tideMatters = true, date = null,
+  tideType, hours, sun, tide = null, tideMatters = true, date = null, point = null,
 }) {
   const evaluate = (label, at, row, key = null) =>
-    scoreHour({ tideType, row, tide, tideMatters, label, at, key });
+    scoreHour({ row, tide, point, tideMatters, label, at, key, band: key });
 
   const candidates = bandHours(hours, sun, date);
   const windows = TIME_BANDS.map(({ key, label }) => {
@@ -1787,7 +1887,7 @@ export function bandRunsAhead(hours, nowIso, sunOf, count = 24) {
  *   日付ごとの日の出・潮汐・潮回り。日をまたぐので**行の日付で引く**
  */
 export function fishingScoreAhead({
-  hours, nowIso, count = 24, contextOf, tideMatters = true,
+  hours, nowIso, count = 24, contextOf, tideMatters = true, point = null,
 }) {
   const today = String(nowIso).slice(0, 10);
   const ctx = (date) => contextOf(date) ?? {};
@@ -1799,8 +1899,9 @@ export function fishingScoreAhead({
       const at = `${String(row.hour).padStart(2, "0")}:00`;
       // 潮回りも潮汐も**その行の日付**で引く。夜は日をまたぐ
       return scoreHour({
-        tideType: ctx(date).tideType ?? null, row,
-        tide: ctx(date).tide ?? null, tideMatters,
+        row, tide: ctx(date).tide ?? null,
+        point: ctx(date).point ?? point, tideMatters,
+        band: run.key,
         /* **名前に「明日の」を付けない。** 帯は 4 つ並びで 1 つ 80px ほどしかなく、
            「明日の朝マヅメ」は 3 行に折り返してそのセルだけ背が伸びる。
            明日かどうかは tomorrow で持ち、**時刻の行に出す**（「明日 05:07」）。 */
@@ -1851,82 +1952,91 @@ export function stars(score, { html = false } = {}) {
  */
 export function showFishingScoreHelp(day) {
   if (!day) return null;
-  const { score, best, windows, tideType, fallback, tideMatters = true } = day;
+  const { score, best, tideMatters = true } = day;
+  if (!best) return null;
 
-  const flowText = (w) => {
-    if (w.weatherGate) return "潮は見ない（荒天が優先）";
-    if (!w.flow) return "潮位データなし";
-    return `${w.flow.direction} ${TIDE_FLOW_LABELS[w.flow.key]}`
-      + (w.adjust ? ` ${w.adjust > 0 ? "＋" : "−"}${Math.abs(w.adjust)}` : " ±0");
-  };
+  /* **このモーダルの役目は「なぜこの点なのか」を見せることだけ**（D-136）。
+     時間帯ごとの★は時間別天気の帯にもう並んでいるので、ここには載せない。
+     以前は 5 つの時間帯を全文で並べていて、同じことを 2 か所で言っていた。 */
 
-  const windowRow = (w) => `
-    <li class="${w === best ? "hit" : ""}">
-      <span class="rule-star">${stars(w.score)}</span>
-      <span class="mz-body">
-        <span class="mz-name">${escapeHtml(w.label)}<span class="mz-time">${escapeHtml(w.at)}</span></span>
-        <span class="mz-wx">${escapeHtml(describeWeather(w.weatherCode).label)}
-          / ${w.wind.toFixed(1)}m/s ・ ${escapeHtml(flowText(w))}</span>
+  const chip = (label, cls = "tag-gray") =>
+    `<span class="tag ${cls}">${escapeHtml(label)}</span>`;
+  const flowText = best.flow
+    ? `${best.flow.direction}・${TIDE_FLOW_LABELS[best.flow.key]}`
+    : null;
+
+  // 判定に使った材料。**点の理由はここから来ている**ので先に出す
+  const inputs = [
+    chip(describeWeather(best.weatherCode).label, "tag-mustard"),
+    best.windMs == null ? "" : chip(`風 ${Number(best.windMs).toFixed(1)}m/s`, "tag-blue"),
+    flowText ? chip(flowText) : "",
+    best.pressureTrend == null ? ""
+      : chip(`気圧 ${best.pressureTrend > 0 ? "＋" : ""}${best.pressureTrend}hPa/3h`),
+  ].filter(Boolean).join("");
+
+  /* 荒天のときは条件を数えない。**なぜ数えないのかを書く。**
+     「雨だから★2」で止まると、良い条件が揃っていた日に納得できない */
+  const gateBlock = !best.gate ? "" : `
+    <div class="score-gate">
+      <div class="sg-head">${icon("warning", { size: 15 })}
+        <b>${escapeHtml(best.gate.label)}</b></div>
+      <div class="sg-body">この日はここで決まります。
+        荒れているときは、潮や時間帯が良くても釣りになりません。</div>
+    </div>`;
+
+  const rows = (best.conditions ?? []).map((c) => `
+    <li class="${c.hit ? "hit" : c.applicable ? "" : "off"}">
+      <span class="cond-mark">${c.applicable
+        ? (c.hit ? icon("check", { size: 14 }) : "")
+        : "—"}</span>
+      <span class="cond-body">
+        <span class="cond-name">${escapeHtml(c.label)}</span>
+        <span class="cond-detail">${escapeHtml(
+          c.applicable ? c.detail : "この場所では判定できません")}</span>
       </span>
-    </li>`;
+    </li>`).join("");
 
-  const signed = (n) => (n > 0 ? `＋${n}` : n < 0 ? `−${Math.abs(n)}` : "±0");
+  const meter = best.gate ? "" : `
+    <div class="score-count">
+      <span class="sc-n">${best.hits}</span>
+      <span class="sc-of">/ ${best.applicable}</span>
+      <span class="sc-label">の条件がそろっています</span>
+    </div>
+    <ul class="cond-list">${rows}</ul>
+    <div class="list-sub" style="margin-top:8px;line-height:1.6">
+      そろった割合で決まります。8 割以上で ★5、6 割以上で ★4、それ未満は ★3。
+      ${best.applicable < (best.conditions?.length ?? 5)
+        ? "この場所で判定できない条件は、割合の分母から外しています。" : ""}
+    </div>`;
 
   return showInfoDialog("釣行スコア", `
-    <div class="score-head">
-      <span class="score-stars">${stars(score)}</span>
+    <div class="score-top">
+      <!-- **sc も付ける**（D-130）。色は .sc .on が --sc から取るので、
+           sc-N だけだと色が乗らず、★4 が橙にならない -->
+      <span class="score-stars sc sc-${score}"><span class="on">${"★".repeat(score)}</span
+        ><span class="off">${"☆".repeat(5 - score)}</span></span>
       <span class="score-num-sm">${score} / 5</span>
     </div>
-    <div class="rows" style="margin-bottom:14px">
-      <div class="row"><span class="label">潮回り</span>
-        <span class="val">${escapeHtml(tideType ?? "—")}</span></div>
+
+    <div class="score-input">
+      いちばん良い時間帯は <b>${escapeHtml(best.label ?? "—")}
+      ${escapeHtml(String(best.at ?? "").slice(0, 5))}</b>。この時間の条件で判定しています。
+      <div class="chips-row">${inputs}</div>
     </div>
 
-    <div class="list-sub" style="margin-bottom:6px">${fallback
-      ? "日の出・日没が取れないので 12 時で見ています"
-      : "時間帯ごとの判定（いちばん良い時間帯がこの日のスコア）"}</div>
-    <ol class="score-rules mazume">${windows.map(windowRow).join("")}</ol>
+    ${gateBlock}
+    ${meter}
 
-    <div class="list-sub" style="margin:12px 0 6px">${escapeHtml(best.label)}の内訳</div>
-    <div class="rows">
-      <div class="row"><span class="label">${tideMatters ? "天候・潮回りから" : "天候から"}</span>
-        <span class="val">${best.base}</span></div>
-      ${tideMatters ? `<div class="row"><span class="label">潮の動き</span>
-        <span class="val">${signed(best.adjust)}</span></div>` : ""}
-      <div class="row"><span class="label">釣行スコア</span>
-        <span class="val">${score}</span></div>
-    </div>
-
-    ${tideMatters ? "" : `<div class="list-sub" style="margin:12px 0 0">
-      ここは潮の影響を受けない場所なので、天気と風だけで判定しています。</div>`}
-
-    <div class="list-sub" style="margin:12px 0 6px">${
-      tideMatters ? "天候・潮回りの判定" : "天候の判定"}（上から順に当てはめる）</div>
-    <ol class="score-rules">
-      ${(best.rules ?? FISHING_SCORE_RULES).map((rule, i) => `
-        <li class="${i === best.ruleIndex ? "hit" : ""}">
-          <span class="rule-star">${stars(rule.score)}</span>
-          <span>${escapeHtml(rule.label)}</span>
-        </li>`).join("")}
-    </ol>
-
-    ${!tideMatters ? "" : `<div class="list-sub" style="margin:12px 0 6px">潮の動きによる加減点</div>
-    <ol class="score-rules">
-      ${TIDE_FLOW_RULES.map((rule) => `
-        <li class="${!best.weatherGate && best.flow?.key === rule.key ? "hit" : ""}">
-          <span class="rule-adjust">${signed(rule.adjust)}</span>
-          <span>${escapeHtml(rule.label)}</span>
-        </li>`).join("")}
-    </ol>`}
-
-    <div class="list-sub" style="margin-top:12px;line-height:1.6">
-      天気と風は${fallback ? "" : "日の出・日没に"}いちばん近い時刻の予報を代表値にしています。
-      潮回りは月齢からの計算で、1 日を通して同じです。
-      潮の速さは<strong>その日いちばん速い流れとの比</strong>で見ているので、
-      小潮の日でも「動いている／止まっている」を区別できます。
-      雷雨・雨・強風の日は潮の動きで持ち上げません。
-      目安であり、釣れることを保証するものではありません。
-    </div>`);
+    <details class="score-note">
+      <summary>この判定の細かいところ</summary>
+      <div class="list-sub" style="line-height:1.7">
+        天気と風は、その時刻にいちばん近い予報を代表値にしています。
+        ${tideMatters ? `潮の強さは<strong>その場所の大潮でいちばん速いとき</strong>と比べた割合で見ます。
+        絶対値ではないので、潮位の小さい湾の奥でも「よく流れている時間」が分かります。` : ""}
+        気圧は 3 時間前との差です。窓の先頭では前が無いので判定できません。
+        目安であり、釣れることを保証するものではありません。
+      </div>
+    </details>`);
 }
 
 /** 共通の説明ダイアログ。Esc・背景タップ・×ボタンで閉じる。 */
@@ -3039,6 +3149,45 @@ export function waterLabel(value) {
   return WATER_TYPES.find((w) => w.value === value)?.label ?? "—";
 }
 
+/* 感潮（潮汐が届くか）。**塩分とは別の軸**（D-134）。
+
+   国土交通省「河川砂防技術基準 調査編」第14章:
+     感潮区間 … 河口から、潮汐の変動によって水位が変動する区間
+     汽水域   … 河川水と海水が混合する部分。塩分 0.5〜30‰
+   同基準は「感潮域にも淡水の区間が存在し、水位に対する潮汐の影響は
+   塩分濃度が 0.5‰ より低い区間にまで及ぶため、感潮域と汽水域は
+   必ずしも一致しない」と明記している。包含関係は 感潮域 ⊃ 汽水域。
+
+   **だから水域から感潮は導けない。** 5km 上流の淡水でも潮位は動く。 */
+export const TIDE_INFLUENCES = [
+  { value: "tidal", label: "潮汐あり", iconName: "tide" },
+  { value: "none",  label: "潮汐なし", iconName: "close" },
+];
+
+/** 指定が無いとき（自動）に水域から決まる既定。トリガーと同じ規則。 */
+export function defaultTidal(waterType) {
+  return waterType !== "freshwater";
+}
+
+/** そのスポットで潮汐が効くか。手の指定が優先、無ければ水域から。 */
+export function spotIsTidal(spot) {
+  if (spot?.tide_influence === "tidal") return true;
+  if (spot?.tide_influence === "none") return false;
+  return defaultTidal(spot?.water_type);
+}
+
+/**
+ * 水域の表示名。**淡水でも潮汐が効くなら「淡水（感潮）」**と出す（D-134）。
+ * 汽水は定義上いつも感潮なので、わざわざ書かない。
+ */
+export function spotWaterLabel(spot) {
+  const base = waterLabel(spot?.water_type);
+  if (spot?.water_type === "freshwater" && spotIsTidal(spot)) return `${base}（感潮）`;
+  // 海水・汽水で手動で外してあるときは、そのことが分かるようにする
+  if (spot?.water_type !== "freshwater" && !spotIsTidal(spot)) return `${base}（潮汐なし）`;
+  return base;
+}
+
 /** Google マップで開く URL（端末にアプリがあればアプリが起動する）。 */
 export function googleMapsUrl(spot) {
   return `https://www.google.com/maps/search/?api=1&query=${spot.latitude},${spot.longitude}`;
@@ -3350,7 +3499,7 @@ export function attachSpotPicker(container, { spots, selected, onPick, title = "
           <span class="list-body">
             <span class="list-title">${escapeHtml(s.name ?? "無名スポット")}${
               s.low_tide_only ? ` ${icon("warning", { size: 13 })}` : ""}</span>
-            <span class="list-sub">${escapeHtml(waterLabel(s.water_type))}${
+            <span class="list-sub">${escapeHtml(spotWaterLabel(s))}${
               entry ? ` · ${icon(entry.iconName, { size: 12 })} ${escapeHtml(entry.short)}` : ""}${
               s.is_mine ? "" : " · 共有"}</span>
           </span>

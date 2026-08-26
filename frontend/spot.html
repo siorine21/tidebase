@@ -36,6 +36,7 @@
     client, requireSession, renderNav, escapeHtml, toJapaneseError,
     listSpots, getSpot, listRecords, createMap, spotMarker, spotType, waterLabel, ownerBadge,
     SPOT_TYPES, WATER_TYPES, ENTRY_STYLES, entryStyle,
+    TIDE_INFLUENCES, spotWaterLabel, spotIsTidal, defaultTidal,
     googleMapsUrl, googleDirectionsUrl, formatJstDate, icon,
     recordFishName, listTidePoints, tidePointOfSpot, formatLag, isCoordinateInJapan,
     attachPlaceSearch,
@@ -107,7 +108,7 @@
       <div class="card">
         <div class="tags" style="margin-top:0">
           <span class="tag tag-gray">${icon(type.iconName, { size: 12 })} ${type.label}</span>
-          <span class="tag tag-blue">${waterLabel(spot.water_type)}</span>
+          <span class="tag tag-blue">${escapeHtml(spotWaterLabel(spot))}</span>
           ${entry ? `<span class="tag tag-gray">${icon(entry.iconName, { size: 12 })} ${escapeHtml(entry.label)}</span>` : ""}
           ${spot.low_tide_only ? `<span class="tag tag-mustard">${icon("warning", { size: 12 })} 干潮時のみアクセス可</span>` : ""}
           ${spot.tide_station_code ? `<span class="tag tag-gray">潮汐観測点 ${escapeHtml(spot.tide_station_code)}</span>` : ""}
@@ -154,6 +155,10 @@
         <div class="field"><label for="e-name">スポット名</label>
           <input type="text" id="e-name" maxlength="100"></div>
         <div class="field"><label>水域区分</label><div class="chips" id="e-water"></div></div>
+        <!-- 感潮は水域（塩分）とは別の軸（D-134）。淡水でも潮位は動く。
+             もう一度押すと「自動」に戻る -->
+        <div class="field"><label>潮汐の影響</label><div class="chips" id="e-tidal"></div>
+          <div class="page-sub" id="e-tidal-note" style="margin-top:6px;line-height:1.5"></div></div>
         <div class="field"><label>スポット種別</label><div class="chips" id="e-type"></div></div>
         <!-- 立ち位置は種別とは別の軸（D-099）。もう一度押すと未設定に戻る -->
         <div class="field"><label>立ち位置</label><div class="chips" id="e-entry"></div></div>
@@ -265,6 +270,7 @@
       lat: positioned ? Number(spot.latitude) : null,
       lng: positioned ? Number(spot.longitude) : null,
       water: spot.water_type, type: spot.spot_type, entry: spot.entry_style ?? null,
+      tidal: spot.tide_influence ?? null,
     });
     renderEditChips();
     renderTidePointSelect();
@@ -345,13 +351,29 @@
     document.getElementById("e-entry").innerHTML = ENTRY_STYLES
       .map((s) => `<span class="chip${s.value === edit.entry ? " selected" : ""}"
                          data-value="${s.value}">${icon(s.iconName, { size: 13 })} ${s.label}</span>`).join("");
+    document.getElementById("e-tidal").innerHTML = TIDE_INFLUENCES
+      .map((t) => `<span class="chip${t.value === edit.tidal ? " selected" : ""}"
+                         data-value="${t.value}">${icon(t.iconName, { size: 13 })} ${t.label}</span>`).join("");
+    /* **自動が何になるかを書く。** 「選んでいない」と「選んだ結果こうなった」は
+       見た目が同じなので、いま何が効いているのかを文にしないと分からない */
+    document.getElementById("e-tidal-note").textContent = edit.tidal
+      ? (edit.tidal === "tidal"
+          ? (edit.water === "freshwater"
+              ? "感潮域として扱います（塩分は淡水でも潮位が動く場所）。"
+              : "潮汐を効かせます。")
+          : "潮汐を使いません。潮位グラフとスコアの潮の項目が外れます。")
+      : `未選択（自動）。いまの水域「${waterLabel(edit.water)}」では`
+        + `${defaultTidal(edit.water) ? "潮汐あり" : "潮汐なし"}になります。`;
   }
 
   document.addEventListener("click", (e) => {
-    const chip = e.target.closest("#e-water .chip, #e-type .chip, #e-entry .chip");
+    const chip = e.target.closest("#e-water .chip, #e-type .chip, #e-entry .chip, #e-tidal .chip");
     if (!chip) return;
     if (chip.closest("#e-water")) edit.water = chip.dataset.value;
-    else if (chip.closest("#e-entry")) {
+    else if (chip.closest("#e-tidal")) {
+      // もう一度押すと「自動」に戻る（立ち位置と同じ操作）
+      edit.tidal = chip.classList.contains("selected") ? null : chip.dataset.value;
+    } else if (chip.closest("#e-entry")) {
       edit.entry = chip.classList.contains("selected") ? null : chip.dataset.value;
     } else edit.type = chip.classList.contains("selected") ? null : chip.dataset.value;
     renderEditChips();
@@ -369,6 +391,7 @@
       memo: document.getElementById("e-memo").value.trim() || null,
       latitude: edit.lat, longitude: edit.lng,
       water_type: edit.water, spot_type: edit.type, entry_style: edit.entry ?? null,
+      tide_influence: edit.tidal ?? null,
       low_tide_only: document.getElementById("e-lowtide").checked,
       tide_area_code: chosen?.area ?? null,
     };

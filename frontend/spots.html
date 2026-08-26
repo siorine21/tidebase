@@ -87,7 +87,7 @@
 <script type="module">
   import {
     client, requireSession, renderNav, escapeHtml, toJapaneseError, requireUserId,
-    listSpots, createMap, spotMarker, spotType, waterLabel,
+    listSpots, createMap, spotMarker, spotType, waterLabel, spotWaterLabel,
     SPOT_TYPES, WATER_TYPES, groupSpotsByType, googleMapsUrl, googleDirectionsUrl, isNightMap, setNightMap, icon,
     isCoordinateInJapan,
     attachPlaceSearch, renderIcons,
@@ -211,7 +211,7 @@
         <div class="thumb" style="background:${type.color}22;color:${type.color}">${icon(type.iconName, { size: 19 })}</div>
         <div class="list-body">
           <div class="list-title">${escapeHtml(s.name ?? "無名スポット")}${s.low_tide_only ? ` ${icon("warning", { size: 13 })}` : ""}</div>
-          <div class="list-sub">${waterLabel(s.water_type)}${
+          <div class="list-sub">${escapeHtml(spotWaterLabel(s))}${
             entry ? ` · ${icon(entry.iconName, { size: 12 })} ${escapeHtml(entry.short)}` : ""}${
             s.tide_station_code ? ` · 潮汐 ${s.tide_station_code}` : ""}${
             isCoordinateInJapan(s.latitude, s.longitude)
@@ -261,6 +261,7 @@
         sun: sunTimes(spot.latitude, spot.longitude, today),
         tide: tideMatters ? (tides.get(tidePointOfSpot(spot)) ?? null) : null,
         tideMatters,
+        point: tideMatters ? pointOf(spot) : null,
         date: today,        // 2 日ぶん取ってあるので当日に絞る（D-103）
       });
       if (day) scores.set(spot.id, day);
@@ -275,7 +276,7 @@
     document.getElementById("sheet-body").innerHTML = `
       <div class="list-title" style="font-size:16px">${escapeHtml(spot.name ?? "無名スポット")}</div>
       <div class="list-sub" style="margin-bottom:10px">
-        ${type.label} · ${waterLabel(spot.water_type)}${
+        ${type.label} · ${escapeHtml(spotWaterLabel(spot))}${
           entry ? ` · ${icon(entry.iconName, { size: 12 })} ${escapeHtml(entry.short)}` : ""}${
           spot.low_tide_only ? ` · ${icon("warning", { size: 12 })} 干潮時のみアクセス可` : ""}
       </div>

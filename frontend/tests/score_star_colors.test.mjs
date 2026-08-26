@@ -87,6 +87,15 @@ check('風の段は windLevel が決める（しきい値を書き写さない�
 check('★と風は同じ行（セルの段を増やさない）',
   /class="sc-row"/.test(cell) && !/class="wnd[^"]*"[\s\S]{0,40}<\/span>\s*\n\s*\$\{at\}/.test(cell));
 
+/* ---- モーダルの★も同じ色を使う（D-130 / D-136） ---- */
+
+const appSrc = fs.readFileSync(new URL('../assets/app.js', import.meta.url), 'utf8');
+const help = /export function showFishingScoreHelp[\s\S]*?\n}/.exec(appSrc)?.[0] ?? '';
+check('スコアのモーダルを読めている', help.length > 200, `${help.length} 文字`);
+check('モーダルの★が sc と sc-<点> の両方を持つ',
+  /class="score-stars sc sc-\$\{score\}"/.test(help),
+  (help.match(/class="score-stars[^"]*"/) ?? [''])[0]);
+
 /* ---- 色だけに頼らない ---- */
 
 check('セルに読み上げ用の説明がある', /aria-label="\$\{escapeHtml\(label\)\}"/.test(cell));
