@@ -863,8 +863,15 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
   font-family: 'JetBrains Mono', monospace; font-size: 11px;
 }
 .cond-list li:not(.hit) .cond-mark { color: var(--text-muted); }
-.cond-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cond-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+/* 名前は左、**いまの値は右端**（D-137）。しきい値だけでは自分の位置が分からない */
+.cond-head { display: flex; align-items: baseline; gap: 8px; }
 .cond-name { line-height: 1.4; }
+.cond-value {
+  margin-left: auto; flex-shrink: 0;
+  font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text-muted);
+}
+.cond-list li.hit .cond-value { color: var(--mustard-lt); }
 .cond-detail { font-size: 11px; color: var(--text-muted); line-height: 1.5; }
 
 .score-note { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 8px; }

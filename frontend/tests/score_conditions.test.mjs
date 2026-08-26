@@ -18,6 +18,9 @@ import { sliceApp } from './_slice.mjs';
 
 const code = sliceApp([
   ['export function weatherCategory', 'const WIND_DIRS'],
+  // 条件の describe が使うので先に置く（TIDE_FLOW_LABELS は const・timeBandLabel は関数）
+  ['export const TIME_BANDS', 'export function bandHours'],
+  ['export const TIDE_FLOW_RULES', 'export function tideFlowAt'],
   ['/* 釣行スコアの決め方（D-135', 'export function fishingScore('],
   ['export function springFlowRatio', '/**\n * 1 時間ごとの点を出す関数を作る（D-116）。'],
 ]);
@@ -67,6 +70,41 @@ check('0/5 でも ★3 より下がらない（荒天でなければ釣りには
 check('割合の表', [scoreFromHits(4, 5), scoreFromHits(3, 5), scoreFromHits(2, 5),
                    scoreFromHits(3, 3), scoreFromHits(2, 3), scoreFromHits(1, 3)]
   .join(',') === '5,4,3,5,4,3');
+
+/* ---- 説明の文言（D-137） ----
+   点から潮回りのラベルを外したのに、説明に「大潮でいちばん速いときの…」と
+   書いてあったせいで「大潮でないと加点されない」と読めていた（本人の指摘）。 */
+
+check('潮の条件の説明に「大潮」を書かない',
+  SCORE_CONDITIONS.every((c) => !/大潮|中潮|小潮|長潮|若潮/.test(`${c.label}${c.detail}`)),
+  SCORE_CONDITIONS.map((c) => c.detail).find((d) => /大潮/.test(d)) ?? '（無し）');
+
+/* ---- いまの値が出る（しきい値だけでは自分の位置が分からない） ---- */
+{
+  const d = at({});
+  const v = Object.fromEntries(d.conditions.map((c) => [c.key, c.value]));
+  check('潮の強さは % で出る', v.flow === '90%', String(v.flow));
+  check('潮の動きは向きと勢いで出る', v.start === '上げ潮・動き出し', String(v.start));
+  check('時間帯は名前で出る', v.band === '朝マヅメ', String(v.band));
+  check('風は m/s で出る', v.wind === '3.0m/s', String(v.wind));
+  check('気圧は hPa/3h で出る', v.press === '-2hPa/3h', String(v.press));
+  check('全部の条件に値がある', d.conditions.every((c) => c.value != null),
+    d.conditions.filter((c) => c.value == null).map((c) => c.key).join(','));
+}
+{
+  // 外れているときも値は出る（何がどれだけ足りないかが読める）
+  const d = at({ flowRatio: 0.31, wind: 0.5, pressureTrend: 2, band: 'day' });
+  const v = Object.fromEntries(d.conditions.map((c) => [c.key, c.value]));
+  check('外れていても値が出る',
+    v.flow === '31%' && v.wind === '0.5m/s' && v.press === '+2hPa/3h' && v.band === '日中',
+    JSON.stringify(v));
+}
+{
+  // 材料が無ければ値も無い
+  const d = at({ flowRatio: null, pressureTrend: null });
+  const v = Object.fromEntries(d.conditions.map((c) => [c.key, c.value]));
+  check('材料が無ければ値も null', v.flow === null && v.press === null, JSON.stringify(v));
+}
 
 /* ---- 風は山型（0〜1 は弱すぎる） ---- */
 

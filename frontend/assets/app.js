@@ -1225,28 +1225,40 @@ export const PRESSURE_FALL_HPA = -1;
 export const SCORE_CONDITIONS = [
   {
     key: "flow", tide: true, label: "潮がよく流れている",
-    detail: "その場所の大潮でいちばん速いときの 6 割以上",
+    /* **「大潮」と書かない**（D-137）。点から潮回りのラベルを外したのに、
+       説明に「大潮でいちばん速いときの…」と書いてあったせいで、
+       「大潮でないと加点されない」と読めていた（本人の指摘）。
+       実際は**その場所の中での速さの比**で、潮回りは一切見ていない。 */
+    detail: `ここでいちばん速く流れるときと比べて ${Math.round(STRONG_FLOW_RATIO * 100)}% 以上`,
     test: (c) => c.flowRatio != null && c.flowRatio >= STRONG_FLOW_RATIO,
+    describe: (c) => (c.flowRatio == null ? null : `${Math.round(c.flowRatio * 100)}%`),
   },
   {
     key: "start", tide: true, label: "潮が動き出している",
-    detail: "これから速くなっていく時間帯",
+    detail: "止まっているときや、緩んでいく途中では付かない",
     test: (c) => c.flow?.key === "start",
+    describe: (c) => (!c.flow ? null
+      : `${c.flow.direction}・${TIDE_FLOW_LABELS[c.flow.key]}`),
   },
   {
     key: "band", tide: false, label: "マヅメ",
     detail: "日の出・日没の前後 1 時間（薄明薄暮）",
     test: (c) => c.band === "morning" || c.band === "evening",
+    describe: (c) => timeBandLabel(c.band),
   },
   {
-    key: "wind", tide: false, label: `風が ${GOOD_WIND_MIN}〜${GOOD_WIND_MAX}m/s`,
-    detail: "無風だと水面が動かず、強すぎると投げられない",
+    key: "wind", tide: false, label: "風がほどよい",
+    detail: `${GOOD_WIND_MIN}〜${GOOD_WIND_MAX}m/s。無風だと水面が動かず、強すぎると投げられない`,
     test: (c) => c.wind != null && c.wind >= GOOD_WIND_MIN && c.wind <= GOOD_WIND_MAX,
+    describe: (c) => (c.wind == null ? null : `${Number(c.wind).toFixed(1)}m/s`),
   },
   {
     key: "press", tide: false, label: "気圧が下がっている",
-    detail: `3 時間で ${-PRESSURE_FALL_HPA}hPa 以上`,
+    detail: `3 時間で ${-PRESSURE_FALL_HPA}hPa 以上下がると付く`,
     test: (c) => c.pressureTrend != null && c.pressureTrend <= PRESSURE_FALL_HPA,
+    // 符号は半角で揃える。等幅で桁が並ぶので、＋だけ全角だと崩れる
+    describe: (c) => (c.pressureTrend == null ? null
+      : `${c.pressureTrend > 0 ? "+" : ""}${c.pressureTrend}hPa/3h`),
   },
 ];
 
@@ -1274,6 +1286,9 @@ export function fishingScoreDetail(c) {
     key: cond.key, label: cond.label, detail: cond.detail,
     applicable: tideMatters || !cond.tide,
     hit: (tideMatters || !cond.tide) && Boolean(cond.test(c)),
+    /* **いまいくつなのかを添える**（D-137）。しきい値だけ書いても、
+       自分がどのあたりにいるか分からないと「よく分からない」で終わる */
+    value: cond.describe ? cond.describe(c) : null,
   }));
   /* 材料が無い条件は「外れ」ではなく「対象外」にする（D-135）。
      気圧が取れない時間帯で、外れ扱いにして点を下げるのは筋が違う。
@@ -1959,20 +1974,10 @@ export function showFishingScoreHelp(day) {
      時間帯ごとの★は時間別天気の帯にもう並んでいるので、ここには載せない。
      以前は 5 つの時間帯を全文で並べていて、同じことを 2 か所で言っていた。 */
 
-  const chip = (label, cls = "tag-gray") =>
-    `<span class="tag ${cls}">${escapeHtml(label)}</span>`;
-  const flowText = best.flow
-    ? `${best.flow.direction}・${TIDE_FLOW_LABELS[best.flow.key]}`
-    : null;
-
-  // 判定に使った材料。**点の理由はここから来ている**ので先に出す
-  const inputs = [
-    chip(describeWeather(best.weatherCode).label, "tag-mustard"),
-    best.windMs == null ? "" : chip(`風 ${Number(best.windMs).toFixed(1)}m/s`, "tag-blue"),
-    flowText ? chip(flowText) : "",
-    best.pressureTrend == null ? ""
-      : chip(`気圧 ${best.pressureTrend > 0 ? "＋" : ""}${best.pressureTrend}hPa/3h`),
-  ].filter(Boolean).join("");
+  /* **材料は条件の行に載せる**（D-137）。前はここにチップで並べていたが、
+     風も気圧も潮の動きも下の条件と同じ話で、同じことを 2 か所で言っていた。
+     天気だけは条件ではなく**ゲートの入力**なので、ここに残す */
+  const weather = describeWeather(best.weatherCode).label;
 
   /* 荒天のときは条件を数えない。**なぜ数えないのかを書く。**
      「雨だから★2」で止まると、良い条件が揃っていた日に納得できない */
@@ -1990,7 +1995,11 @@ export function showFishingScoreHelp(day) {
         ? (c.hit ? icon("check", { size: 14 }) : "")
         : "—"}</span>
       <span class="cond-body">
-        <span class="cond-name">${escapeHtml(c.label)}</span>
+        <span class="cond-head">
+          <span class="cond-name">${escapeHtml(c.label)}</span>
+          ${c.applicable && c.value
+            ? `<span class="cond-value">${escapeHtml(c.value)}</span>` : ""}
+        </span>
         <span class="cond-detail">${escapeHtml(
           c.applicable ? c.detail : "この場所では判定できません")}</span>
       </span>
@@ -2020,8 +2029,8 @@ export function showFishingScoreHelp(day) {
 
     <div class="score-input">
       いちばん良い時間帯は <b>${escapeHtml(best.label ?? "—")}
-      ${escapeHtml(String(best.at ?? "").slice(0, 5))}</b>。この時間の条件で判定しています。
-      <div class="chips-row">${inputs}</div>
+      ${escapeHtml(String(best.at ?? "").slice(0, 5))}</b>（天気は${escapeHtml(weather)}）。
+      この時間の条件で判定しています。
     </div>
 
     ${gateBlock}
@@ -2031,8 +2040,9 @@ export function showFishingScoreHelp(day) {
       <summary>この判定の細かいところ</summary>
       <div class="list-sub" style="line-height:1.7">
         天気と風は、その時刻にいちばん近い予報を代表値にしています。
-        ${tideMatters ? `潮の強さは<strong>その場所の大潮でいちばん速いとき</strong>と比べた割合で見ます。
-        絶対値ではないので、潮位の小さい湾の奥でも「よく流れている時間」が分かります。` : ""}
+        ${tideMatters ? `潮の強さは<strong>その場所の中での速さの比</strong>で見ます。
+        大潮か小潮かは見ていません。潮位の振れが小さい湾の奥でも、
+        そこでよく流れる時間帯には付きます。` : ""}
         気圧は 3 時間前との差です。窓の先頭では前が無いので判定できません。
         目安であり、釣れることを保証するものではありません。
       </div>
