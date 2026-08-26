@@ -36,7 +36,7 @@
     client, requireSession, renderNav, escapeHtml, toJapaneseError, formatJstDate, icon,
     createMap, spotMarker, googleMapsUrl, googleDirectionsUrl, isCoordinateInJapan,
     listTidePoints, fetchTideForPoint, tideAt, tideTimelineSvg, sunStripHtml,
-    sunTimes, tideFlowAt, TIDE_FLOW_LABELS, nearestMazume, mazumeLabel,
+    sunTimes, tideFlowAt, TIDE_FLOW_LABELS, tidePhaseAt, nearestMazume, mazumeLabel,
     weatherSnapshotText,
     listRecordPhotos, deleteRecordPhotos, signedPhotoUrls, lureCategoryText, ownerBadge,
     navigate,
@@ -138,6 +138,8 @@
     const hhmm = r.fished_time.slice(0, 5);
     const at = tideAt(tide, hhmm);
     const flow = tideFlowAt(tide, hhmm);
+    // 「上げ4分」で言う（D-138）。前後の日は持っていないので出せないことがある
+    const phase = tidePhaseAt(tide, hhmm);
 
     // 日の出・日没は計算で出す（D-056）。予報 API は過去 3 か月しか遡れないので、
     // 去年の釣行にはマヅメが出せない。座標はスポット優先、無ければ潮汐地点
@@ -160,7 +162,7 @@
         <div class="row"><span class="label">潮位</span>
           <span class="val">${at ? `${at.level} cm` : "—"}</span></div>
         <div class="row"><span class="label">潮の動き</span>
-          <span class="val">${at ? escapeHtml(at.trend) : "—"}${
+          <span class="val">${phase ? escapeHtml(phase.label) : (at ? escapeHtml(at.trend) : "—")}${
             flow ? ` <span class="sub-val">${escapeHtml(TIDE_FLOW_LABELS[flow.key])}</span>` : ""}</span></div>
         <div class="row"><span class="label">マヅメ</span>
           <span class="val"${mazume?.inWindow ? ` style="color:var(--green)"` : ""}>${

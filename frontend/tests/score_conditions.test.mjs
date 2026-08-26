@@ -40,6 +40,7 @@ const check = (name, ok, extra = '') => {
 const perfect = {
   weatherCode: 0, wind: 3,
   flowRatio: 0.9, flow: { key: 'start', direction: '上げ潮', cmPerHour: 24 },
+  phase: { tenth: 4, rising: true, label: '上げ4分' },
   band: 'morning', pressureTrend: -2, tideMatters: true,
 };
 const at = (over) => fishingScoreDetail({ ...perfect, ...over });
@@ -83,8 +84,14 @@ check('潮の条件の説明に「大潮」を書かない',
 {
   const d = at({});
   const v = Object.fromEntries(d.conditions.map((c) => [c.key, c.value]));
-  check('潮の強さは % で出る', v.flow === '90%', String(v.flow));
-  check('潮の動きは向きと勢いで出る', v.start === '上げ潮・動き出し', String(v.start));
+  /* **判定しているのは % のほう**なので、釣りの言葉だけにしない（D-138）。
+     「上げ4分」だけだと 6 割に届いているかが読めない */
+  check('潮の強さは 上げN分 と % を並べる', v.flow === '上げ4分 90%', String(v.flow));
+  check('N分が取れなければ % だけ',
+    fishingScoreDetail({ ...perfect, phase: null })
+      .conditions.find((c) => c.key === 'flow').value === '90%');
+  // 向きは上の行の「上げ4分」が言うので、ここは勢いだけ（同じことを 2 回言わない）
+  check('潮の動きは勢いで出る', v.start === '動き出し', String(v.start));
   check('時間帯は名前で出る', v.band === '朝マヅメ', String(v.band));
   check('風は m/s で出る', v.wind === '3.0m/s', String(v.wind));
   check('気圧は hPa/3h で出る', v.press === '-2hPa/3h', String(v.press));
@@ -96,7 +103,7 @@ check('潮の条件の説明に「大潮」を書かない',
   const d = at({ flowRatio: 0.31, wind: 0.5, pressureTrend: 2, band: 'day' });
   const v = Object.fromEntries(d.conditions.map((c) => [c.key, c.value]));
   check('外れていても値が出る',
-    v.flow === '31%' && v.wind === '0.5m/s' && v.press === '+2hPa/3h' && v.band === '日中',
+    v.flow === '上げ4分 31%' && v.wind === '0.5m/s' && v.press === '+2hPa/3h' && v.band === '日中',
     JSON.stringify(v));
 }
 {
