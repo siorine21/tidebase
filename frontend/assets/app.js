@@ -850,8 +850,11 @@ export async function fetchTideForPoint(point, date) {
   return {
     ...base,
     hourly_levels_cm: shifted,
-    high_tides: shiftEvents(base.high_tides, point.lagMinutes),
-    low_tides: shiftEvents(base.low_tides, point.lagMinutes),
+    /* **満干の潮位も潮高比で縮める**（D-133）。時刻だけずらして潮位をそのままに
+       すると、曲線は縮んでいるのに満干の点だけ元の高さに残り、**点がグラフから浮く**。
+       潮高比が全地点 1.00 だった間は現れなかった。036 で実際の比を入れて表に出た */
+    high_tides: shiftEvents(base.high_tides, point.lagMinutes, mean, point.levelRatio),
+    low_tides: shiftEvents(base.low_tides, point.lagMinutes, mean, point.levelRatio),
     point,
     corrected: true,
     base_station: base.station,
@@ -872,7 +875,11 @@ function interpolate(series, index) {
 }
 
 /** 満潮・干潮の時刻を時差ぶんずらす。日をまたぐものは落とす。 */
-function shiftEvents(events, lagMinutes) {
+/**
+ * 満干の時刻を時差ぶんずらし、潮位を潮高比で縮める。
+ * **縮め方は毎時値と同じ（日内平均のまわり）**でなければ、点が曲線から外れる。
+ */
+function shiftEvents(events, lagMinutes, mean = 0, levelRatio = 1) {
   return (events ?? []).flatMap((e) => {
     if (!e.time) return [];
     const [h, m] = e.time.split(":").map(Number);
@@ -881,6 +888,8 @@ function shiftEvents(events, lagMinutes) {
     return [{
       ...e,
       time: `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`,
+      level_cm: e.level_cm == null ? null
+        : Math.round(mean + (e.level_cm - mean) * levelRatio),
     }];
   });
 }
