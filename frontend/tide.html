@@ -452,7 +452,8 @@
     // 時間帯ごとに判定し、いちばん良い時間帯をその日のスコアにする（D-051・D-103）
     scoreContext = weather
       ? fishingScoreOfDay({
-          tideType: type, hours: weather, sun: sunOf(date), tide, tideMatters, date })
+          tideType: type, hours: weather, sun: sunOf(date), tide, tideMatters, date,
+          point: state.point })
       : null;
     const score = scoreContext?.score ?? null;
 
@@ -505,8 +506,8 @@
       /* 1 時間ごとの釣行スコア（D-116）。**ホームと同じ部品なので同じ★が出る。**
          片方だけに出すと、また 2 つに分かれて片方が取り残される（D-105） */
       scoreOf: hourScorer({
-        contextOf: (date) => ({ tide: tideOf(date), tideType: tideType(date) }),
-        tideMatters: Boolean(state.point),
+        contextOf: (date) => ({ tide: tideOf(date), sun: sunOf(date) }),
+        tideMatters: Boolean(state.point), point: state.point,
       }),
     });
   }
@@ -620,7 +621,8 @@
     const day = ready
       ? fishingScoreOfDay({
           tideType: tideMatters ? type : null, hours, sun: sunOf(date),
-          tide: tideMatters ? tideOf(date) : null, tideMatters, date })
+          tide: tideMatters ? tideOf(date) : null, tideMatters, date,
+          point: state.point })
       : null;
 
     /* **時間別カードと同じ ★☆ 5 つで出す**（D-122）。以前は「★4」と数字で

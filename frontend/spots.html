@@ -261,6 +261,7 @@
         sun: sunTimes(spot.latitude, spot.longitude, today),
         tide: tideMatters ? (tides.get(tidePointOfSpot(spot)) ?? null) : null,
         tideMatters,
+        point: tideMatters ? pointOf(spot) : null,
         date: today,        // 2 日ぶん取ってあるので当日に絞る（D-103）
       });
       if (day) scores.set(spot.id, day);

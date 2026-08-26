@@ -319,13 +319,13 @@
        （D-105。spots.html が前からこの形・D-077） */
     const nowJst = nowInJst();
     scoreOf = weather?.length
-      ? hourScorer({ contextOf: scoreContextOf(tide, sun), tideMatters: Boolean(tide) })
+      ? hourScorer({ contextOf: scoreContextOf(tide, sun), tideMatters: Boolean(tide), point })
       : null;
     scoreContext = weather?.length
       ? fishingScoreAhead({
           hours: weather, nowIso: `${nowJst.date}T${nowJst.hhmm}`,
           tideMatters: Boolean(tide),
-          contextOf: scoreContextOf(tide, sun),
+          contextOf: scoreContextOf(tide, sun), point,
         })
       : null;
     if (scoreContext) {

@@ -817,6 +817,64 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .score-stars { font-size: 22px; color: var(--mustard-lt); letter-spacing: 2px; }
 .score-num-sm { font-family: 'JetBrains Mono', monospace; color: var(--text-secondary); }
 
+/* 釣行スコアのモーダル（D-136）。**役目は「なぜこの点なのか」だけ。**
+   時間帯ごとの★は時間別天気の帯にもう並んでいるので、ここには載せない。 */
+.score-top { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; }
+.score-input { font-size: 13px; color: var(--text-secondary); line-height: 1.7; }
+.score-input b { color: var(--text-primary); }
+.chips-row { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
+
+/* 荒天でここで決まった、という断り */
+.score-gate {
+  margin-top: 12px; padding: 10px 12px; border-radius: 8px;
+  background: var(--red-light); border: 1px solid var(--red);
+}
+.score-gate .sg-head { display: flex; align-items: center; gap: 6px; color: #FFB4B2; font-size: 13px; }
+.score-gate .sg-body { margin-top: 5px; font-size: 12px; color: var(--text-secondary); line-height: 1.6; }
+
+/* そろった数。ここがこのモーダルの結論 */
+.score-count {
+  display: flex; align-items: baseline; gap: 5px;
+  margin: 14px 0 8px; padding: 10px 12px; border-radius: 8px;
+  background: var(--bg-deep); font-size: 12px; color: var(--text-secondary);
+}
+.score-count .sc-n {
+  font-family: 'JetBrains Mono', monospace; font-size: 24px; line-height: 1;
+  color: var(--mustard-lt); font-weight: 700;
+}
+.score-count .sc-of { font-family: 'JetBrains Mono', monospace; color: var(--text-muted); }
+.score-count .sc-label { margin-left: 2px; }
+
+/* 条件の一覧。**そろっていないものも並べる。**
+   何が足りなかったかが見えないと、次にいつ行けばいいか分からない */
+.cond-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.cond-list li {
+  display: flex; align-items: flex-start; gap: 9px;
+  padding: 8px 10px; border-radius: 8px; font-size: 12px;
+  background: var(--bg-deep); border: 1px solid transparent; color: var(--text-secondary);
+}
+.cond-list li.hit {
+  background: var(--mustard-bg); border-color: var(--border-strong); color: var(--text-primary);
+}
+.cond-list li.off { opacity: 0.5; }
+.cond-list .cond-mark {
+  flex-shrink: 0; width: 16px; height: 16px; display: flex;
+  align-items: center; justify-content: center; color: var(--mustard-lt);
+  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+}
+.cond-list li:not(.hit) .cond-mark { color: var(--text-muted); }
+.cond-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cond-name { line-height: 1.4; }
+.cond-detail { font-size: 11px; color: var(--text-muted); line-height: 1.5; }
+
+.score-note { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 8px; }
+.score-note > summary {
+  cursor: pointer; font-size: 12px; color: var(--text-secondary); padding: 4px 0;
+}
+.score-note > summary::-webkit-details-marker { display: none; }
+.score-note > summary::before { content: "▸ "; color: var(--text-muted); }
+.score-note[open] > summary::before { content: "▾ "; }
+
 .score-rules { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
 .score-rules li {
   display: flex; align-items: center; gap: 10px;
