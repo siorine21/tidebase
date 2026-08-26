@@ -437,8 +437,52 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL: 浜名湖圏外で潮汐地点が付いてしまう';
   END IF;
 
-  -- 淡水スポットは潮汐地点も NULL になること
-  UPDATE public.spots SET water_type = 'freshwater' WHERE id = spot_target;
+  ------------------------------------------------------------
+  -- 感潮（tide_influence）は塩分とは別の軸（037・D-134）
+  ------------------------------------------------------------
+  -- **淡水でも「潮汐あり」を選べば潮汐地点が付く（感潮域）。**
+  -- 037 より前は water_type = 'freshwater' で強制的に NULL にしていたので、
+  -- 5km 上流の「淡水だが感潮」のスポットが潮汐を持てなかった。
+  UPDATE public.spots
+     SET water_type = 'freshwater', tide_influence = 'tidal'
+   WHERE id = spot_target;
+  IF (SELECT tide_area_code FROM public.spots WHERE id = spot_target) IS NULL THEN
+    RAISE EXCEPTION 'TEST FAIL: 淡水＋潮汐ありで潮汐地点が付かない（感潮域が表せない）';
+  END IF;
+
+  -- 逆に、海水でも「潮汐なし」を選べば外れる（湖のそばの野池など）
+  UPDATE public.spots
+     SET water_type = 'saltwater', tide_influence = 'none'
+   WHERE id = spot_target;
+  IF (SELECT tide_area_code FROM public.spots WHERE id = spot_target) IS NOT NULL
+     OR (SELECT tide_station_code FROM public.spots WHERE id = spot_target) IS NOT NULL THEN
+    RAISE EXCEPTION 'TEST FAIL: 潮汐なしを選んでも潮汐地点が残る';
+  END IF;
+
+  -- 「なし」から自動へ戻したら、また割り当て直される
+  UPDATE public.spots SET tide_influence = NULL WHERE id = spot_target;
+  IF (SELECT tide_area_code FROM public.spots WHERE id = spot_target) IS NULL THEN
+    RAISE EXCEPTION 'TEST FAIL: 自動へ戻しても潮汐地点が割り当て直されない';
+  END IF;
+
+  -- 値は 3 通りだけ
+  BEGIN
+    UPDATE public.spots SET tide_influence = 'maybe' WHERE id = spot_target;
+    RAISE EXCEPTION 'TEST FAIL: tide_influence に想定外の値が入る';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  UPDATE public.spots SET tide_influence = NULL WHERE id = spot_target;
+
+  -- 一覧のビューから読めること（画面がラベルを出すのに要る）
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_schema = 'public' AND table_name = 'spot_feed'
+                   AND column_name = 'tide_influence') THEN
+    RAISE EXCEPTION 'TEST FAIL: spot_feed に tide_influence が無い';
+  END IF;
+
+  -- 自動（NULL）のときは、いままでどおり水域で決まる
+  UPDATE public.spots SET water_type = 'freshwater', tide_influence = NULL
+   WHERE id = spot_target;
   IF (SELECT tide_area_code FROM public.spots WHERE id = spot_target) IS NOT NULL THEN
     RAISE EXCEPTION 'TEST FAIL: 淡水化しても潮汐地点が残る';
   END IF;

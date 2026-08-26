@@ -3048,6 +3048,45 @@ export function waterLabel(value) {
   return WATER_TYPES.find((w) => w.value === value)?.label ?? "—";
 }
 
+/* 感潮（潮汐が届くか）。**塩分とは別の軸**（D-134）。
+
+   国土交通省「河川砂防技術基準 調査編」第14章:
+     感潮区間 … 河口から、潮汐の変動によって水位が変動する区間
+     汽水域   … 河川水と海水が混合する部分。塩分 0.5〜30‰
+   同基準は「感潮域にも淡水の区間が存在し、水位に対する潮汐の影響は
+   塩分濃度が 0.5‰ より低い区間にまで及ぶため、感潮域と汽水域は
+   必ずしも一致しない」と明記している。包含関係は 感潮域 ⊃ 汽水域。
+
+   **だから水域から感潮は導けない。** 5km 上流の淡水でも潮位は動く。 */
+export const TIDE_INFLUENCES = [
+  { value: "tidal", label: "潮汐あり", iconName: "tide" },
+  { value: "none",  label: "潮汐なし", iconName: "close" },
+];
+
+/** 指定が無いとき（自動）に水域から決まる既定。トリガーと同じ規則。 */
+export function defaultTidal(waterType) {
+  return waterType !== "freshwater";
+}
+
+/** そのスポットで潮汐が効くか。手の指定が優先、無ければ水域から。 */
+export function spotIsTidal(spot) {
+  if (spot?.tide_influence === "tidal") return true;
+  if (spot?.tide_influence === "none") return false;
+  return defaultTidal(spot?.water_type);
+}
+
+/**
+ * 水域の表示名。**淡水でも潮汐が効くなら「淡水（感潮）」**と出す（D-134）。
+ * 汽水は定義上いつも感潮なので、わざわざ書かない。
+ */
+export function spotWaterLabel(spot) {
+  const base = waterLabel(spot?.water_type);
+  if (spot?.water_type === "freshwater" && spotIsTidal(spot)) return `${base}（感潮）`;
+  // 海水・汽水で手動で外してあるときは、そのことが分かるようにする
+  if (spot?.water_type !== "freshwater" && !spotIsTidal(spot)) return `${base}（潮汐なし）`;
+  return base;
+}
+
 /** Google マップで開く URL（端末にアプリがあればアプリが起動する）。 */
 export function googleMapsUrl(spot) {
   return `https://www.google.com/maps/search/?api=1&query=${spot.latitude},${spot.longitude}`;
@@ -3359,7 +3398,7 @@ export function attachSpotPicker(container, { spots, selected, onPick, title = "
           <span class="list-body">
             <span class="list-title">${escapeHtml(s.name ?? "無名スポット")}${
               s.low_tide_only ? ` ${icon("warning", { size: 13 })}` : ""}</span>
-            <span class="list-sub">${escapeHtml(waterLabel(s.water_type))}${
+            <span class="list-sub">${escapeHtml(spotWaterLabel(s))}${
               entry ? ` · ${icon(entry.iconName, { size: 12 })} ${escapeHtml(entry.short)}` : ""}${
               s.is_mine ? "" : " · 共有"}</span>
           </span>

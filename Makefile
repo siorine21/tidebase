@@ -34,6 +34,7 @@ test-frontend:
 	node frontend/tests/day_weather.test.mjs
 	node frontend/tests/score_star_colors.test.mjs
 	node frontend/tests/tide_correction.test.mjs
+	node frontend/tests/tide_influence.test.mjs
 
 # 本番 Supabase への操作（要: SUPABASE_ACCESS_TOKEN / SUPABASE_PROJECT_REF）
 db-migrate:
