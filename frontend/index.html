@@ -123,6 +123,7 @@
     recordFishName, ownerBadge, nowInJst, hoursFromHhmm, addJstDays,
     listTidePoints, fetchTideForPoint, savedTidePoint, saveTidePoint, formatLag,
     pickBaseSpot, spotTidePoint, savedBaseSpot, saveBaseSpot, attachSpotPicker,
+    rememberedView, rememberView, sameView,
     warmTideCache,
     hasUnreadNews, WEATHER_SOURCE,
     isCoordinateInJapan, tideTimelineSvg, sunStripHtml, levelAxisHtml, tideLevelAt, sunTimes,
@@ -160,11 +161,35 @@
     const today = todayInJst();
     document.getElementById("today").textContent = formatJstDate(today, { weekday: true });
 
+    /* **互いに関係の無いものは同時に投げる**（D-140）。
+       スポット・潮位表地点・最近の釣果はどれも他の結果を必要としないのに、
+       1 本ずつ待っていた。実測でホームの中身が出るまで 3.6 秒かかっており、
+       その大半がこの待ち時間だった。
+
+       最近の釣果だけは待たない。ヒーローより下にあるので、
+       届いた順に描けばよい（待つと、上の表示まで道連れになる）。 */
+    const recentSoon = listRecords({ limit: 2 }).catch(() => []);
+
+    /* **前回と同じところなら、決まるのを待たずに投げておく**（D-140）。
+       下の 2 本は「どの地点を見るか」を決めるためだけにあり、
+       ふだんは前回と同じところを見る。当たれば 3 段が 2 段になる。
+       外れても fetchTide / fetchWeather が 1 本にまとめるので損はしない。 */
+    const savedSpotId = savedBaseSpot();
+    const guess = rememberedView(savedSpotId);
+    const guessed = !guess ? null : {
+      tide: loadTide(guess.point, today),
+      weather: guess.weatherAt
+        ? fetchWeather(guess.weatherAt.lat, guess.weatherAt.lng, today).catch(() => null)
+        : Promise.resolve(null),
+    };
+
     /* 基準スポット（D-105）。**選ぶのはここだけ。**
        このスポットが天気の座標と潮汐の観測所の両方を決める */
-    const spots = await listSpots().catch(() => []);
-    const baseSpot = pickBaseSpot(spots, savedBaseSpot());
-    const points = await listTidePoints().catch(() => []);
+    const [spots, points] = await Promise.all([
+      listSpots().catch(() => []),
+      listTidePoints().catch(() => []),
+    ]);
+    const baseSpot = pickBaseSpot(spots, savedSpotId);
     /* どこを見ているかの帯（D-108）。**潮汐詳細と同じ部品を使う。**
        スポットを変えたら**画面ごと読み直す**（D-105）。
        潮汐も天気も日の出も、スコアも、全部この 1 つで決まる。
@@ -206,10 +231,20 @@
     // まず今日ぶんだけ描いて、前後の日は後から足す（ホームの表示を待たせない）
     chartDays = [addJstDays(today, -1), today, addJstDays(today, 1)];
 
-    const [tide, forecast] = await Promise.all([
-      loadTide(point, today),
-      weatherAt ? fetchWeather(weatherAt.lat, weatherAt.lng, today).catch(() => null) : null,
-    ]);
+    /* 先に投げたものが当たっていればそれを使う。外れていたら取り直す
+       （中身は同じ関数なので、当たっていた分は 1 本にまとまる） */
+    const hit = guessed && sameView(guess.point, point) && sameView(guess.weatherAt, weatherAt);
+    const [tide, forecast] = hit
+      ? await Promise.all([guessed.tide, guessed.weather])
+      : await Promise.all([
+        loadTide(point, today),
+        weatherAt ? fetchWeather(weatherAt.lat, weatherAt.lng, today).catch(() => null) : null,
+      ]);
+    // 次に開いたときのために覚え直す（スポットや座標を変えたらここで入れ替わる）
+    /* **鍵は「保存されていたスポット ID」のほう**。決まったあとの baseSpot.id で
+       覚えると、まだ何も選んでいない人（savedBaseSpot() が null）のとき
+       次に開いても照合できず、先に投げる意味が無くなる。実際そうなっていた。 */
+    rememberView(savedSpotId, point, weatherAt);
     const weather = forecast?.hours ?? null;
     tideCache.set(today, tide);
     // 日の出・日没は計算で出す（D-056）。天気の通信を待たずに夜の帯と印が描ける
@@ -236,7 +271,7 @@
       () => renderHero(baseSpot, tideCache.get(today) ?? null, weather, point,
                        sunCache.get(today) ?? null));
 
-    renderRecent(await listRecords({ limit: 2 }).catch(() => []));
+    recentSoon.then(renderRecent);
   }
 
   async function loadTide(point, date) {
