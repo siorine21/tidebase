@@ -152,12 +152,32 @@ function fetchWithTimeout(url, options = {}) {
   return fetch(url, { ...init, signal: AbortSignal.timeout(timeout) });
 }
 
+/* 取りに行った潮汐を、この画面が開いているあいだ覚えておく（D-140）。
+
+   **観測所と日付が決まれば中身は変わらない**ので、同じものを 2 度取る意味が無い。
+   実際、ホームは毎回 08-26 と 08-27 を 2 回ずつ取っていた。時差のある地点は
+   fetchTideForPoint が前後の日もつなぐため、3 日ぶん描くと日付が重なる。
+
+   **約束（Promise）のまま入れる。** 結果が返ってから入れると、
+   ほぼ同時に投げた 2 本目が「まだ入っていない」を見て走り出す。
+   失敗したものは覚えない（一度の不通が画面を開いているあいだ残ってしまう）。 */
+const tideRequests = new Map();
+
 export async function fetchTide(station, date) {
+  const key = `${station}|${date}`;
+  const known = tideRequests.get(key);
+  if (known) return known;
+
   const url = `${config.supabaseUrl}/functions/v1/tide`
     + `?station=${encodeURIComponent(station)}&date=${encodeURIComponent(date)}`;
-  const response = await fetchWithTimeout(url);
-  if (!response.ok) throw new Error(`潮汐データを取得できませんでした (${response.status})`);
-  return response.json();
+  const pending = (async () => {
+    const response = await fetchWithTimeout(url);
+    if (!response.ok) throw new Error(`潮汐データを取得できませんでした (${response.status})`);
+    return response.json();
+  })();
+  tideRequests.set(key, pending);
+  pending.catch(() => tideRequests.delete(key));
+  return pending;
 }
 
 /* ---------------- 月齢・潮回り（D-062） ----------------
@@ -738,6 +758,44 @@ export function saveTidePoint(value) {
    さらにホームはスポット座標・潮汐詳細は地点座標だったので、
    **同じ日でも 2 画面で違う天気**が出ていた。 */
 
+/* 前回どこを見ていたかを、地点まで含めて覚えておく（D-140）。
+
+   ホームは「スポット一覧 → 潮位表地点 → 潮汐と天気」の 3 段で待っていた。
+   前の 2 段は**どの地点を見るか**を決めるためだけにあり、
+   ふだんは前回と同じところを見る。なら**先に投げておける。**
+
+   覚えたものが当たっていれば 3 段が 2 段になり、外れていても
+   fetchTide / fetchWeather が同じものを 2 度取らないので損はしない。
+   スポットの座標や観測所を変えたときは、次に開いたときに覚え直される。 */
+const LAST_VIEW_KEY = "tidebase.lastView";
+
+export function rememberedView(spotId) {
+  try {
+    const raw = localStorage.getItem(LAST_VIEW_KEY);
+    if (!raw) return null;
+    const saved = JSON.parse(raw);
+    // 別のスポットを選んでいたら使わない（先に投げても無駄になる）
+    return saved && saved.spotId === (spotId ?? null) ? saved : null;
+  } catch {
+    return null;
+  }
+}
+
+export function rememberView(spotId, point, weatherAt) {
+  try {
+    localStorage.setItem(LAST_VIEW_KEY, JSON.stringify({
+      spotId: spotId ?? null, point: point ?? null, weatherAt: weatherAt ?? null,
+    }));
+  } catch {
+    /* 容量いっぱいなら、覚えないだけでよい */
+  }
+}
+
+/** 覚えていた地点と、実際に決まった地点が同じか。違えば取り直す。 */
+export function sameView(a, b) {
+  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+}
+
 export function savedBaseSpot() {
   return localStorage.getItem("tidebase.baseSpot");
 }
@@ -993,7 +1051,23 @@ async function fetchForecast(query) {
  * @returns {{hours: object[], sun: {rise: string, set: string}|null}}
  *          sun の時刻は "HH:MM"（JST）。極夜・白夜では null になり得る。
  */
+/* 潮汐と同じ理由で、取りに行った予報も覚えておく（D-140）。
+   こちらは**時間とともに変わる**ので、覚えるのは画面が開いているあいだだけ。
+   先に投げておいた分（rememberedPoint）と本来の分が同じ地点・同じ日なら、
+   ここで 1 本にまとまる。 */
+const weatherRequests = new Map();
+
 export async function fetchWeather(lat, lng, date) {
+  const key = `${Number(lat).toFixed(4)}|${Number(lng).toFixed(4)}|${date}`;
+  const known = weatherRequests.get(key);
+  if (known) return known;
+  const pending = fetchWeatherUncached(lat, lng, date);
+  weatherRequests.set(key, pending);
+  pending.catch(() => weatherRequests.delete(key));
+  return pending;
+}
+
+async function fetchWeatherUncached(lat, lng, date) {
   // 「0 時から 24 時間後まで」を満たすため翌日 0 時まで取得する（確定仕様書 2.2 章）
   const nextDay = new Date(Date.parse(`${date}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
   const base = `latitude=${lat}&longitude=${lng}&timezone=Asia%2FTokyo`

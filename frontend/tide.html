@@ -116,7 +116,13 @@
   renderNav("tide");
 
   const today = todayInJst();
-  const points = await listTidePoints().catch(() => []);
+
+  /* **同時に投げる**（D-140）。地点とスポットは互いに関係が無いのに
+     1 本ずつ待っていた。ホームと同じ形にそろえる。 */
+  const [points, spots] = await Promise.all([
+    listTidePoints().catch(() => []),
+    listSpots().catch(() => []),
+  ]);
   if (!points.length) {
     message("潮汐地点を読み込めませんでした。通信状況を確認してください。", "error");
     throw new Error("no tide points");
@@ -126,7 +132,6 @@
   /* 選ぶのはスポット（D-105）。地点はスポットから決まる。
      共有スポットも一覧に出す（D-108。D-105 で自分のものだけにしていたのを取り消す）。
      URL の ?spot= はホームから来たとき、?point= は古いリンク用に残す */
-  const spots = await listSpots().catch(() => []);
   const params = new URLSearchParams(location.search);
   const requestedSpot = params.get("spot");
   const requestedPoint = params.get("point");
