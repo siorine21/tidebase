@@ -312,13 +312,39 @@ BEGIN
   END IF;
 
   ------------------------------------------------------------
-  -- 魚種マスタの並び順（006）
+  -- 魚種マスタの並び順（006 / 039 / 040）
   ------------------------------------------------------------
-  -- 追加した 7 種がシステムデフォルトとして揃っていること
+  -- 006 で追加した 7 種。**イカは 040 でアオリイカに改名した**ので、
+  -- ここに 'イカ' を書き戻すと落ちる（分けたことを取り消した合図）
   IF (SELECT COUNT(*) FROM public.fish_species
       WHERE user_id IS NULL
-        AND name IN ('アジ', 'メバル', 'カサゴ', 'カマス', 'キス', 'タコ', 'イカ')) <> 7 THEN
+        AND name IN ('アジ', 'メバル', 'カサゴ', 'カマス', 'キス', 'タコ', 'アオリイカ')) <> 7 THEN
     RAISE EXCEPTION 'TEST FAIL: 追加した魚種が揃っていない';
+  END IF;
+
+  -- 039 / 040 / 041 で足した魚種（静岡県西部でルアーの対象になるもの）
+  IF (SELECT COUNT(*) FROM public.fish_species
+      WHERE user_id IS NULL
+        AND name IN ('メッキ', 'カワハギ', 'ギマ',
+                     'ハゼ', 'ソウダガツオ', 'シイラ', 'ニベ', 'コウイカ',
+                     'サバ', 'キジハタ')) <> 10 THEN
+    RAISE EXCEPTION 'TEST FAIL: 039/040/041 で足した魚種が揃っていない';
+  END IF;
+
+  -- **「イカ」を分けたのに元の名前が残っていないこと。**
+  -- 残ると選択肢にイカ・アオリイカ・コウイカの 3 つが並び、
+  -- どれを選べばよいか分からなくなる（改名ではなく追加にすると、こうなる）
+  IF EXISTS (SELECT 1 FROM public.fish_species
+             WHERE user_id IS NULL AND name = 'イカ') THEN
+    RAISE EXCEPTION 'TEST FAIL: 分けたはずの「イカ」が残っている';
+  END IF;
+
+  -- 並び順が同じ水域区分の中で重複していないこと。
+  -- 間の番号を使って足していくので、ぶつかると並びが不定になる
+  IF EXISTS (SELECT 1 FROM public.fish_species
+             WHERE user_id IS NULL AND sort_order IS NOT NULL
+             GROUP BY category, sort_order HAVING COUNT(*) > 1) THEN
+    RAISE EXCEPTION 'TEST FAIL: 魚種の並び順が重複している';
   END IF;
 
   -- 全システムデフォルトに水域区分と並び順が入っていること
