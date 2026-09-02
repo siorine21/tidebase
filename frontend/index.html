@@ -130,7 +130,8 @@
     listTidePoints, fetchTideForPoint, savedTidePoint, saveTidePoint, formatLag,
     pickBaseSpot, spotTidePoint, savedBaseSpot, saveBaseSpot, attachSpotPicker,
     rememberedView, rememberView, sameView,
-    spotFacesOpenSea, describeWaves, youTubeEmbedUrl, listLiveCameras,
+    spotFacesOpenSea, describeWaves, waveSummary, fetchWaves,
+    youTubeEmbedUrl, listLiveCameras,
     warmTideCache,
     hasUnreadNews, WEATHER_SOURCE,
     isCoordinateInJapan, tideTimelineSvg, sunStripHtml, levelAxisHtml, tideLevelAt, sunTimes,
@@ -147,6 +148,8 @@
   let tideCache = new Map();          // 日付 → 潮汐
   const sunCache = new Map();         // 日付 → 日の出・日没
   let todayHours = null;              // 今日の時間別予報（波の行が読む・D-142）
+  const camWaves = new Map();         // ライブカメラの code → その浜の予報（D-144）
+  let liveCams = [];                  // 出しているカメラ（毎分の書き直しが引く）
   const CHART_H = 152;                // グラフの高さ（潮位目盛りの箱もこれに合わせる）
 
   // いま何でスコアを判定したか。スコア円を押されたときに説明へ渡す
@@ -280,7 +283,7 @@
     renderChart();
     renderNow();
     // 「いま」なので、開きっぱなしでも合っているようにする。通信はしない
-    setInterval(renderNow, 60000);
+    setInterval(() => { renderNow(); refreshCamWaves(); }, 60000);
     // どこの天気なのかを出す。基準スポットが無ければ潮汐地点の座標で取っている
     document.getElementById("weather-source").textContent = weatherAt
       ? `${spotUsable ? (baseSpot.name ?? "無名スポット") : (point?.label ?? "既定の地点")}`
@@ -441,37 +444,141 @@
 
      翌日ぶんを渡すのが要点。22 時に開いたとき、今日の満干はもう残っていない。
      そこで「—」を出すと、**夜釣りでいちばん要る一行が消える**。 */
-  /* ライブカメラ（D-143 / 043）。**押されるまで iframe を作らない。**
+  /* ライブカメラ（D-143 / 043 / D-144）。**押されるまで iframe を作らない。**
      ホームを開いただけで生配信が始まると、通信も電池も持っていかれる。
      埋め込みを禁じている配信なら、押したあとに YouTube 自身がその旨を出す。
-     こちらでは判定できないので、そのまま見せる。 */
+     こちらでは判定できないので、そのまま見せる。
+
+     **畳めるようにする**（本人の要望）。畳んだら iframe ごと捨てる。
+     隠すだけ（hidden や display:none）にすると、見えないところで
+     配信が流れ続けて通信を食う。**畳む＝止まる**でないと畳む意味が無い。
+
+     **開いた状態は覚えない。** 覚えて次に開いたときに開いていると、
+     ホームを表示しただけで生配信が始まる。それは上の決めごとと真っ向から
+     ぶつかるので、いつも畳んだ状態から始める。
+
+     カメラのそばに**そのカメラが映している浜の波**を出す（D-144）。
+     「これが何 m の波か」を映像と数字で見比べられるようにするため（本人）。
+     これは**選んでいるスポットの波ではない**ので、必ず地点名を添える。
+
+     ※ camWaves の宣言は**画面の上のほう**（他の状態と同じところ）に置いてある。
+        ここに const で置くと、ブートから呼ばれる renderLiveCams のほうが先に走り、
+        「Cannot access 'camWaves' before initialization」で落ちる。実際に落とした。 */
+
+  /* **覚えるのは予報そのもの。まとめた文字ではない。**
+     ホームは開きっぱなしを前提にしていて（renderNow を毎分やり直している）、
+     時刻が進めば「いまの波」も変わる。文字にして覚えると、
+     何時間開いていても開いた時刻の波を出し続ける。
+     いま何時かを見るのは、**出す直前の 1 か所だけ**にする。 */
+  function camWaveNow(c) {
+    const hours = camWaves.get(c.code);
+    if (hours === undefined) return undefined;      // まだ届いていない
+    if (!hours) return null;                        // 取れなかった
+    return waveSummary(describeWaves(hours, nowInJst().hour));
+  }
+
+  function camWaveHead(c) {
+    const w = camWaveNow(c);
+    if (w === undefined) return `<span class="live-cam-wave loading">波 …</span>`;
+    if (!w) return "";               // 取れなかった。黙って何も出さない
+    return `<span class="live-cam-wave wv-${w.bandKey}">`
+      + `${w.height}<small>m</small> ${escapeHtml(w.band)}</span>`;
+  }
+
+  function camWaveBody(c) {
+    const w = camWaveNow(c);
+    if (!w) return "";
+    const bits = [
+      w.period ? `周期 ${w.period}秒` : null,
+      w.dir ? `${escapeHtml(w.dir)}から` : null,
+      w.range ? `今日 ${w.range}` : null,
+    ].filter(Boolean).join(" · ");
+    return `<div class="live-cam-wave-box">`
+      + `<div class="cw-head">`
+      + `<span class="cw-place">${escapeHtml(c.name)}沖の波</span>`
+      + `<span class="cw-now wv-${w.bandKey}">${w.height}<small>m</small></span>`
+      + `<span class="cw-band wv-${w.bandKey}">${escapeHtml(w.band)}</span>`
+      + `</div>`
+      + (bits ? `<div class="cw-sub">${bits}</div>` : "")
+      + `<div class="cw-note">${escapeHtml(w.note)}</div>`
+      + (w.swell ? `<div class="cw-note">${escapeHtml(w.swell)}</div>` : "")
+      + `</div>`;
+  }
+
   function renderLiveCams(cameras) {
     const box = document.getElementById("live-cam");
     const usable = (cameras ?? [])
       .map((c) => ({ ...c, url: youTubeEmbedUrl(c.youtube_id) }))
       .filter((c) => c.url);
+    liveCams = usable;
     if (!usable.length) { box.hidden = true; box.innerHTML = ""; return; }
 
     box.hidden = false;
     box.innerHTML = usable.map((c, i) => `<div class="live-cam-item" data-i="${i}">`
-      + `<button type="button" class="live-cam-open">`
+      + `<button type="button" class="live-cam-open" aria-expanded="false">`
       + `${icon("camera", { size: 15 })}`
-      + `<span>${escapeHtml(c.name)}のライブ映像</span>`
-      + `<small>${escapeHtml(c.water_body ?? "")}</small></button></div>`).join("");
+      + `<span class="nm">${escapeHtml(c.name)}のライブ映像</span>`
+      + `<span class="head-wave"></span>`
+      + `<span class="caret">${icon("chevron-down", { size: 14 })}</span>`
+      + `</button>`
+      + `<div class="live-cam-body" hidden></div></div>`).join("");
 
     box.querySelectorAll(".live-cam-item").forEach((item) => {
       const c = usable[Number(item.dataset.i)];
-      item.querySelector(".live-cam-open").addEventListener("click", () => {
-        item.innerHTML = `<div class="live-cam-frame">`
+      const bar = item.querySelector(".live-cam-open");
+      const body = item.querySelector(".live-cam-body");
+      bar.addEventListener("click", () => {
+        const open = bar.getAttribute("aria-expanded") === "true";
+        if (open) {
+          /* **中身ごと捨てる。** iframe が残っていると畳んでも配信が続く */
+          body.innerHTML = "";
+          body.hidden = true;
+          bar.setAttribute("aria-expanded", "false");
+          return;
+        }
+        body.hidden = false;
+        body.innerHTML = `<div class="live-cam-frame">`
           + `<iframe src="${c.url}" title="${escapeHtml(c.name)}のライブ映像"`
           + ` loading="lazy" allowfullscreen`
           + ` referrerpolicy="strict-origin-when-cross-origin"`
           + ` sandbox="allow-scripts allow-same-origin allow-presentation"></iframe>`
           + `</div>`
+          + camWaveBody(c)
           + `<div class="live-cam-note">${escapeHtml(c.name)}`
           + `${c.note ? ` — ${escapeHtml(c.note)}` : ""}。`
-          + `波の予報は沖の推算値なので、見えているものとは差が出ます。</div>`;
+          + `波は沖の推算値なので、映像に見えているものとは差が出ます。`
+          + `見比べると、何 m がどう見えるかの見当が付きます。</div>`;
+        bar.setAttribute("aria-expanded", "true");
       });
+      /* 波はカメラの座標で別に取る（D-144）。**待たない。**
+         届いたら見出しを書き替え、開いていれば中も描き直す */
+      loadCamWave(c).then(refreshCamWaves);
+      item.querySelector(".head-wave").innerHTML = camWaveHead(c);
+    });
+  }
+
+  /** カメラの座標の波を取って覚える。取れなければ null を覚える（何も出さない）。 */
+  async function loadCamWave(c) {
+    if (camWaves.has(c.code)) return;
+    if (c.lat == null || c.lng == null) { camWaves.set(c.code, null); return; }
+    try {
+      camWaves.set(c.code, await fetchWaves(c.lat, c.lng, todayInJst()));
+    } catch {
+      /* **取れなかったことを覚える。** ここを空のままにすると「…」が出しっぱなしになる。
+         0m とは書かない（凪いでいるのと、取れていないのは別物・D-142） */
+      camWaves.set(c.code, null);
+    }
+  }
+
+  /** カメラのそばの波を、いまの時刻で書き直す。**通信はしない。** */
+  function refreshCamWaves() {
+    document.querySelectorAll("#live-cam .live-cam-item").forEach((item) => {
+      const c = liveCams[Number(item.dataset.i)];
+      if (!c) return;
+      const head = item.querySelector(".head-wave");
+      if (head) head.innerHTML = camWaveHead(c);
+      const old = item.querySelector(".live-cam-wave-box");
+      if (old) old.outerHTML = camWaveBody(c);
     });
   }
 
@@ -521,16 +628,17 @@
        波高だけでは足りない（同じ 1.0m でも周期 5 秒の風波と 10 秒のうねりでは別物）。
 
        **沖の推算値であって、岸で見える波ではない。** そこは言い切らない。 */
-    const wave = describeWaves(todayHours, now.hour);
-    const waveRow = !wave?.level ? "" : `<div class="hn-row hn-wave">`
+    /* 数字と語は waveSummary が作る（D-144）。ライブ映像に添える波の欄と
+       同じものを言うので、**文字にする場所を 2 つに増やさない** */
+    const wave = waveSummary(describeWaves(todayHours, now.hour));
+    const waveRow = !wave ? "" : `<div class="hn-row hn-wave">`
       + `<span class="k">波</span>`
-      + `<span class="v">${wave.now.toFixed(1)}<small>m</small></span>`
+      + `<span class="v">${wave.height}<small>m</small></span>`
       + `<span class="t">`
-      + `<span class="wv wv-${wave.level.key}">${escapeHtml(wave.level.label)}</span>`
-      + (wave.period ? ` ${wave.period.toFixed(1)}<small>s</small>` : "")
-      + (wave.dirLabel ? ` ${escapeHtml(wave.dirLabel)}` : "")
-      + (wave.max - wave.min >= 0.3
-          ? ` <small>今日 ${wave.min.toFixed(1)}〜${wave.max.toFixed(1)}m</small>` : "")
+      + `<span class="wv wv-${wave.bandKey}">${escapeHtml(wave.band)}</span>`
+      + (wave.period ? ` ${wave.period}<small>s</small>` : "")
+      + (wave.dir ? ` ${escapeHtml(wave.dir)}` : "")
+      + (wave.range ? ` <small>今日 ${wave.range}</small>` : "")
       + `</span></div>`;
 
     box.hidden = false;

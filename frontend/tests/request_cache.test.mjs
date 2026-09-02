@@ -34,6 +34,9 @@ const code = sliceApp([
    '/* ---------------- 月齢・潮回り（D-062） ----------------'],
   ['/* 前回どこを見ていたかを、地点まで含めて覚えておく（D-140）。',
    'export function pickBaseSpot'],
+  // 波も同じ形で 1 本にまとめる（D-144）。カメラの波は marine の 1 本だけで取る
+  ['/* ライブ映像に添える波（D-144）。**波だけを取りに行く。**',
+   'async function fetchWeatherUncached'],
 ], prelude);
 
 /* localStorage はブラウザのもの。覚える・読むだけなので、ここで作る */
@@ -45,7 +48,7 @@ globalThis.localStorage = {
 };
 
 const app = new Function(code
-  + `; return { fetchTide, rememberedView, rememberView, sameView,
+  + `; return { fetchTide, fetchWaves, rememberedView, rememberView, sameView,
       _calls: () => calls, _fail: (v) => { nextFails = v; } };`)();
 
 let failed = 0;
@@ -132,6 +135,56 @@ const check = (name, ok, extra = '') => {
 {
   store.set('tidebase.lastView', '{壊れた');
   check('覚えたものが壊れていても落ちない', app.rememberedView(null) === null);
+}
+
+/* ---- カメラの波も 1 本にまとめる（D-144） ----
+   ライブカメラの波は**選んでいるスポットとは別の座標**で取る。
+   ホームで潮と天気を描き直すたびに呼ばれても、通信は 1 回で済むこと。 */
+{
+  const before = app._calls().length;
+  const [a, b] = await Promise.all([
+    app.fetchWaves(34.63, 137.93, '2026-09-03'),
+    app.fetchWaves(34.63, 137.93, '2026-09-03'),
+  ]);
+  check('同じ座標・同じ日は 1 回しか取りに行かない',
+    app._calls().length - before === 1, `${app._calls().length - before} 回`);
+  check('2 本目にも同じものが返る', a === b);
+}
+{
+  const before = app._calls().length;
+  await app.fetchWaves(34.63, 137.93, '2026-09-04');
+  check('日が違えば取りに行く', app._calls().length - before === 1);
+}
+{
+  const before = app._calls().length;
+  await app.fetchWaves(34.72, 137.60, '2026-09-03');
+  check('座標が違えば取りに行く', app._calls().length - before === 1);
+}
+/* **marine だけを叩く。** 気温も雨も要らないので、予報のほうは呼ばない。
+   罠: fetchWeather をそのまま使うと 2 本になり、ここで落ちる */
+check('波は marine の 1 本だけで取る',
+  app._calls().slice(-1)[0].startsWith('https://marine-api.open-meteo.com/'),
+  app._calls().slice(-1)[0]);
+check('その日ぶんだけ頼む（翌日を混ぜない）',
+  app._calls().slice(-1)[0].includes('start_date=2026-09-03&end_date=2026-09-03'),
+  app._calls().slice(-1)[0]);
+/* **失敗は覚えない**（D-140）。一度の不通が画面を開いているあいだ残ると、
+   電波が戻っても波が二度と出ない */
+{
+  app._fail(true);
+  let threw = false;
+  try { await app.fetchWaves(35.0, 139.0, '2026-09-03'); } catch { threw = true; }
+  check('つながらなければそのまま失敗を返す', threw);
+  app._fail(false);
+  const before = app._calls().length;
+  /* **必ず受け止める。** 覚えていた失敗をそのまま返してくると、ここで例外が飛び、
+     FAIL を出す前に script ごと落ちる。**落ちると罠を仕掛けても気づけない。**
+     同じことを 1 度やっている（D-140 のときの 2 つ目の罠） */
+  let again = null;
+  try { await app.fetchWaves(35.0, 139.0, '2026-09-03'); } catch (e) { again = e; }
+  check('**失敗したものは覚えない**（次にもう一度取りに行く）',
+    again === null && app._calls().length - before === 1,
+    again ? `覚えた失敗が返ってきた: ${again.message}` : `${app._calls().length - before} 回`);
 }
 
 console.log(failed ? `\nFAIL ${failed} 件` : '\nすべて通過');

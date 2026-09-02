@@ -19,10 +19,10 @@ const code = sliceApp([
   ['const WIND_DIRS', '/* ---------------- 天気の参照先（D-076）'],
 ]);
 const {
-  WAVE_BANDS, waveLevel, spotFacesOpenSea, describeWaves,
+  WAVE_BANDS, waveLevel, spotFacesOpenSea, describeWaves, waveSummary,
   OPEN_SEA_SPOT_TYPES, LONG_PERIOD_S,
 } = new Function(code + `; return { WAVE_BANDS, waveLevel, spotFacesOpenSea,
-  describeWaves, OPEN_SEA_SPOT_TYPES, LONG_PERIOD_S };`)();
+  describeWaves, waveSummary, OPEN_SEA_SPOT_TYPES, LONG_PERIOD_S };`)();
 
 let failed = 0;
 const check = (name, ok, extra = '') => {
@@ -103,6 +103,53 @@ check('周期と向きが無くても波高だけで出す', (() => {
 })());
 check('指定した時刻が無ければ先頭で代用する',
   describeWaves(hours, 23).now === 0.9);
+
+/* ---- 言葉にするところ（D-144） ----
+   「いまの潮」の波の行と、ライブ映像に添える波の欄で**同じことを言う**。
+   前は行のほうに直接書いていたので、片方だけ直せば必ず食い違う。
+   数字の丸め方や「今日の幅を出すか」の判断はここにしか無い。 */
+const sum = (h, atHour = 0) => waveSummary(describeWaves(h, atHour));
+
+check('波が無ければ null', sum([{ hour: 0, wave_height_m: null }]) === null);
+check('describeWaves が null でも落ちない', waveSummary(null) === null);
+
+const one = sum([{ hour: 0, wave_height_m: 1.04, wave_period_s: 6.25,
+                   wave_direction_deg: 180 }]);
+/* **小数 1 桁に丸める。** 1.04m を 1.0m と出す。
+   罠: 丸めずに出すと 1.04m のような桁が画面に並ぶ */
+check('波高は小数 1 桁', one.height === '1.0', one.height);
+check('周期も小数 1 桁', one.period === '6.3', one.period);
+check('帯の名前と鍵を返す', one.band === 'ふつう' && one.bandKey === 'mid',
+  `${one.band} / ${one.bandKey}`);
+/* 帯の note は「その帯が実測でどのくらい珍しいか」。
+   映像と見比べて目を慣らすための材料なので、必ず付いてくること */
+check('帯の説明も返す', typeof one.note === 'string' && one.note.length > 0, one.note);
+check('向きは言葉にする', one.dir === '南', one.dir);
+
+/* **幅が 0.3m 未満なら書かない。** 「1.1〜1.2m」は読む手間のわりに何も言っていない。
+   行く時刻を選ぶ材料になるのは、上下があるときだけ */
+const flat = sum([{ hour: 0, wave_height_m: 1.1 }, { hour: 1, wave_height_m: 1.2 }]);
+check('幅が狭ければ今日の幅を書かない', flat.range === null, String(flat.range));
+const wide = sum([{ hour: 0, wave_height_m: 0.8 }, { hour: 1, wave_height_m: 1.9 }]);
+check('幅があれば書く', wide.range === '0.8〜1.9m', String(wide.range));
+// ちょうど 0.3m は書く側（境目を決めておく）
+const edge = sum([{ hour: 0, wave_height_m: 1.0 }, { hour: 1, wave_height_m: 1.3 }]);
+check('ちょうど 0.3m は書く', edge.range === '1.0〜1.3m', String(edge.range));
+
+/* 長いうねりはその日のどこかにあれば言う（行く時刻を決める材料・D-142） */
+const swell = sum([{ hour: 0, wave_height_m: 1.0, wave_period_s: 5.0 },
+                   { hour: 1, wave_height_m: 1.0, wave_period_s: 9.0 }]);
+check('長いうねりの日はそう書く',
+  typeof swell.swell === 'string' && swell.swell.includes(`${LONG_PERIOD_S}秒`), swell.swell);
+check('うねりが無ければ書かない',
+  sum([{ hour: 0, wave_height_m: 1.0, wave_period_s: 5.0 }]).swell === null);
+
+/* 周期や向きが取れないことはある。**そこだけ落として波高は出す** */
+const bare = sum([{ hour: 0, wave_height_m: 2.2 }]);
+check('周期と向きが無くても波高と帯は出す',
+  bare.height === '2.2' && bare.bandKey === 'storm'
+  && bare.period === null && bare.dir === null,
+  JSON.stringify(bare));
 
 console.log(failed ? `\nFAIL ${failed} 件` : '\nすべて通過');
 process.exit(failed ? 1 : 0);

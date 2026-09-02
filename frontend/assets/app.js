@@ -1073,6 +1073,36 @@ export function describeWaves(hours, atHour = null) {
   };
 }
 
+/**
+ * 波の一行を組み立てる部品（D-144）。**文字にするのはここだけ。**
+ *
+ * 「いまの潮」の波の行と、ライブ映像に添える波の欄で、同じことを言う。
+ * 前は行のほうに直接書いていたので、片方だけ直せば必ず食い違う。
+ * この繰り返しでの取り違えが多いので（D-105 / D-127 / D-133）、
+ * **数字と語を作る場所を 1 つにして、並べ方だけ呼ぶ側に任せる。**
+ *
+ * @param {ReturnType<typeof describeWaves>|null} wave
+ * @returns {{height:string, band:string, bandKey:string, note:string,
+ *            period:string|null, dir:string|null, range:string|null,
+ *            swell:string|null}|null}
+ */
+export function waveSummary(wave) {
+  if (!wave?.level) return null;
+  return {
+    height: `${wave.now.toFixed(1)}`,
+    band: wave.level.label,
+    bandKey: wave.level.key,
+    note: wave.level.note,
+    period: wave.period == null ? null : `${wave.period.toFixed(1)}`,
+    dir: wave.dirLabel ?? null,
+    /* 幅が 0.3m 未満なら書かない。「1.1〜1.2m」は読む手間のわりに何も言っていない。
+       行く時刻を選ぶ材料になるのは、上下があるときだけ */
+    range: wave.max - wave.min >= 0.3
+      ? `${wave.min.toFixed(1)}〜${wave.max.toFixed(1)}m` : null,
+    swell: wave.longSwell ? `今日は長いうねり（${LONG_PERIOD_S}秒以上）が入ります` : null,
+  };
+}
+
 /* ---------------- ライブ映像（D-143） --------------------------------
 
    波の予報は**沖の推算値**で、岸で見える波ではない（D-142）。
@@ -1221,6 +1251,54 @@ export async function fetchWeather(lat, lng, date, { waves = true } = {}) {
   weatherRequests.set(key, pending);
   pending.catch(() => weatherRequests.delete(key));
   return pending;
+}
+
+/* ライブ映像に添える波（D-144）。**波だけを取りに行く。**
+
+   ここで欲しいのはカメラが映している浜の波だけで、気温も雨も要らない。
+   fetchWeather をそのまま呼ぶと予報と marine の 2 本になるので、
+   **marine の 1 本だけ**にする。D-142 で「要らない場所では marine を
+   呼ばない」とした裏返しで、要らない項目も頼まない。
+
+   カメラの座標は選んでいるスポットとは無関係なので、
+   「いまの潮」の波（スポットの波）とは**別の数字**になる。
+   同じ画面に 2 つ出るので、どちらの場所の波かを必ず書くこと。 */
+const waveRequests = new Map();
+
+/**
+ * 1 地点・1 日ぶんの波を取る（marine のみ）。
+ * 返す行は describeWaves がそのまま読める形にする。
+ */
+export async function fetchWaves(lat, lng, date) {
+  const key = `${Number(lat).toFixed(4)}|${Number(lng).toFixed(4)}|${date}`;
+  const known = waveRequests.get(key);
+  if (known) return known;
+  const pending = fetchWavesUncached(lat, lng, date);
+  waveRequests.set(key, pending);
+  pending.catch(() => waveRequests.delete(key));   // 失敗は覚えない（D-140）
+  return pending;
+}
+
+async function fetchWavesUncached(lat, lng, date) {
+  /* **その日ぶんだけ。** 予報のほうは翌日 0 時まで取るが（グラフを 24 時まで
+     引くため）、ここは「今日の幅」を言うのに使うので翌日を混ぜない */
+  const url = "https://marine-api.open-meteo.com/v1/marine?"
+    + `latitude=${lat}&longitude=${lng}&timezone=Asia%2FTokyo`
+    + `&start_date=${date}&end_date=${date}`
+    + "&hourly=wave_height,wave_period,wave_direction";
+  const response = await fetchWithTimeout(url);
+  if (!response.ok) throw new Error(`波を取得できませんでした (${response.status})`);
+  const sea = (await response.json()).hourly ?? null;
+  if (!sea?.time) return [];
+  /* **波高・周期・向きは瞬間値**なので添字はそのまま（D-111）。
+     区間の値（雨量・天気記号）と違って 1 つ後ろを見ない */
+  return sea.time.map((time, i) => ({
+    time,
+    hour: Number(time.slice(11, 13)),
+    wave_height_m: sea.wave_height?.[i] ?? null,
+    wave_period_s: sea.wave_period?.[i] ?? null,
+    wave_direction_deg: sea.wave_direction?.[i] ?? null,
+  }));
 }
 
 async function fetchWeatherUncached(lat, lng, date, waves = true) {
@@ -4439,16 +4517,44 @@ function commonest(values) {
  * 現在を断定はできない。実際、16 時台に降って 17 時前に上がった雨を
  * 17:09 に「いま雨が降っています」と書いて外した。時間帯の予報として書く。
  *
+ * **日をまたいだら「明日の」を付ける**（本人の指摘）。
+ * 帯は「これから 24 時間」なので、夕方に見ると後ろ半分は翌日になる。
+ * 「2時ごろから雨になりそうです」とだけ書くと、**今日の未明のことだと読める。**
+ * すでに過ぎた時刻なので、読んだ人は「もう降ったのか」と受け取ってしまう。
+ * カードのほうは上を走る日付の帯で分かるが、**この 1 行にはその手がかりが無い。**
+ *
  * @param {object[]} hours 時刻順に並んだ予報（これから先のぶん）
  * @param {boolean}  startsNow 先頭が「いまの時間帯」か。今日を今から並べたときだけ true
+ * @param {string|null} today 今日（"YYYY-MM-DD"）。窓の先頭が今日でないときに
+ *   「明日の」と書かないための照合用。渡さなければ先頭の日を基準にする
  * @returns {{key:string, text:string, from:object|null, until:object|null,
  *            heaviest:object|null}|null}
  */
-export function rainOutlook(hours, { startsNow = false } = {}) {
+export function rainOutlook(hours, { startsNow = false, today = null } = {}) {
   const rows = (hours ?? []).filter((h) => h?.precip_mm != null);
   if (!rows.length) return null;
 
-  const hh = (h) => `${h.hour}時`;
+  /* 窓の先頭の日を基準にして、そこから外れた時刻にだけ日を付ける。
+     **付けるのは基準から外れたときだけ。** 今日のぶんにまで「今日の」と
+     書くと、24 個のうち大半に要らない語が付いて読みにくくなる。
+
+     `time` を持たない呼び方（テストや古い呼び出し）でも落ちないように、
+     日が読めなければ黙って何も付けない */
+  const dayOf = (h) => String(h?.time ?? "").slice(0, 10);
+  const day0 = dayOf(rows[0]);
+  const dayAfter = (date) => (date
+    ? new Date(Date.parse(`${date}T00:00:00Z`) + 86400000).toISOString().slice(0, 10)
+    : null);
+  const dayWord = (h) => {
+    const date = dayOf(h);
+    if (!date || !day0 || date === day0) return "";
+    /* 「明日」と言えるのは**窓の先頭が今日のとき**だけ。
+       先の日を開いている画面（潮汐詳細）でそう書くと 1 日ずれる */
+    if (date === dayAfter(day0) && (today == null || day0 === today)) return "明日の";
+    return `${Number(date.slice(5, 7))}/${Number(date.slice(8, 10))} の`;
+  };
+
+  const hh = (h) => `${dayWord(h)}${h.hour}時`;
   const mm = (h) => `${Number(h.precip_mm).toFixed(1)}mm/h`;
   const wet = (h) => h.precip_mm >= RAIN_MM;
   const heaviest = rows.reduce((a, b) => (b.precip_mm > a.precip_mm ? b : a));
@@ -4587,7 +4693,11 @@ export function renderHourlyStrip(box, {
   if (leadBox) {
     /* 先頭が「いまの時間帯」かを渡す（D-107）。
        これを渡さないと、いま 12:05 なのに「12 時ごろから雨になりそうです」と出る */
-    const outlook = rainOutlook(rows, { startsNow: startsNow && rows[0].hour === now.hour });
+    /* today も渡す（本人の指摘）。夕方に見ると帯の後ろ半分は翌日なので、
+       そこを指すときは「明日の」と書く。窓の先頭が今日でないときは書かない */
+    const outlook = rainOutlook(rows, {
+      startsNow: startsNow && rows[0].hour === now.hour, today,
+    });
     leadBox.hidden = !outlook;
     if (outlook) {
       leadBox.className = `hourly-lead ${outlook.key}`;
