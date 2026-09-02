@@ -56,6 +56,12 @@
          「いま上げているのか、次の満潮はいつか、暗くなるまでどれだけか」を
          数字で出す。1 分ごとに書き直す（「いま」なので） -->
     <div class="hero-now" id="hero-now" hidden></div>
+    <!-- ライブカメラ（D-143 / 043）。**スポットには依らない。**
+         「釣りに行くとき、まずは海の様子をチェックする」（本人）ので、
+         行き先を決める前に見るもの。河川のスポットを選んでいても出す。
+         **押されるまで読み込まない。** 潮を見に来ただけの人に
+         生配信を流し始めるのは、通信も電池も持っていかれる -->
+    <div class="live-cam" id="live-cam" hidden></div>
     <div class="tags" id="hero-tags"></div>
     <!-- 時間別天気は TODAY の中に入れる（D-114）。
          スコアも時間帯ごとの点も、この 1 時間ごとの予報から出している。
@@ -124,6 +130,7 @@
     listTidePoints, fetchTideForPoint, savedTidePoint, saveTidePoint, formatLag,
     pickBaseSpot, spotTidePoint, savedBaseSpot, saveBaseSpot, attachSpotPicker,
     rememberedView, rememberView, sameView,
+    spotFacesOpenSea, describeWaves, youTubeEmbedUrl, listLiveCameras,
     warmTideCache,
     hasUnreadNews, WEATHER_SOURCE,
     isCoordinateInJapan, tideTimelineSvg, sunStripHtml, levelAxisHtml, tideLevelAt, sunTimes,
@@ -139,6 +146,7 @@
   let chartDays = [];
   let tideCache = new Map();          // 日付 → 潮汐
   const sunCache = new Map();         // 日付 → 日の出・日没
+  let todayHours = null;              // 今日の時間別予報（波の行が読む・D-142）
   const CHART_H = 152;                // グラフの高さ（潮位目盛りの箱もこれに合わせる）
 
   // いま何でスコアを判定したか。スコア円を押されたときに説明へ渡す
@@ -169,6 +177,10 @@
        最近の釣果だけは待たない。ヒーローより下にあるので、
        届いた順に描けばよい（待つと、上の表示まで道連れになる）。 */
     const recentSoon = listRecords({ limit: 2 }).catch(() => []);
+    /* ライブカメラはスポットに依らないので、決まるのを待たずに投げる（D-143）。
+       届いた時点で描く。海の様子を見てから行き先を決める、という順番なので、
+       むしろ上の表示より先に出てよい */
+    listLiveCameras().then(renderLiveCams).catch(() => {});
 
     /* **前回と同じところなら、決まるのを待たずに投げておく**（D-140）。
        下の 2 本は「どの地点を見るか」を決めるためだけにあり、
@@ -178,8 +190,11 @@
     const guess = rememberedView(savedSpotId);
     const guessed = !guess ? null : {
       tide: loadTide(guess.point, today),
+      /* 波の要否も覚えたものを使う。既定（波あり）で投げると、
+         河川のスポットでも先行投げのぶんだけ marine を叩いてしまう */
       weather: guess.weatherAt
-        ? fetchWeather(guess.weatherAt.lat, guess.weatherAt.lng, today).catch(() => null)
+        ? fetchWeather(guess.weatherAt.lat, guess.weatherAt.lng, today,
+                       { waves: guess.waves === true }).catch(() => null)
         : Promise.resolve(null),
     };
 
@@ -190,6 +205,9 @@
       listTidePoints().catch(() => []),
     ]);
     const baseSpot = pickBaseSpot(spots, savedSpotId);
+    /* 波は外洋に面した場所でしか意味を持たない（D-142）。
+       河川や管理釣り場では取りに行かない（要求が 1 回につき 3 本減る） */
+    const wantWaves = spotFacesOpenSea(baseSpot);
     /* どこを見ているかの帯（D-108）。**潮汐詳細と同じ部品を使う。**
        スポットを変えたら**画面ごと読み直す**（D-105）。
        潮汐も天気も日の出も、スコアも、全部この 1 つで決まる。
@@ -233,19 +251,24 @@
 
     /* 先に投げたものが当たっていればそれを使う。外れていたら取り直す
        （中身は同じ関数なので、当たっていた分は 1 本にまとまる） */
-    const hit = guessed && sameView(guess.point, point) && sameView(guess.weatherAt, weatherAt);
+    const hit = guessed && sameView(guess.point, point) && sameView(guess.weatherAt, weatherAt)
+      && guess.waves === wantWaves;
     const [tide, forecast] = hit
       ? await Promise.all([guessed.tide, guessed.weather])
       : await Promise.all([
         loadTide(point, today),
-        weatherAt ? fetchWeather(weatherAt.lat, weatherAt.lng, today).catch(() => null) : null,
+        weatherAt
+          ? fetchWeather(weatherAt.lat, weatherAt.lng, today, { waves: wantWaves })
+            .catch(() => null)
+          : null,
       ]);
     // 次に開いたときのために覚え直す（スポットや座標を変えたらここで入れ替わる）
     /* **鍵は「保存されていたスポット ID」のほう**。決まったあとの baseSpot.id で
        覚えると、まだ何も選んでいない人（savedBaseSpot() が null）のとき
        次に開いても照合できず、先に投げる意味が無くなる。実際そうなっていた。 */
-    rememberView(savedSpotId, point, weatherAt);
+    rememberView(savedSpotId, point, weatherAt, wantWaves);
     const weather = forecast?.hours ?? null;
+    todayHours = weather;
     tideCache.set(today, tide);
     // 日の出・日没は計算で出す（D-056）。天気の通信を待たずに夜の帯と印が描ける
     if (weatherAt) {
@@ -269,7 +292,7 @@
     // 前後の日をあとから読み足す。明日ぶんが届いたらスコアを描き直す（D-115）
     loadNeighbours(point, weatherAt,
       () => renderHero(baseSpot, tideCache.get(today) ?? null, weather, point,
-                       sunCache.get(today) ?? null));
+                       sunCache.get(today) ?? null), wantWaves);
 
     recentSoon.then(renderRecent);
   }
@@ -418,6 +441,40 @@
 
      翌日ぶんを渡すのが要点。22 時に開いたとき、今日の満干はもう残っていない。
      そこで「—」を出すと、**夜釣りでいちばん要る一行が消える**。 */
+  /* ライブカメラ（D-143 / 043）。**押されるまで iframe を作らない。**
+     ホームを開いただけで生配信が始まると、通信も電池も持っていかれる。
+     埋め込みを禁じている配信なら、押したあとに YouTube 自身がその旨を出す。
+     こちらでは判定できないので、そのまま見せる。 */
+  function renderLiveCams(cameras) {
+    const box = document.getElementById("live-cam");
+    const usable = (cameras ?? [])
+      .map((c) => ({ ...c, url: youTubeEmbedUrl(c.youtube_id) }))
+      .filter((c) => c.url);
+    if (!usable.length) { box.hidden = true; box.innerHTML = ""; return; }
+
+    box.hidden = false;
+    box.innerHTML = usable.map((c, i) => `<div class="live-cam-item" data-i="${i}">`
+      + `<button type="button" class="live-cam-open">`
+      + `${icon("camera", { size: 15 })}`
+      + `<span>${escapeHtml(c.name)}のライブ映像</span>`
+      + `<small>${escapeHtml(c.water_body ?? "")}</small></button></div>`).join("");
+
+    box.querySelectorAll(".live-cam-item").forEach((item) => {
+      const c = usable[Number(item.dataset.i)];
+      item.querySelector(".live-cam-open").addEventListener("click", () => {
+        item.innerHTML = `<div class="live-cam-frame">`
+          + `<iframe src="${c.url}" title="${escapeHtml(c.name)}のライブ映像"`
+          + ` loading="lazy" allowfullscreen`
+          + ` referrerpolicy="strict-origin-when-cross-origin"`
+          + ` sandbox="allow-scripts allow-same-origin allow-presentation"></iframe>`
+          + `</div>`
+          + `<div class="live-cam-note">${escapeHtml(c.name)}`
+          + `${c.note ? ` — ${escapeHtml(c.note)}` : ""}。`
+          + `波の予報は沖の推算値なので、見えているものとは差が出ます。</div>`;
+      });
+    });
+  }
+
   function renderNow() {
     const box = document.getElementById("hero-now");
     const now = nowInJst();
@@ -459,6 +516,23 @@
         + `</div>`;
     };
 
+    /* 波（D-142）。**外洋に面した場所でしか出さない。**
+       サーフは「行ってみたら立てない」が起きるので、行く前に分かるものは出す。
+       波高だけでは足りない（同じ 1.0m でも周期 5 秒の風波と 10 秒のうねりでは別物）。
+
+       **沖の推算値であって、岸で見える波ではない。** そこは言い切らない。 */
+    const wave = describeWaves(todayHours, now.hour);
+    const waveRow = !wave?.level ? "" : `<div class="hn-row hn-wave">`
+      + `<span class="k">波</span>`
+      + `<span class="v">${wave.now.toFixed(1)}<small>m</small></span>`
+      + `<span class="t">`
+      + `<span class="wv wv-${wave.level.key}">${escapeHtml(wave.level.label)}</span>`
+      + (wave.period ? ` ${wave.period.toFixed(1)}<small>s</small>` : "")
+      + (wave.dirLabel ? ` ${escapeHtml(wave.dirLabel)}` : "")
+      + (wave.max - wave.min >= 0.3
+          ? ` <small>今日 ${wave.min.toFixed(1)}〜${wave.max.toFixed(1)}m</small>` : "")
+      + `</span></div>`;
+
     box.hidden = false;
     box.innerHTML =
       `<div class="hn-head">`
@@ -466,6 +540,7 @@
       + (level == null ? "" : `<span class="hn-level">${Math.round(level)}<small>cm</small></span>`)
       + (flowText ? `<span class="hn-flow hn-${dir}">${escapeHtml(flowText)}</span>` : "")
       + `</div>`
+      + waveRow
       + (next ? row(`次の${next.label}`, next.time, next.inMinutes, next.nextDay) : "")
       + (sun ? row(sun.label, sun.time, sun.inMinutes, sun.nextDay) : "");
   }
@@ -521,12 +596,14 @@
   }
 
   /** 前後の日を読み足してグラフを伸ばす。 */
-  async function loadNeighbours(point, weatherAt, hero) {
+  async function loadNeighbours(point, weatherAt, hero, waves = false) {
     const others = chartDays.filter((date) => !tideCache.has(date));
     await Promise.all(others.map(async (date) => {
       const [tide, forecast] = await Promise.all([
         loadTide(point, date),
-        weatherAt ? fetchWeather(weatherAt.lat, weatherAt.lng, date).catch(() => null) : null,
+        weatherAt
+          ? fetchWeather(weatherAt.lat, weatherAt.lng, date, { waves }).catch(() => null)
+          : null,
       ]);
       tideCache.set(date, tide);
       renderChart();

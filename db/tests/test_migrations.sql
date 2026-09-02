@@ -322,6 +322,48 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL: 追加した魚種が揃っていない';
   END IF;
 
+  ------------------------------------------------------------
+  -- ライブカメラは地域のもの（043。042 のスポット列は取り消した）
+  ------------------------------------------------------------
+  -- **ここは安全の境目。** 動画 ID がそのまま iframe に入るので、
+  -- URL や細工した文字列を持てないことを DB で縛る。
+  failed := FALSE;
+  BEGIN
+    UPDATE public.live_cameras SET youtube_id = 'https://evil.example/x'
+    WHERE code = 'ENSHU-DOUGASA';
+    failed := TRUE;
+  EXCEPTION WHEN check_violation THEN
+    NULL;
+  END;
+  IF failed THEN
+    RAISE EXCEPTION 'TEST FAIL: ライブカメラに URL がそのまま入る';
+  END IF;
+
+  failed := FALSE;
+  BEGIN
+    UPDATE public.live_cameras SET youtube_id = 'kQljrmctUkgXXXX'
+    WHERE code = 'ENSHU-DOUGASA';
+    failed := TRUE;
+  EXCEPTION WHEN check_violation THEN
+    NULL;
+  END;
+  IF failed THEN
+    RAISE EXCEPTION 'TEST FAIL: 11 桁でない動画 ID が入る';
+  END IF;
+
+  -- 同笠のカメラが入っていること（これが唯一の遠州灘の映像）
+  IF NOT EXISTS (SELECT 1 FROM public.live_cameras
+                 WHERE code = 'ENSHU-DOUGASA' AND youtube_id = 'kQljrmctUkg') THEN
+    RAISE EXCEPTION 'TEST FAIL: 同笠海岸のライブカメラが無い';
+  END IF;
+
+  -- **042 の列は消えていること。** 残すと「どちらが正か」が分からなくなる
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_schema = 'public' AND table_name = 'spots'
+               AND column_name = 'live_camera_youtube_id') THEN
+    RAISE EXCEPTION 'TEST FAIL: スポット側のライブ映像の列が残っている';
+  END IF;
+
   -- 039 / 040 / 041 で足した魚種（静岡県西部でルアーの対象になるもの）
   IF (SELECT COUNT(*) FROM public.fish_species
       WHERE user_id IS NULL

@@ -781,10 +781,12 @@ export function rememberedView(spotId) {
   }
 }
 
-export function rememberView(spotId, point, weatherAt) {
+export function rememberView(spotId, point, weatherAt, waves = false) {
   try {
     localStorage.setItem(LAST_VIEW_KEY, JSON.stringify({
       spotId: spotId ?? null, point: point ?? null, weatherAt: weatherAt ?? null,
+      // 波を取りに行くかも覚える（D-142）。既定で投げると河川でも marine を叩く
+      waves: waves === true,
     }));
   } catch {
     /* 容量いっぱいなら、覚えないだけでよい */
@@ -994,6 +996,158 @@ export function windDirection(degrees) {
   return WIND_DIRS[Math.round(degrees / 45) % 8];
 }
 
+/* ---------------- 波（D-142） ----------------------------------------
+
+   遠州灘のサーフは「行ってみたら立てない」が起きる。**行く前に分かるものは
+   出しておく。** 波高だけでは足りず、同じ 1.0m でも周期 5 秒の風波と
+   10 秒のうねりでは岸での様子がまるで違う。
+
+   **帯は実測から決めた。** 同笠沖（34.63N 137.93E）の 1 年 8760 時間:
+
+     5% 0.58 / 25% 0.82 / 50% 1.06 / 75% 1.46 / 90% 1.96 / 95% 2.48 / 最大 5.28m
+
+   これを 5 つに割る。中央の 0.8〜1.2m が 38% でいちばん厚い。
+
+   **これは沖の推算値で、岸で見える波ではない。** 地形と潮位で岸際は変わる。
+   だから「目安」としか言わない。実際どうかは現地を見るしかない。 */
+export const WAVE_BANDS = [
+  { key: "calm",  max: 0.8, label: "穏やか",   note: "遠州灘では低いほう（下位 25%）" },
+  { key: "mid",   max: 1.2, label: "ふつう",   note: "いちばん多い帯（38%）" },
+  { key: "swell", max: 1.6, label: "波っ気あり", note: "上位 25%。濁りが出やすい" },
+  { key: "rough", max: 2.0, label: "荒れ気味", note: "上位 10%。立ち位置を選ぶ" },
+  { key: "storm", max: null, label: "荒れている", note: "年に 1 割弱。サーフは厳しい" },
+];
+
+/**
+ * 波高（m）→ 帯。取れなければ null。
+ *
+ * **`Number(x)` だけで判定しない。** `Number(null)` も `Number("")` も 0 なので、
+ * 材料が無いのに「穏やか」（いちばん下の帯）を返してしまう。
+ * D-140 の `curveAt` でまったく同じ穴を踏んでいる。**2 度目**。
+ */
+export function waveLevel(metres) {
+  if (metres == null || metres === "") return null;
+  const m = Number(metres);
+  if (!Number.isFinite(m)) return null;
+  return WAVE_BANDS.find((b) => b.max == null || m < b.max) ?? WAVE_BANDS.at(-1);
+}
+
+/** 周期がこれ以上なら「うねりが長い」。実測の中央は 7.0 秒、90% が 9.8 秒。 */
+export const LONG_PERIOD_S = 8;
+
+/**
+ * 波が意味を持つ場所か（D-142）。
+ *
+ * **外洋に face しているかで決める。** 河川・湖・管理釣り場に沖の波高を
+ * 出しても読む意味が無いし、取りに行くだけ無駄になる。
+ * 河口（rivermouth）と干潟（tidalflat）は湾の内側を指して使っているので外す。
+ */
+export const OPEN_SEA_SPOT_TYPES = ["surf", "cobble", "rock", "port", "tetra"];
+
+export function spotFacesOpenSea(spot) {
+  return OPEN_SEA_SPOT_TYPES.includes(spot?.spot_type);
+}
+
+/**
+ * その日の波をひとことでまとめる（D-142）。
+ * @param {object[]} hours mapHourly の結果（1 日ぶん）
+ * @returns {{now, min, max, level, period, longSwell, dirLabel}|null}
+ */
+export function describeWaves(hours, atHour = null) {
+  const rows = (hours ?? []).filter((r) => r.wave_height_m != null);
+  if (!rows.length) return null;
+  const heights = rows.map((r) => r.wave_height_m);
+  const at = atHour == null ? null : rows.find((r) => r.hour === atHour);
+  const here = at ?? rows[0];
+  const periods = rows.map((r) => r.wave_period_s).filter((x) => x != null);
+  return {
+    now: here.wave_height_m,
+    min: Math.min(...heights),
+    max: Math.max(...heights),
+    level: waveLevel(here.wave_height_m),
+    period: here.wave_period_s ?? null,
+    // その日のどこかで長いうねりが入るなら言う（行く時刻を決める材料）
+    longSwell: periods.some((s) => s >= LONG_PERIOD_S),
+    dirLabel: here.wave_direction_deg == null
+      ? null : windDirection(here.wave_direction_deg),
+  };
+}
+
+/* ---------------- ライブ映像（D-143） --------------------------------
+
+   波の予報は**沖の推算値**で、岸で見える波ではない（D-142）。
+   「実際どうか」はカメラを見るのがいちばん早い。
+
+   **URL をそのまま iframe に入れない。** スポットはグループへ共有できるので、
+   誰かが仕込んだ URL を他の人の画面で開くことになる。
+   ここでは **11 桁の動画 ID だけを取り出して保存**し、
+   埋め込み先はこちらで組み立てる。DB 側にも同じ形の CHECK を置いてある（042）。 */
+
+/** YouTube の動画 ID。11 桁の英数字・ハイフン・アンダースコアだけ。 */
+const YOUTUBE_ID = /^[A-Za-z0-9_-]{11}$/;
+
+/**
+ * YouTube の URL（または ID そのもの）から動画 ID を取り出す。
+ * 取り出せなければ null。**判断に迷ったら null**（怪しいものを通さない）。
+ *
+ * 受け付ける形:
+ *   youtube.com/live/<id>   youtube.com/watch?v=<id>
+ *   youtube.com/embed/<id>  youtu.be/<id>   <id> そのもの
+ */
+export function parseYouTubeId(input) {
+  const raw = String(input ?? "").trim();
+  if (!raw) return null;
+  if (YOUTUBE_ID.test(raw)) return raw;             // ID を直接貼られた場合
+
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  // **ホストを名指しで確かめる。** 部分一致だと evil-youtube.com が通る
+  const host = url.hostname.replace(/^www\./, "").toLowerCase();
+  const fromPath = (n) => url.pathname.split("/").filter(Boolean)[n] ?? null;
+
+  let id = null;
+  if (host === "youtu.be") id = fromPath(0);
+  else if (host === "youtube.com" || host === "m.youtube.com"
+           || host === "youtube-nocookie.com") {
+    const first = fromPath(0);
+    if (first === "live" || first === "embed" || first === "shorts") id = fromPath(1);
+    else if (url.pathname === "/watch") id = url.searchParams.get("v");
+  }
+  return id && YOUTUBE_ID.test(id) ? id : null;
+}
+
+/**
+ * 地域のライブカメラ（D-143 / 043）。
+ *
+ * **スポットの持ち物ではない。** 「釣りに行くとき、まずは海の様子をチェックする」
+ * （本人）ので、行き先を決める**前**に見るもの。選んでいるスポットには依らない。
+ * 042 でスポットの列にしたのは使い方の取り違えで、043 で取り消した。
+ */
+export async function listLiveCameras() {
+  const { data, error } = await client
+    .from("live_cameras")
+    .select("code,name,youtube_id,water_body,lat,lng,note")
+    .order("sort_order", { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+}
+
+/**
+ * 埋め込み用の URL。**引数は必ず parseYouTubeId を通ったもの**にする。
+ * ここでも念のため形を確かめ、違えば null（呼ぶ側が出さない）。
+ *
+ * nocookie 版を使う。見るだけで追跡用の Cookie が置かれるのを避ける。
+ */
+export function youTubeEmbedUrl(id) {
+  return YOUTUBE_ID.test(String(id ?? ""))
+    ? `https://www.youtube-nocookie.com/embed/${id}?rel=0&modestbranding=1`
+    : null;
+}
+
 /* ---------------- 天気の参照先（D-076） ----------------
    Open-Meteo 経由で **気象庁の数値予報（MSM 5km メッシュ / 39 時間以降は GSM）** を使う。
    日本の海沿いを見るなら、全球モデル（GFS・ICON・ECMWF）より格子が細かく、
@@ -1057,39 +1211,50 @@ async function fetchForecast(query) {
    ここで 1 本にまとまる。 */
 const weatherRequests = new Map();
 
-export async function fetchWeather(lat, lng, date) {
-  const key = `${Number(lat).toFixed(4)}|${Number(lng).toFixed(4)}|${date}`;
+export async function fetchWeather(lat, lng, date, { waves = true } = {}) {
+  /* **鍵に波の要否を入れる。** 入れないと、波なしで取ったものを
+     波ありの呼び出しが受け取って、波が永久に出なくなる */
+  const key = `${Number(lat).toFixed(4)}|${Number(lng).toFixed(4)}|${date}|${waves ? "w" : "-"}`;
   const known = weatherRequests.get(key);
   if (known) return known;
-  const pending = fetchWeatherUncached(lat, lng, date);
+  const pending = fetchWeatherUncached(lat, lng, date, waves);
   weatherRequests.set(key, pending);
   pending.catch(() => weatherRequests.delete(key));
   return pending;
 }
 
-async function fetchWeatherUncached(lat, lng, date) {
+async function fetchWeatherUncached(lat, lng, date, waves = true) {
   // 「0 時から 24 時間後まで」を満たすため翌日 0 時まで取得する（確定仕様書 2.2 章）
   const nextDay = new Date(Date.parse(`${date}T00:00:00Z`) + 86400000).toISOString().slice(0, 10);
   const base = `latitude=${lat}&longitude=${lng}&timezone=Asia%2FTokyo`
     + `&start_date=${date}&end_date=${nextDay}`;
-  const marineUrl = "https://marine-api.open-meteo.com/v1/marine?" + base + "&hourly=wave_height";
+  /* **波は 1 本の要求のまま列を足す**（D-142）。周期と向きが無いと
+     「同じ 1.0m でも風波かうねりか」が分からず、荒れ具合を読めない。
+     列を増やしても要求は 1 本のままで、増えるのは応答の大きさだけ
+     （実測 1.4KB → 2.8KB）。
+
+     **波が意味を持たない場所では、そもそも取りに行かない。** 河川や
+     管理釣り場に沖の波高を出しても読む意味が無い。実際の登録 27 件のうち
+     17 件がそちら側で、ホーム 1 回につき 3 本が無駄になっていた */
+  const marineUrl = "https://marine-api.open-meteo.com/v1/marine?" + base
+    + "&hourly=wave_height,wave_period,wave_direction";
 
   const [forecastRes, marineRes] = await Promise.all([
     // 1 地点ぶんなので、予想雨量と突風まで取る（D-104 / D-111）
     fetchForecast(`${base}&hourly=${WEATHER_HOURLY_DETAIL}&wind_speed_unit=ms`),
-    fetchWithTimeout(marineUrl).catch(() => null),
+    waves ? fetchWithTimeout(marineUrl).catch(() => null) : null,
   ]);
   if (!forecastRes.ok) throw new Error(`天気データを取得できませんでした (${forecastRes.status})`);
 
   const forecast = await forecastRes.json();
-  let waves = null;
+  let sea = null;
   if (marineRes && marineRes.ok) {
     const marine = await marineRes.json();
-    waves = marine.hourly?.wave_height ?? null;
+    sea = marine.hourly ?? null;
   }
 
   // 日の出・日没は計算で出す（D-056）。API から取ると過去 3 か月しか遡れない
-  return { hours: mapHourly(forecast.hourly, waves), sun: sunTimes(lat, lng, date) };
+  return { hours: mapHourly(forecast.hourly, sea), sun: sunTimes(lat, lng, date) };
 }
 
 /** Open-Meteo の hourly（配列の束）を 1 時間 1 件の形に直す。 */
@@ -1125,7 +1290,7 @@ export function forecastSeries(hourly, name, models = WEATHER_MODEL_ORDER) {
 
    **「H 時のカード」は H:00〜H+1:00 のこと**に統一する。そのために、
    区間の値だけ 1 つ後ろからとる。最後の 1 時間は次が無いので落とす。 */
-function mapHourly(h, waves = null) {
+function mapHourly(h, sea = null) {
   const at = (name) => forecastSeries(h, name) ?? [];
   const temp = at("temperature_2m"), code = at("weather_code");
   const wind = at("wind_speed_10m"), dir = at("wind_direction_10m");
@@ -1152,7 +1317,11 @@ function mapHourly(h, waves = null) {
       weather_code: code[next] ?? null,
       precip_mm: mm[next] ?? null,
       wind_gust_ms: gust[next] ?? null,
-      wave_height_m: waves ? waves[i] : null,
+      /* 波は marine の別 API から来る（D-142）。時刻の並びは同じなので添字で合わせる。
+         **波高・周期・向きは瞬間値**なので i のまま（区間の値ではない） */
+      wave_height_m: sea?.wave_height?.[i] ?? null,
+      wave_period_s: sea?.wave_period?.[i] ?? null,
+      wave_direction_deg: sea?.wave_direction?.[i] ?? null,
     };
   });
   // 最後の 1 時間は区間の値が空になる。中途半端な行を残すより落とす
