@@ -226,5 +226,52 @@ eq('23 時に見たら翌日 22 時で終わる',
 eq('まとめないと 19 時で終わっていた',
   hoursFromNow(joined, '2026-08-12T21:00', 24).at(-1).time, '2026-08-13T19:00');
 
+/* ---- 日をまたいだら「明日の」を付ける（D-144・本人の指摘） ----
+   帯は「これから 24 時間」なので、夕方に見ると後ろ半分は翌日になる。
+   「2時ごろから雨になりそうです」とだけ書くと**今日の未明のことだと読める**。
+   すでに過ぎた時刻なので、「もう降ったのか」と受け取ってしまう。
+
+   カードのほうは上を走る日付の帯で分かるが、この 1 行には手がかりが無い。 */
+const spanRows = (list, from = '2026-08-12T20:00') => {
+  const start = Date.parse(`${from}:00Z`);
+  return list.map((mm, i) => {
+    const t = new Date(start + i * 3600000).toISOString();
+    return { time: t.slice(0, 16), hour: Number(t.slice(11, 13)), precip_mm: mm };
+  });
+};
+
+// 20 時起点。0.0 が 5 つで 1 時、そこから雨 → 翌日の 1 時
+const overnight = spanRows([0, 0, 0, 0, 0, 2.4, 3.1, 0]);
+check('**日をまたいだら「明日の」を付ける**',
+  rainOutlook(overnight).text.startsWith('明日の1時ごろから'),
+  rainOutlook(overnight).text);
+check('やむ時刻にも付く',
+  rainOutlook(overnight).text.includes('明日の3時ごろまで'),
+  rainOutlook(overnight).text);
+// 今日のうちに降るなら付けない。24 個の大半に要らない語が付くと読みにくい
+check('同じ日なら付けない',
+  rainOutlook(spanRows([0, 2.4, 3.1, 0])).text.startsWith('21時ごろから'),
+  rainOutlook(spanRows([0, 2.4, 3.1, 0])).text);
+// ぱらつく程度の言い方にも同じ規則で付く（言い方が 3 通りあるので全部見る）
+check('「少し降るかも」にも付く',
+  rainOutlook(spanRows([0, 0, 0, 0, 0, 0.2, 0])).text.startsWith('明日の1時ごろに少し'),
+  rainOutlook(spanRows([0, 0, 0, 0, 0, 0.2, 0])).text);
+// いま降っていて、やむのが翌日のとき
+check('いまの雨がやむのが翌日なら、そこに付く',
+  rainOutlook(spanRows([1.2, 1.2, 1.2, 1.2, 1.2, 0]), { startsNow: true })
+    .text.includes('明日の1時ごろにやみそう'),
+  rainOutlook(spanRows([1.2, 1.2, 1.2, 1.2, 1.2, 0]), { startsNow: true }).text);
+// 窓の先頭が今日でなければ「明日」とは書けない（潮汐詳細は先の日を開ける）
+check('先の日を開いているときは「明日」と書かない',
+  rainOutlook(overnight, { today: '2026-08-10' }).text.startsWith('8/13 の1時ごろから'),
+  rainOutlook(overnight, { today: '2026-08-10' }).text);
+check('先頭が今日なら today を渡しても「明日の」',
+  rainOutlook(overnight, { today: '2026-08-12' }).text.startsWith('明日の1時ごろから'),
+  rainOutlook(overnight, { today: '2026-08-12' }).text);
+// time を持たない行（古い呼び出し・テスト）でも落ちない
+check('time が無くても落ちない',
+  rainOutlook(mmRows([0, 0, 2.4, 3.1, 0])).text.startsWith('2時ごろから'),
+  rainOutlook(mmRows([0, 0, 2.4, 3.1, 0])).text);
+
 console.log(failed ? `\n${failed} 件 FAIL` : '\nすべて PASS');
 process.exit(failed ? 1 : 0);
