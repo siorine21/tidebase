@@ -351,10 +351,18 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL: 11 桁でない動画 ID が入る';
   END IF;
 
-  -- 同笠のカメラが入っていること（これが唯一の遠州灘の映像）
+  -- 同笠のカメラが入っていること（これが唯一の遠州灘の映像）。
+  -- **ID は 044 で差し替えた。** 043 の kQljrmctUkg はアーカイブ（録画）で、
+  -- いつ見ても同じ過去の海が映っていた。生配信は 84GhMEo9We0。
   IF NOT EXISTS (SELECT 1 FROM public.live_cameras
-                 WHERE code = 'ENSHU-DOUGASA' AND youtube_id = 'kQljrmctUkg') THEN
+                 WHERE code = 'ENSHU-DOUGASA' AND youtube_id = '84GhMEo9We0') THEN
     RAISE EXCEPTION 'TEST FAIL: 同笠海岸のライブカメラが無い';
+  END IF;
+
+  -- 差し戻していないこと。録画に戻ると「いま海がどうか」が分からなくなるのに、
+  -- 画面はふつうに映るので気づけない
+  IF EXISTS (SELECT 1 FROM public.live_cameras WHERE youtube_id = 'kQljrmctUkg') THEN
+    RAISE EXCEPTION 'TEST FAIL: アーカイブの動画 ID に戻っている';
   END IF;
 
   -- **042 の列は消えていること。** 残すと「どちらが正か」が分からなくなる
