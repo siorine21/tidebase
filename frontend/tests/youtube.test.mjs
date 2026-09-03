@@ -16,8 +16,10 @@ import { sliceApp } from './_slice.mjs';
 const code = sliceApp([
   ['/* ---------------- ライブ映像（D-143）', '/* ---------------- 天気の参照先（D-076）'],
 ]);
-const { parseYouTubeId, youTubeEmbedUrl } =
-  new Function(code + '; return { parseYouTubeId, youTubeEmbedUrl };')();
+const { parseYouTubeId, youTubeEmbedUrl,
+        parseYouTubeChannelId, youTubeChannelEmbedUrl, liveCameraEmbedUrl } =
+  new Function(code + `; return { parseYouTubeId, youTubeEmbedUrl,
+    parseYouTubeChannelId, youTubeChannelEmbedUrl, liveCameraEmbedUrl };`)();
 
 let failed = 0;
 const check = (name, ok, extra = '') => {
@@ -83,6 +85,85 @@ for (const bad of ['../../evil', 'a"><script>', '', null, '84GhMEo9We0?x=1', 'sh
 check('通る ID は URL に危ない字を含まない',
   [ID, 'a_b-c1234_9'].every((x) => parseYouTubeId(x) === x
     && encodeURIComponent(x) === x));
+
+/* ---- チャンネルで指す（D-145） ----
+   動画 ID で指すと、配信する側が配信を切り直したときに古い録画が残る。
+   そのとき画面は何も壊れず、**古い録画が「いまの海」の顔をして出続ける。**
+   チャンネルで指せば常にいま流れているものが出る。
+
+   ここも安全の境目。**チャンネル ID がそのまま iframe の src に入る。** */
+const CH = 'UCklttRvu7xLyAIHfn1Rqreg';   // 同笠海岸のカメラのチャンネル（本人がくれた）
+
+for (const [label, input] of [
+  ['本人がくれた形（si 付き）',
+   'https://youtube.com/channel/UCklttRvu7xLyAIHfn1Rqreg?si=kUxCGnI3mK0hECeY'],
+  ['www 付き', 'https://www.youtube.com/channel/UCklttRvu7xLyAIHfn1Rqreg'],
+  ['スマホ版', 'https://m.youtube.com/channel/UCklttRvu7xLyAIHfn1Rqreg'],
+  ['末尾に / が付く', 'https://www.youtube.com/channel/UCklttRvu7xLyAIHfn1Rqreg/'],
+  ['さらに下の階層', 'https://www.youtube.com/channel/UCklttRvu7xLyAIHfn1Rqreg/streams'],
+  ['ID を直接貼る', CH],
+  ['前後に空白', `  ${CH} `],
+]) check(`チャンネル: ${label}`, parseYouTubeChannelId(input) === CH,
+  String(parseYouTubeChannelId(input)));
+
+/* **通してはいけないもの。** 動画 ID のときと同じ罠が全部ある */
+for (const [label, input] of [
+  ['よく似た別ホスト', 'https://evil-youtube.com/channel/UCklttRvu7xLyAIHfn1Rqreg'],
+  ['後ろに足した別ホスト', 'https://youtube.com.attacker.jp/channel/UCklttRvu7xLyAIHfn1Rqreg'],
+  ['javascript:', 'javascript:alert(1)'],
+  ['data:', 'data:text/html,<script>alert(1)</script>'],
+  ['file:', 'file:///etc/passwd'],
+  /* **@ハンドルは通さない。** ここからチャンネル ID は分からず、
+     当てるには YouTube の API が要る。似た形を勝手に通すくらいなら
+     「読み取れなかった」と言うほうがいい */
+  ['@ハンドル', 'https://www.youtube.com/@nanigashi'],
+  ['ユーザー名の古い形', 'https://www.youtube.com/user/nanigashi'],
+  ['動画の URL（チャンネルではない）', 'https://www.youtube.com/live/84GhMEo9We0'],
+  ['UC で始まらない', 'ABklttRvu7xLyAIHfn1Rqreg'],
+  ['短い', 'UCklttRvu7xLyAIHfn1Rqre'],
+  ['長い', 'UCklttRvu7xLyAIHfn1Rqregg'],
+  ['使えない字', 'UCklttRvu7xLyAIHfn1Rqre!'],
+  ['channel の後ろが空', 'https://www.youtube.com/channel/'],
+  ['空', ''],
+  ['null', null],
+  ['undefined', undefined],
+  ['数', 12345],
+]) check(`チャンネル 通さない: ${label}`, parseYouTubeChannelId(input) === null,
+  String(parseYouTubeChannelId(input)));
+
+/* 埋め込み URL も自前で組み立てる（入力を混ぜない） */
+check('チャンネルの埋め込みは live_stream で組み立てる',
+  youTubeChannelEmbedUrl(CH)
+    === `https://www.youtube-nocookie.com/embed/live_stream?channel=${CH}`,
+  String(youTubeChannelEmbedUrl(CH)));
+check('チャンネルも nocookie 版を使う',
+  youTubeChannelEmbedUrl(CH).startsWith('https://www.youtube-nocookie.com/'));
+for (const bad of ['../../evil', 'a"><script>', '', null, `${CH}?x=1`, '84GhMEo9We0'])
+  check(`チャンネルの埋め込みも形を確かめる: ${JSON.stringify(bad)}`,
+    youTubeChannelEmbedUrl(bad) === null);
+check('通るチャンネル ID は URL に危ない字を含まない',
+  encodeURIComponent(CH) === CH);
+
+/* ---- どちらを使うかを決めるのは 1 か所だけ（D-145） ----
+   呼ぶ側それぞれが選ぶと、画面ごとに違うものを出すようになる */
+check('チャンネルがあればチャンネルを使う',
+  liveCameraEmbedUrl({ youtube_channel_id: CH, youtube_id: null })
+    === youTubeChannelEmbedUrl(CH));
+check('チャンネルが無ければ動画 ID を使う',
+  liveCameraEmbedUrl({ youtube_channel_id: null, youtube_id: ID })
+    === youTubeEmbedUrl(ID));
+/* DB は「どちらか一方だけ」を CHECK で縛っているが、
+   万一両方来ても**チャンネルが勝つ**。古い録画を出すほうを選ばない */
+check('両方あってもチャンネルが勝つ',
+  liveCameraEmbedUrl({ youtube_channel_id: CH, youtube_id: ID })
+    === youTubeChannelEmbedUrl(CH));
+check('どちらも無ければ null',
+  liveCameraEmbedUrl({ youtube_channel_id: null, youtube_id: null }) === null);
+check('壊れた値なら null',
+  liveCameraEmbedUrl({ youtube_channel_id: 'javascript:x', youtube_id: '../../evil' })
+    === null);
+check('カメラそのものが無くても落ちない',
+  liveCameraEmbedUrl(null) === null && liveCameraEmbedUrl(undefined) === null);
 
 console.log(failed ? `\nFAIL ${failed} 件` : '\nすべて通過');
 process.exit(failed ? 1 : 0);

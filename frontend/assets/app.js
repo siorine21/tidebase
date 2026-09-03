@@ -1150,6 +1150,40 @@ export function parseYouTubeId(input) {
   return id && YOUTUBE_ID.test(id) ? id : null;
 }
 
+/** YouTube のチャンネル ID。UC + 22 桁（D-145）。 */
+const YOUTUBE_CHANNEL_ID = /^UC[A-Za-z0-9_-]{22}$/;
+
+/**
+ * YouTube の URL（または ID そのもの）からチャンネル ID を取り出す（D-145）。
+ * 取り出せなければ null。**判断に迷ったら null。**
+ *
+ * 受け付ける形:
+ *   youtube.com/channel/UC…   UC… そのもの
+ *
+ * **`@ハンドル` は受け付けない。** `youtube.com/@nanigashi` からチャンネル ID は
+ * 分からず、当てるには YouTube の API が要る。似た形を勝手に通すくらいなら
+ * 「読み取れなかった」と言うほうがいい。
+ */
+export function parseYouTubeChannelId(input) {
+  const raw = String(input ?? "").trim();
+  if (!raw) return null;
+  if (YOUTUBE_CHANNEL_ID.test(raw)) return raw;     // ID を直接貼られた場合
+
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  // ホストは名指しで確かめる（部分一致だと evil-youtube.com が通る・D-143）
+  const host = url.hostname.replace(/^www\./, "").toLowerCase();
+  const parts = url.pathname.split("/").filter(Boolean);
+  if (host !== "youtube.com" && host !== "m.youtube.com") return null;
+  if (parts[0] !== "channel") return null;
+  const id = parts[1] ?? null;
+  return id && YOUTUBE_CHANNEL_ID.test(id) ? id : null;
+}
+
 /**
  * 地域のライブカメラ（D-143 / 043）。
  *
@@ -1160,7 +1194,7 @@ export function parseYouTubeId(input) {
 export async function listLiveCameras() {
   const { data, error } = await client
     .from("live_cameras")
-    .select("code,name,youtube_id,water_body,lat,lng,note")
+    .select("code,name,youtube_id,youtube_channel_id,water_body,lat,lng,note")
     .order("sort_order", { ascending: true });
   if (error) throw error;
   return data ?? [];
@@ -1176,6 +1210,35 @@ export function youTubeEmbedUrl(id) {
   return YOUTUBE_ID.test(String(id ?? ""))
     ? `https://www.youtube-nocookie.com/embed/${id}?rel=0&modestbranding=1`
     : null;
+}
+
+/**
+ * チャンネルの**いま生放送しているもの**を埋め込む URL（D-145）。
+ *
+ * 動画 ID で指すと、配信する側が配信を切り直したときに古い録画が残る。
+ * そのとき画面は何も壊れず、**古い録画が「いまの海」の顔をして出続ける。**
+ * チャンネルで指せば、切り直されても常にいま流れているものが出る。
+ *
+ * 生放送していないときは YouTube 自身が枠の中でそう言う。**それでいい。**
+ * 「いま映っていない」と分かるほうが、古い録画を見せられるよりずっと良い。
+ */
+export function youTubeChannelEmbedUrl(channelId) {
+  return YOUTUBE_CHANNEL_ID.test(String(channelId ?? ""))
+    ? `https://www.youtube-nocookie.com/embed/live_stream?channel=${channelId}`
+    : null;
+}
+
+/**
+ * カメラ 1 台の埋め込み URL を決める（D-145）。**選ぶのはここだけ。**
+ *
+ * チャンネルがあればそちら。無ければ動画 ID。DB は
+ * 「どちらか一方だけ」を CHECK で縛っているので、ふだん迷いは起きない。
+ * それでも**順番をここに 1 つだけ書いておく**。呼ぶ側それぞれが選ぶと、
+ * 画面ごとに違うものを出すようになる（何度もやっている）。
+ */
+export function liveCameraEmbedUrl(camera) {
+  return youTubeChannelEmbedUrl(camera?.youtube_channel_id)
+    ?? youTubeEmbedUrl(camera?.youtube_id);
 }
 
 /* ---------------- 天気の参照先（D-076） ----------------
