@@ -329,7 +329,8 @@ BEGIN
   -- URL や細工した文字列を持てないことを DB で縛る。
   failed := FALSE;
   BEGIN
-    UPDATE public.live_cameras SET youtube_id = 'https://evil.example/x'
+    UPDATE public.live_cameras
+    SET youtube_id = 'https://evil.example/x', youtube_channel_id = NULL
     WHERE code = 'ENSHU-DOUGASA';
     failed := TRUE;
   EXCEPTION WHEN check_violation THEN
@@ -341,7 +342,8 @@ BEGIN
 
   failed := FALSE;
   BEGIN
-    UPDATE public.live_cameras SET youtube_id = 'kQljrmctUkgXXXX'
+    UPDATE public.live_cameras
+    SET youtube_id = 'kQljrmctUkgXXXX', youtube_channel_id = NULL
     WHERE code = 'ENSHU-DOUGASA';
     failed := TRUE;
   EXCEPTION WHEN check_violation THEN
@@ -351,18 +353,77 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL: 11 桁でない動画 ID が入る';
   END IF;
 
-  -- 同笠のカメラが入っていること（これが唯一の遠州灘の映像）。
-  -- **ID は 044 で差し替えた。** 043 の kQljrmctUkg はアーカイブ（録画）で、
-  -- いつ見ても同じ過去の海が映っていた。生配信は 84GhMEo9We0。
-  IF NOT EXISTS (SELECT 1 FROM public.live_cameras
-                 WHERE code = 'ENSHU-DOUGASA' AND youtube_id = '84GhMEo9We0') THEN
-    RAISE EXCEPTION 'TEST FAIL: 同笠海岸のライブカメラが無い';
+  -- チャンネル ID も同じ形で縛る（045）。ここも iframe の src に入る
+  failed := FALSE;
+  BEGIN
+    UPDATE public.live_cameras
+    SET youtube_channel_id = 'https://youtube.com/channel/UCklttRvu7xLyAIHfn1Rqreg',
+        youtube_id = NULL
+    WHERE code = 'ENSHU-DOUGASA';
+    failed := TRUE;
+  EXCEPTION WHEN check_violation THEN
+    NULL;
+  END;
+  IF failed THEN
+    RAISE EXCEPTION 'TEST FAIL: チャンネルに URL がそのまま入る';
   END IF;
 
-  -- 差し戻していないこと。録画に戻ると「いま海がどうか」が分からなくなるのに、
-  -- 画面はふつうに映るので気づけない
-  IF EXISTS (SELECT 1 FROM public.live_cameras WHERE youtube_id = 'kQljrmctUkg') THEN
-    RAISE EXCEPTION 'TEST FAIL: アーカイブの動画 ID に戻っている';
+  failed := FALSE;
+  BEGIN
+    UPDATE public.live_cameras
+    SET youtube_channel_id = 'ABklttRvu7xLyAIHfn1Rqreg', youtube_id = NULL
+    WHERE code = 'ENSHU-DOUGASA';
+    failed := TRUE;
+  EXCEPTION WHEN check_violation THEN
+    NULL;
+  END;
+  IF failed THEN
+    RAISE EXCEPTION 'TEST FAIL: UC で始まらないチャンネル ID が入る';
+  END IF;
+
+  -- **どちらか一方だけ**（045）。両方あると「どちらが正か」が分からなくなり、
+  -- 片方だけ直して取り残す（043 で spots の列を消したのと同じ理由）
+  failed := FALSE;
+  BEGIN
+    UPDATE public.live_cameras
+    SET youtube_channel_id = 'UCklttRvu7xLyAIHfn1Rqreg', youtube_id = '84GhMEo9We0'
+    WHERE code = 'ENSHU-DOUGASA';
+    failed := TRUE;
+  EXCEPTION WHEN check_violation THEN
+    NULL;
+  END;
+  IF failed THEN
+    RAISE EXCEPTION 'TEST FAIL: 動画 ID とチャンネルを両方持てる';
+  END IF;
+
+  failed := FALSE;
+  BEGIN
+    UPDATE public.live_cameras
+    SET youtube_channel_id = NULL, youtube_id = NULL
+    WHERE code = 'ENSHU-DOUGASA';
+    failed := TRUE;
+  EXCEPTION WHEN check_violation THEN
+    NULL;
+  END;
+  IF failed THEN
+    RAISE EXCEPTION 'TEST FAIL: どちらも持たないカメラが作れる';
+  END IF;
+
+  -- 同笠のカメラが**チャンネルで**入っていること（045）。
+  -- 動画 ID で指すと、配信する側が配信を切り直すたびに古い録画が残る。
+  -- そのとき画面は何も壊れず、古い録画が「いまの海」の顔をして出続ける。
+  -- 実際に 043 → 044 でその差し替えをやっている
+  IF NOT EXISTS (SELECT 1 FROM public.live_cameras
+                 WHERE code = 'ENSHU-DOUGASA'
+                   AND youtube_channel_id = 'UCklttRvu7xLyAIHfn1Rqreg'
+                   AND youtube_id IS NULL) THEN
+    RAISE EXCEPTION 'TEST FAIL: 同笠海岸のカメラがチャンネルで入っていない';
+  END IF;
+
+  -- 動画 ID に差し戻していないこと。戻すと「切り直されたら古い録画が映る」に逆戻りする
+  IF EXISTS (SELECT 1 FROM public.live_cameras
+             WHERE youtube_id IN ('kQljrmctUkg', '84GhMEo9We0')) THEN
+    RAISE EXCEPTION 'TEST FAIL: 動画 ID で指す形に戻っている';
   END IF;
 
   -- **042 の列は消えていること。** 残すと「どちらが正か」が分からなくなる

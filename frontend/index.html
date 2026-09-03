@@ -131,7 +131,7 @@
     pickBaseSpot, spotTidePoint, savedBaseSpot, saveBaseSpot, attachSpotPicker,
     rememberedView, rememberView, sameView,
     spotFacesOpenSea, describeWaves, waveSummary, fetchWaves,
-    youTubeEmbedUrl, listLiveCameras,
+    liveCameraEmbedUrl, listLiveCameras,
     warmTideCache,
     hasUnreadNews, WEATHER_SOURCE,
     isCoordinateInJapan, tideTimelineSvg, sunStripHtml, levelAxisHtml, tideLevelAt, sunTimes,
@@ -508,7 +508,7 @@
   function renderLiveCams(cameras) {
     const box = document.getElementById("live-cam");
     const usable = (cameras ?? [])
-      .map((c) => ({ ...c, url: youTubeEmbedUrl(c.youtube_id) }))
+      .map((c) => ({ ...c, url: liveCameraEmbedUrl(c) }))
       .filter((c) => c.url);
     liveCams = usable;
     if (!usable.length) { box.hidden = true; box.innerHTML = ""; return; }
