@@ -1373,3 +1373,278 @@ BEGIN
   RAISE NOTICE 'UPDATED_AT / ORPHAN TESTS PASSED';
 END;
 $$;
+
+-- ============================================================
+-- 046: バトルの集計と、「行きたい」カレンダー
+--
+-- **ここは信用の問題。** 順位が 1 つでもおかしいと、次から誰も使わなくなる。
+-- しかも「合計 3 匹ぶん足りない」は画面を見ても分からない。
+--
+-- 数えるかどうかを決めるのは battle_records 1 か所だけにしてある。
+-- 画面側（JS）は並べるだけ。ここではその 1 か所を全部の向きから叩く。
+-- ============================================================
+DO $$
+DECLARE
+  g          UUID := gen_random_uuid();
+  me         UUID := gen_random_uuid();
+  mate       UUID := gen_random_uuid();
+  bystander  UUID := gen_random_uuid();   -- 同じグループだが参加表明していない
+  outsider   UUID := gen_random_uuid();   -- グループの外の人
+  seabass    UUID;
+  hirame     UUID;
+  sp         UUID;
+  b          UUID;
+  r_ok       UUID;
+  r_nophoto  UUID;
+  r_nolen    UUID;
+  r_start    UUID;
+  n          INT;
+  failed     BOOLEAN := FALSE;
+BEGIN
+  -- 人とグループ
+  INSERT INTO auth.users (id) VALUES (me), (mate), (bystander), (outsider);
+  -- profiles は auth.users への trigger が作る。名前だけ入れ替える
+  UPDATE public.profiles SET username = 'わたし'      WHERE id = me;
+  UPDATE public.profiles SET username = 'あいて'      WHERE id = mate;
+  UPDATE public.profiles SET username = 'みてるひと'  WHERE id = bystander;
+  UPDATE public.profiles SET username = 'よそのひと'  WHERE id = outsider;
+  INSERT INTO public.groups (id, name, owner_id) VALUES (g, 'テスト隊', me);
+  -- オーナーの行は groups への trigger が作る。残り 2 人を足す
+  INSERT INTO public.group_members (group_id, user_id, role) VALUES
+    (g, mate, 'member'), (g, bystander, 'member')
+  ON CONFLICT DO NOTHING;
+
+  SELECT id INTO seabass FROM public.fish_species WHERE name = 'マルスズキ' LIMIT 1;
+  SELECT id INTO hirame  FROM public.fish_species WHERE name = 'ヒラメ'   LIMIT 1;
+  IF seabass IS NULL OR hirame IS NULL THEN
+    RAISE EXCEPTION 'TEST FAIL: 下ごしらえの魚種が見つからない';
+  END IF;
+
+  INSERT INTO public.spots (user_id, name, latitude, longitude)
+  VALUES (me, 'バトルの浜', 34.66, 137.72) RETURNING id INTO sp;
+
+  -- 9/10 6:00 〜 9/11 6:00、シーバスの合計の長さ、写真必須
+  INSERT INTO public.battles (group_id, name, starts_at, ends_at, metric, created_by)
+  VALUES (g, '秋のシーバス杯', TIMESTAMP '2026-09-10 06:00', TIMESTAMP '2026-09-11 06:00',
+          'total_length', me)
+  RETURNING id INTO b;
+  INSERT INTO public.battle_species (battle_id, fish_species_id) VALUES (b, seabass);
+  INSERT INTO public.battle_entries (battle_id, user_id) VALUES (b, me), (b, mate);
+
+  -- ---- 釣果をひととおり ----
+  -- ① 数えるべきもの（期間内・シーバス・写真あり・長さあり）
+  INSERT INTO public.fishing_records
+    (user_id, spot_id, fished_at, fished_time, outcome, visibility, fish_species_id, length_cm)
+  VALUES (me, sp, DATE '2026-09-10', TIME '20:00', 'landed', 'group', seabass, 60)
+  RETURNING id INTO r_ok;
+  INSERT INTO public.record_photos (record_id, user_id, path, thumb_path)
+  VALUES (r_ok, me, 'a.webp', 'a-t.webp');
+
+  -- ② 写真が無い（数えない。理由 photo）
+  INSERT INTO public.fishing_records
+    (user_id, spot_id, fished_at, fished_time, outcome, visibility, fish_species_id, length_cm)
+  VALUES (me, sp, DATE '2026-09-10', TIME '21:00', 'landed', 'group', seabass, 90)
+  RETURNING id INTO r_nophoto;
+
+  -- ③ 長さが無い（合計の長さでは数えない。理由 length）
+  INSERT INTO public.fishing_records
+    (user_id, spot_id, fished_at, fished_time, outcome, visibility, fish_species_id, length_cm)
+  VALUES (me, sp, DATE '2026-09-10', TIME '22:00', 'landed', 'group', seabass, NULL)
+  RETURNING id INTO r_nolen;
+  INSERT INTO public.record_photos (record_id, user_id, path, thumb_path)
+  VALUES (r_nolen, me, 'c.webp', 'c-t.webp');
+
+  /* ④ **境目ちょうど。** 始まりは含み、終わりは含まない（半開区間）。
+     ここを取り違えると 1 匹ぶんだけ食い違い、しかも普段は誰も気づかない */
+  INSERT INTO public.fishing_records
+    (user_id, spot_id, fished_at, fished_time, outcome, visibility, fish_species_id, length_cm)
+  VALUES (me, sp, DATE '2026-09-10', TIME '06:00', 'landed', 'group', seabass, 40)
+  RETURNING id INTO r_start;
+  INSERT INTO public.record_photos (record_id, user_id, path, thumb_path)
+  VALUES (r_start, me, 's.webp', 's-t.webp');
+
+  -- ⑤〜 土俵に上がらないもの（画面にも出さない）
+  INSERT INTO public.fishing_records
+    (user_id, spot_id, fished_at, fished_time, outcome, visibility, fish_species_id, length_cm)
+  VALUES
+    (me,   sp, DATE '2026-09-11', TIME '06:00', 'landed',  'group',   seabass, 70),  -- 終わりちょうど
+    (me,   sp, DATE '2026-09-10', TIME '05:00', 'landed',  'group',   seabass, 70),  -- 始まる前
+    (me,   sp, DATE '2026-09-11', TIME '07:00', 'landed',  'group',   seabass, 70),  -- 終わった後
+    (me,   sp, DATE '2026-09-10', TIME '20:00', 'landed',  'group',   hirame,  70),  -- 魚種ちがい
+    (me,   sp, DATE '2026-09-10', TIME '20:00', 'lost',    'group',   seabass, 70),  -- バラシ
+    (me,   sp, DATE '2026-09-10', TIME '20:00', 'landed',  'private', seabass, 70),  -- 自分だけ
+    /* 時刻が無い。**日付は 9/11 にする。** 9/10 にすると、0 時とみなす
+       間違った書き方をしても期間の前に落ちてしまい、罠にかからない */
+    (me,   sp, DATE '2026-09-11', NULL,         'landed',  'group',   seabass, 70),  -- 時刻が無い
+    (bystander, sp, DATE '2026-09-10', TIME '20:00', 'landed', 'group', seabass, 99),-- 出ていない人
+    (mate, sp, DATE '2026-09-10', TIME '20:00', 'landed',  'group',   seabass, 50);
+  INSERT INTO public.record_photos (record_id, user_id, path, thumb_path)
+  SELECT r.id, r.user_id, r.id || '.webp', r.id || '-t.webp' FROM public.fishing_records r
+  WHERE r.spot_id = sp AND r.id NOT IN (r_ok, r_nophoto, r_nolen, r_start);
+
+  -- ---- グループの一員として集計する ----
+  PERFORM set_config('request.jwt.claim.sub', me::TEXT, TRUE);
+
+  SELECT COUNT(*) INTO n FROM public.battle_records(b);
+  IF n <> 5 THEN
+    RAISE EXCEPTION 'TEST FAIL: 土俵に上がる釣果が % 件（5 件のはず）', n;
+  END IF;
+
+  SELECT COUNT(*) INTO n FROM public.battle_records(b) WHERE counted;
+  IF n <> 3 THEN
+    RAISE EXCEPTION 'TEST FAIL: 数える釣果が % 件（60cm・40cm・相手の 50cm で 3 件のはず）', n;
+  END IF;
+
+  -- 数えなかったものは**理由が付く**（画面で「写真を足せば数えられる」と言うため）
+  IF NOT EXISTS (SELECT 1 FROM public.battle_records(b)
+                 WHERE record_id = r_nophoto AND NOT counted AND reason = 'photo') THEN
+    RAISE EXCEPTION 'TEST FAIL: 写真が無い釣果に photo の理由が付いていない';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM public.battle_records(b)
+                 WHERE record_id = r_nolen AND NOT counted AND reason = 'length') THEN
+    RAISE EXCEPTION 'TEST FAIL: 長さが無い釣果に length の理由が付いていない';
+  END IF;
+  -- 数えたものに理由が付いていてはいけない（counted と reason は裏表）
+  IF EXISTS (SELECT 1 FROM public.battle_records(b) WHERE counted AND reason IS NOT NULL) THEN
+    RAISE EXCEPTION 'TEST FAIL: 数えたのに理由が付いている';
+  END IF;
+
+  /* **境目を名指しで見る。** 件数だけだと、始まりを外して終わりを入れる、という
+     入れ替わりが起きても数が合ってしまい、素通りする */
+  IF NOT EXISTS (SELECT 1 FROM public.battle_records(b) WHERE record_id = r_start) THEN
+    RAISE EXCEPTION 'TEST FAIL: 始まりちょうどの釣果が数えられていない';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.battle_records(b) r
+             JOIN public.fishing_records f ON f.id = r.record_id
+             WHERE f.fished_at = DATE '2026-09-11' AND f.fished_time = TIME '06:00') THEN
+    RAISE EXCEPTION 'TEST FAIL: 終わりちょうどの釣果が数えられている（終わりは含まない）';
+  END IF;
+
+  -- **参加表明していない人は 1 行も出ない**（本人の指定）
+  IF EXISTS (SELECT 1 FROM public.battle_records(b) WHERE user_id = bystander) THEN
+    RAISE EXCEPTION 'TEST FAIL: 参加表明していない人の釣果が混ざっている';
+  END IF;
+
+  -- 期間の外・魚種ちがい・バラシ・自分だけ・時刻なしは、そもそも出てこない
+  IF EXISTS (SELECT 1 FROM public.battle_records(b) r
+             JOIN public.fishing_records f ON f.id = r.record_id
+             WHERE f.outcome <> 'landed' OR f.visibility <> 'group'
+                OR f.fished_time IS NULL OR f.fish_species_id <> seabass) THEN
+    RAISE EXCEPTION 'TEST FAIL: 土俵に上げてはいけない釣果が出ている';
+  END IF;
+
+  -- 匹数の勝負なら**長さが無くても数える**（写真はいる）
+  UPDATE public.battles SET metric = 'count' WHERE id = b;
+  IF NOT EXISTS (SELECT 1 FROM public.battle_records(b)
+                 WHERE record_id = r_nolen AND counted) THEN
+    RAISE EXCEPTION 'TEST FAIL: 匹数の勝負で長さの無い釣果が数えられていない';
+  END IF;
+  IF EXISTS (SELECT 1 FROM public.battle_records(b)
+             WHERE record_id = r_nophoto AND counted) THEN
+    RAISE EXCEPTION 'TEST FAIL: 匹数の勝負でも写真は要るはず';
+  END IF;
+
+  -- 写真を要らないことにしたら数える
+  UPDATE public.battles SET metric = 'total_length', require_photo = FALSE WHERE id = b;
+  IF NOT EXISTS (SELECT 1 FROM public.battle_records(b)
+                 WHERE record_id = r_nophoto AND counted) THEN
+    RAISE EXCEPTION 'TEST FAIL: 写真なしを許したのに数えられていない';
+  END IF;
+  UPDATE public.battles SET require_photo = TRUE WHERE id = b;
+
+  -- 魚種の指定を外したら、期間内の landed が全部土俵に上がる
+  DELETE FROM public.battle_species WHERE battle_id = b;
+  SELECT COUNT(*) INTO n FROM public.battle_records(b);
+  IF n <> 6 THEN
+    RAISE EXCEPTION 'TEST FAIL: 魚種の指定なしで % 件（ヒラメが増えて 6 件のはず）', n;
+  END IF;
+  INSERT INTO public.battle_species (battle_id, fish_species_id) VALUES (b, seabass);
+
+  -- **グループの外の人は集計できない。** ここが境界
+  PERFORM set_config('request.jwt.claim.sub', outsider::TEXT, TRUE);
+  failed := FALSE;
+  BEGIN
+    PERFORM * FROM public.battle_records(b);
+    failed := TRUE;
+  EXCEPTION WHEN OTHERS THEN
+    NULL;
+  END;
+  IF failed THEN
+    RAISE EXCEPTION 'TEST FAIL: グループの外の人がバトルを集計できる';
+  END IF;
+
+  PERFORM set_config('request.jwt.claim.sub', me::TEXT, TRUE);
+
+  -- ---- 期間の形 ----
+  failed := FALSE;
+  BEGIN
+    INSERT INTO public.battles (group_id, name, starts_at, ends_at, metric, created_by)
+    VALUES (g, '逆さま', TIMESTAMP '2026-09-11 06:00', TIMESTAMP '2026-09-10 06:00',
+            'total_length', me);
+    failed := TRUE;
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  IF failed THEN RAISE EXCEPTION 'TEST FAIL: 終わりが始まりより前のバトルが作れる'; END IF;
+
+  failed := FALSE;
+  BEGIN
+    INSERT INTO public.battles (group_id, name, starts_at, ends_at, metric, created_by)
+    VALUES (g, '知らない集計', TIMESTAMP '2026-09-10 06:00', TIMESTAMP '2026-09-11 06:00',
+            'いちばん重いやつ', me);
+    failed := TRUE;
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  IF failed THEN RAISE EXCEPTION 'TEST FAIL: 知らない集計方法が入る'; END IF;
+
+  -- ---- 「行きたい」カレンダー ----
+  failed := FALSE;
+  BEGIN
+    INSERT INTO public.fishing_plans (group_id, user_id, plan_date, start_hour, end_hour)
+    VALUES (g, me, DATE '2026-09-12', 20, 20);
+    failed := TRUE;
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  IF failed THEN RAISE EXCEPTION 'TEST FAIL: 長さ 0 の時間帯が入る'; END IF;
+
+  failed := FALSE;
+  BEGIN
+    INSERT INTO public.fishing_plans (group_id, user_id, plan_date, start_hour, end_hour)
+    VALUES (g, me, DATE '2026-09-12', 4, 25);
+    failed := TRUE;
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  IF failed THEN RAISE EXCEPTION 'TEST FAIL: 25 時までの予定が入る'; END IF;
+
+  -- 24 時までは書ける（「22 時〜24 時」を書けるようにするため）
+  INSERT INTO public.fishing_plans (group_id, user_id, plan_date, start_hour, end_hour, note)
+  VALUES (g, me, DATE '2026-09-12', 20, 24, '夜メインで');
+
+  -- 挙手は 1 人 1 回まで
+  INSERT INTO public.plan_hands (plan_id, user_id)
+  SELECT id, mate FROM public.fishing_plans WHERE group_id = g LIMIT 1;
+  failed := FALSE;
+  BEGIN
+    INSERT INTO public.plan_hands (plan_id, user_id)
+    SELECT id, mate FROM public.fishing_plans WHERE group_id = g LIMIT 1;
+    failed := TRUE;
+  EXCEPTION WHEN unique_violation THEN NULL;
+  END;
+  IF failed THEN RAISE EXCEPTION 'TEST FAIL: 同じ人が 2 回挙手できる'; END IF;
+
+  -- anon からは触れない（033 と同じ方針）
+  IF has_table_privilege('anon', 'public.battles', 'SELECT')
+     OR has_table_privilege('anon', 'public.fishing_plans', 'SELECT')
+     OR has_table_privilege('anon', 'public.battle_entries', 'SELECT')
+     OR has_table_privilege('anon', 'public.plan_hands', 'SELECT')
+     OR has_function_privilege('anon', 'public.battle_records(uuid)', 'EXECUTE') THEN
+    RAISE EXCEPTION 'TEST FAIL: バトル・予定を anon が触れる';
+  END IF;
+
+  -- 後片付け
+  DELETE FROM public.groups WHERE id = g;
+  DELETE FROM public.fishing_records WHERE spot_id = sp;
+  DELETE FROM public.spots WHERE id = sp;
+  DELETE FROM auth.users WHERE id IN (me, mate, bystander, outsider);
+  RAISE NOTICE 'BATTLE / PLAN TESTS PASSED';
+END;
+$$;

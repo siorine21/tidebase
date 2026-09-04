@@ -3230,6 +3230,272 @@ export async function leaveGroup(groupId) {
   if (error) throw error;
 }
 
+/* ================= バトル（仲間内の勝負）・D-146 =========================
+
+   本人の言葉:「たまに仲間内でバトルをするときがある。例えば何日何時〜何日何時の間、
+   釣ったシーバスの合計の長さで勝負や、シンプルに一番大きいシーバスを釣ったらなど。
+   勝負内容を調整が利くカタチで、集計できるような機能が欲しい。
+   証拠として釣果に写真付きでアップロードすることを条件とする。」
+
+   **ルールは 2 つの軸だけ**にした（本人に確認済み）。
+   集計方法（3 つ）× 対象魚種（選ぶ / 指定なし）。式は書かせない。
+   軸を増やすほど作るときに選ぶ手間が増え、増やしたぶんだけ
+   「このバトルはどういうルールだったか」が思い出せなくなる。
+
+   **数えるかどうかを決めるのは DB の battle_records だけ**（046）。
+   順位を出す側と「なぜ数えなかったか」を出す側で条件が食い違うと、
+   画面に「写真はあるのに数えられていない」が出て、集計そのものが信用されなくなる。
+   ここ（JS）がやるのは **並べ方だけ**。 */
+
+/** 集計方法。**この 3 つだけ。** */
+export const BATTLE_METRICS = [
+  { key: "total_length", label: "合計の長さ", unit: "cm",
+    note: "期間中に釣った対象魚の長さを全部足す",
+    of: (rows) => rows.reduce((sum, r) => sum + Number(r.length_cm), 0) },
+  { key: "max_length", label: "いちばん大きい 1 匹", unit: "cm",
+    note: "いちばん長い 1 匹だけで比べる",
+    of: (rows) => rows.reduce((max, r) => Math.max(max, Number(r.length_cm)), 0) },
+  { key: "count", label: "匹数", unit: "匹",
+    note: "何匹釣ったかで比べる。長さは要らない",
+    of: (rows) => rows.length },
+];
+
+export function battleMetric(key) {
+  return BATTLE_METRICS.find((m) => m.key === key) ?? BATTLE_METRICS[0];
+}
+
+/** 数えなかった理由。**DB が返す合図をここで日本語にする。** */
+export const BATTLE_SKIP_REASONS = {
+  photo: { label: "写真が無い", fix: "釣果に写真を足すと数えられます" },
+  length: { label: "長さが無い", fix: "釣果に長さを入れると数えられます" },
+};
+
+/**
+ * 順位表を組み立てる（D-146）。
+ *
+ * @param {object[]} rows     battle_records が返した行（counted 付き）
+ * @param {object[]} entrants 参加表明した人 [{ user_id, name }]
+ * @param {string}   metric   集計方法の key
+ *
+ * **参加表明した人は 1 匹も釣っていなくても並べる。** 出ているのに名前が無いと、
+ * 集計から漏れたのか釣れなかったのかが分からない。0 と書いてあれば分かる。
+ *
+ * 同じ点なら**同じ順位**にする（1・1・3）。勝負を分ける決まりを
+ * 勝手に足さない（「先に釣ったほうが上」などは本人が決めること）。
+ */
+export function battleStandings(rows, entrants, metric) {
+  const m = battleMetric(metric);
+  const counted = (rows ?? []).filter((r) => r.counted);
+  const byUser = new Map();
+  for (const r of counted) {
+    if (!byUser.has(r.user_id)) byUser.set(r.user_id, []);
+    byUser.get(r.user_id).push(r);
+  }
+  const list = (entrants ?? []).map((e) => {
+    const mine = byUser.get(e.user_id) ?? [];
+    return {
+      user_id: e.user_id,
+      name: e.name,
+      is_me: e.is_me === true,
+      value: mine.length ? m.of(mine) : 0,
+      records: mine.slice().sort((a, b) => Number(b.length_cm ?? 0) - Number(a.length_cm ?? 0)),
+      /* **その人が数えられなかったぶん。** 順位のすぐ横に出すためのもの。
+         「写真を足せば上がる」が本人にだけ分かればいい */
+      skipped: (rows ?? []).filter((r) => !r.counted && r.user_id === e.user_id),
+    };
+  });
+  list.sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, "ja"));
+
+  let rank = 0;
+  let previous = null;
+  return list.map((row, i) => {
+    if (previous === null || row.value !== previous) rank = i + 1;
+    previous = row.value;
+    return { ...row, rank, unit: m.unit };
+  });
+}
+
+/**
+ * バトルが今どの段階か。**時計を見るのはここだけ。**
+ * 画面のあちこちで `new Date()` を比べると、境目の表示が場所ごとにずれる。
+ */
+export function battlePhase(battle, now = nowInJst()) {
+  const at = `${now.date}T${now.hhmm}`;
+  const start = String(battle?.starts_at ?? "").slice(0, 16);
+  const end = String(battle?.ends_at ?? "").slice(0, 16);
+  if (!start || !end) return "unknown";
+  if (at < start) return "before";
+  if (at < end) return "running";
+  return "done";
+}
+
+export const BATTLE_PHASE_LABELS = {
+  before: "これから", running: "開催中", done: "終了", unknown: "—",
+};
+
+/** グループのバトル。新しいものから。 */
+export async function listBattles(groupId) {
+  const { data, error } = await client
+    .from("battles")
+    .select("id,name,starts_at,ends_at,metric,require_photo,note,created_by,created_at")
+    .eq("group_id", groupId)
+    .order("starts_at", { ascending: false });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function getBattle(battleId) {
+  const { data, error } = await client
+    .from("battles")
+    .select("id,group_id,name,starts_at,ends_at,metric,require_photo,note,created_by")
+    .eq("id", battleId)
+    .maybeSingle();
+  if (error) throw error;
+  return data ?? null;
+}
+
+/** 対象魚種の id。**空なら「指定なし」**（全部数える）。 */
+export async function battleSpeciesIds(battleId) {
+  const { data, error } = await client
+    .from("battle_species").select("fish_species_id").eq("battle_id", battleId);
+  if (error) throw error;
+  return (data ?? []).map((r) => r.fish_species_id);
+}
+
+export async function listBattleEntries(battleId) {
+  const { data, error } = await client
+    .from("battle_entries").select("user_id,joined_at")
+    .eq("battle_id", battleId).order("joined_at");
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** 期間中の釣果と、数えなかったものを理由つきで返す（集計の判断は DB 側）。 */
+export async function battleRecords(battleId) {
+  const { data, error } = await client
+    .rpc("battle_records", { target_battle_id: battleId });
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function createBattle({
+  groupId, name, startsAt, endsAt, metric, requirePhoto = true,
+  note = null, speciesIds = [],
+}) {
+  const userId = await requireUserId();
+  const { data, error } = await client.from("battles").insert({
+    group_id: groupId, name: name.trim(), starts_at: startsAt, ends_at: endsAt,
+    metric, require_photo: requirePhoto,
+    note: note?.trim() ? note.trim() : null, created_by: userId,
+  }).select("id").single();
+  if (error) throw error;
+  if (speciesIds.length) {
+    const rows = speciesIds.map((id) => ({ battle_id: data.id, fish_species_id: id }));
+    const { error: e2 } = await client.from("battle_species").insert(rows);
+    if (e2) throw e2;
+  }
+  return data.id;
+}
+
+export async function deleteBattle(battleId) {
+  const { error } = await client.from("battles").delete().eq("id", battleId);
+  if (error) throw error;
+}
+
+export async function joinBattle(battleId) {
+  const userId = await requireUserId();
+  const { error } = await client.from("battle_entries")
+    .insert({ battle_id: battleId, user_id: userId });
+  if (error && error.code !== "23505") throw error;   // すでに出ているなら何もしない
+}
+
+export async function leaveBattle(battleId) {
+  const userId = await requireUserId();
+  const { error } = await client.from("battle_entries").delete()
+    .eq("battle_id", battleId).eq("user_id", userId);
+  if (error) throw error;
+}
+
+/* ================= 「この日行きたい」（D-146） ==========================
+
+   本人の言葉:「この日この時間に釣りに行きたい！のように意思表示できるカレンダーが欲しい」
+   「日付・時間帯は選択式にしてほしい。タップしたら行きたい時間帯の範囲が選べるイメージ。
+   さらにそこに一言自由欄をもうけて、行きたい人は挙手アイコンをするイメージ」
+
+   **時は 0〜24 の整数だけ持つ。** 分は持たない。
+   予定を合わせるのに 15 分の精度は要らず、選ぶ手間だけが増える。 */
+
+/** 予定の時間帯を言葉にする。24 は「24時」と書く（0時ではない）。 */
+export function planHours(plan) {
+  const s = Number(plan?.start_hour);
+  const e = Number(plan?.end_hour);
+  if (!Number.isFinite(s) || !Number.isFinite(e)) return "";
+  return `${s}:00〜${e}:00`;
+}
+
+/**
+ * よくある時間帯（D-146）。**まず 1 タップで置ける形を出す。**
+ * 端から端まで自分で選ばせると、毎回同じことを組み立て直すことになる。
+ * マヅメは日によって動くので、ここでは大まかな帯として置く。
+ */
+export const PLAN_PRESETS = [
+  { key: "dawn",  label: "朝マヅメ", start: 4,  end: 8 },
+  { key: "day",   label: "日中",     start: 8,  end: 16 },
+  { key: "dusk",  label: "夕マヅメ", start: 16, end: 20 },
+  { key: "night", label: "夜",       start: 20, end: 24 },
+  { key: "allday", label: "1 日",    start: 4,  end: 20 },
+];
+
+/** その月ぶんの予定（挙手と一緒に取る）。 */
+export async function listPlans(groupId, fromDate, toDate) {
+  const { data, error } = await client
+    .from("fishing_plans")
+    .select("id,user_id,plan_date,start_hour,end_hour,spot_id,note,created_at")
+    .eq("group_id", groupId)
+    .gte("plan_date", fromDate).lte("plan_date", toDate)
+    .order("plan_date").order("start_hour");
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function listPlanHands(planIds) {
+  if (!planIds.length) return [];
+  const { data, error } = await client
+    .from("plan_hands").select("plan_id,user_id").in("plan_id", planIds);
+  if (error) throw error;
+  return data ?? [];
+}
+
+export async function createPlan({ groupId, date, startHour, endHour, spotId = null, note = null }) {
+  const userId = await requireUserId();
+  const { data, error } = await client.from("fishing_plans").insert({
+    group_id: groupId, user_id: userId, plan_date: date,
+    start_hour: startHour, end_hour: endHour,
+    spot_id: spotId || null, note: note?.trim() ? note.trim() : null,
+  }).select("id").single();
+  if (error) throw error;
+  return data.id;
+}
+
+export async function deletePlan(planId) {
+  const { error } = await client.from("fishing_plans").delete().eq("id", planId);
+  if (error) throw error;
+}
+
+/** 挙手を上げ下げする。**同じ状態を 2 度押しても壊れない。** */
+export async function raiseHand(planId, up = true) {
+  const userId = await requireUserId();
+  if (!up) {
+    const { error } = await client.from("plan_hands").delete()
+      .eq("plan_id", planId).eq("user_id", userId);
+    if (error) throw error;
+    return;
+  }
+  const { error } = await client.from("plan_hands")
+    .insert({ plan_id: planId, user_id: userId });
+  if (error && error.code !== "23505") throw error;
+}
+
 /** 招待リンク。GitHub Pages でもローカルでも、今いる場所を基準に組み立てる。 */
 export function inviteUrl(token) {
   return new URL(`signup.html?invite=${token}`, location.href).href;

@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BATTLE | TIDEBASE</title>
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" href="assets/icons/app-icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0F1E2E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="TIDEBASE">
+<link rel="stylesheet" href="vendor/fonts/fonts.css">
+<link rel="stylesheet" href="assets/theme.css">
+</head>
+<body class="app-body">
+<!-- SCR-021 バトルの順位（D-146） -->
+<!-- 詳細画面なので .page-head を使う（釣果詳細・スポット詳細と同じ）。
+     .app-header の h1 は flex-shrink: 0 なので、バトルの名前が長いと
+     右のボタンを画面の外へ押し出す。実際に横スクロールが出た -->
+<header class="page-head">
+  <a class="back" href="plans.html" aria-label="戻る">←</a>
+  <div class="page-title" id="title">BATTLE</div>
+  <button type="button" class="btn btn-quiet icon-only" id="delete" hidden
+          aria-label="このバトルを消す"><span data-icon="trash"></span></button>
+</header>
+
+<main>
+  <div id="message" class="message" hidden role="alert"></div>
+
+  <section class="card" id="rules">
+    <div class="empty">読み込んでいます…</div>
+  </section>
+
+  <section class="card">
+    <h2>順位</h2>
+    <div id="standings"><div class="empty">—</div></div>
+  </section>
+
+  <!-- **数えなかったものを隠さない。** 「写真を付ければ数えられる」が
+       その場で分かるようにする。ここが無いと、合計が合わないときに
+       何が起きているのか誰にも分からず、集計そのものが信用されなくなる -->
+  <section class="card" id="skipped-card" hidden>
+    <h2>数えていない釣果</h2>
+    <div id="skipped"></div>
+  </section>
+</main>
+
+<script src="vendor/supabase.js"></script>
+<script src="assets/config.js"></script>
+<script type="module">
+  import {
+    requireSession, renderNav, escapeHtml, icon, renderIcons,
+    listGroupMembers, formatJstDate,
+    getBattle, battleSpeciesIds, listBattleEntries, battleRecords,
+    joinBattle, leaveBattle, deleteBattle,
+    battleStandings, battleMetric, battlePhase, BATTLE_PHASE_LABELS, BATTLE_SKIP_REASONS,
+    listSpecies,
+  } from "./assets/app.js";
+
+  /* 宣言は先。const / let は巻き上がらない（D-077 / D-144） */
+  let battle = null;
+  let members = [];
+  let entries = [];
+  let rows = [];
+  let speciesNames = [];
+  let me = null;
+
+  const $ = (id) => document.getElementById(id);
+  const show = (text) => {
+    const box = $("message");
+    box.hidden = !text;
+    box.textContent = text ?? "";
+  };
+  const battleId = new URLSearchParams(location.search).get("id");
+
+  const session = await requireSession();
+  if (session) {
+    renderNav("plans");
+    me = session.user.id;
+    if (!battleId) {
+      $("rules").innerHTML = `<div class="empty">バトルが指定されていません。</div>`;
+    } else {
+      await load();
+    }
+  }
+
+  async function load() {
+    try {
+      battle = await getBattle(battleId);
+    } catch (err) {
+      $("rules").innerHTML = `<div class="empty">${escapeHtml(err.message ?? "開けません")}</div>`;
+      return;
+    }
+    if (!battle) {
+      $("rules").innerHTML = `<div class="empty">このバトルは見つかりませんでした。</div>`;
+      return;
+    }
+    document.title = `${battle.name} | TIDEBASE`;
+    $("title").textContent = battle.name;
+    $("delete").hidden = battle.created_by !== me;
+
+    const [mem, ent, ids, species] = await Promise.all([
+      listGroupMembers(battle.group_id).catch(() => []),
+      listBattleEntries(battleId).catch(() => []),
+      battleSpeciesIds(battleId).catch(() => []),
+      listSpecies().catch(() => []),
+    ]);
+    members = mem;
+    entries = ent;
+    speciesNames = ids
+      .map((id) => species.find((s) => s.id === id)?.name)
+      .filter(Boolean);
+
+    /* 釣果の集計は**参加表明した人がいるときだけ**取りに行く。
+       誰も出ていないバトルで RPC を叩いても、必ず空が返る */
+    rows = entries.length ? await battleRecords(battleId).catch((e) => {
+      show(e.message ?? "集計できませんでした");
+      return [];
+    }) : [];
+
+    renderRules();
+    renderStandings();
+  }
+
+  function renderRules() {
+    const phase = battlePhase(battle);
+    const m = battleMetric(battle.metric);
+    const at = (s) => {
+      const d = String(s ?? "");
+      return `${formatJstDate(d.slice(0, 10), { weekday: true })} ${d.slice(11, 16)}`;
+    };
+    const joined = entries.some((e) => e.user_id === me);
+    $("rules").innerHTML = `
+      <div class="b-head">
+        <span class="phase ph-${phase}">${BATTLE_PHASE_LABELS[phase]}</span>
+        <span class="b-metric">${escapeHtml(m.label)}</span>
+      </div>
+      <div class="b-when">
+        <div>${escapeHtml(at(battle.starts_at))} から</div>
+        <div>${escapeHtml(at(battle.ends_at))} まで</div>
+      </div>
+      <ul class="b-rules">
+        <li>${escapeHtml(m.note)}</li>
+        <li>${speciesNames.length
+            ? `対象は ${escapeHtml(speciesNames.join("・"))}`
+            : "魚の指定なし（釣ったものは全部数えます）"}</li>
+        <li>${battle.require_photo
+            ? "<strong>写真が付いた釣果だけ</strong>数えます"
+            : "写真は無くても数えます"}</li>
+        <li>釣果の公開が「自分だけ」のものは数えません（みんなが確かめられないため）</li>
+      </ul>
+      ${battle.note ? `<div class="b-note">${escapeHtml(battle.note)}</div>` : ""}
+      <button type="button" class="btn${joined ? " btn-quiet" : ""}" id="join"
+              style="width:100%;margin-top:14px">
+        ${joined ? "参加をやめる" : "このバトルに出る"}
+      </button>
+      <div class="hint" style="margin-top:6px">
+        ${joined
+          ? "出ている人の釣果だけが順位に載ります。"
+          : "出ると、期間中のあなたの釣果が自動で数えられます。"}
+      </div>`;
+    $("join").addEventListener("click", onJoin);
+  }
+
+  async function onJoin() {
+    const joined = entries.some((e) => e.user_id === me);
+    $("join").disabled = true;
+    try {
+      if (joined) await leaveBattle(battleId);
+      else await joinBattle(battleId);
+      show("");
+      await load();
+    } catch (err) {
+      show(err.message ?? "うまくいきませんでした");
+      $("join").disabled = false;
+    }
+  }
+
+  function renderStandings() {
+    const entrants = entries.map((e) => {
+      const m = members.find((x) => x.user_id === e.user_id);
+      return { user_id: e.user_id, name: m?.name ?? "メンバー", is_me: e.user_id === me };
+    });
+    const standings = battleStandings(rows, entrants, battle.metric);
+
+    if (!standings.length) {
+      $("standings").innerHTML =
+        `<div class="empty">まだ誰も出ていません。<br>上の「このバトルに出る」を押すと並びます。</div>`;
+      $("skipped-card").hidden = true;
+      return;
+    }
+
+    $("standings").innerHTML = standings.map((row) => `
+      <div class="rank-row${row.is_me ? " mine" : ""}">
+        <div class="rank-no r${Math.min(row.rank, 4)}">${row.rank}</div>
+        <div class="rank-body">
+          <div class="rank-name">${escapeHtml(row.name)}</div>
+          ${row.records.length ? `<div class="rank-detail">${
+            row.records.slice(0, 5).map((r) =>
+              `<span class="rank-fish">${escapeHtml(r.fish_label ?? "魚")}`
+              + `${r.length_cm != null ? ` ${Number(r.length_cm)}cm` : ""}</span>`).join("")
+            }${row.records.length > 5 ? `<span class="rank-fish">ほか ${row.records.length - 5}</span>` : ""
+            }</div>` : `<div class="rank-detail muted">まだ 0</div>`}
+        </div>
+        <div class="rank-value">${formatValue(row.value)}<small>${row.unit}</small></div>
+      </div>`).join("");
+
+    /* 数えなかったものを、**その人の名前と直し方つきで**出す */
+    const skipped = standings.flatMap((row) =>
+      row.skipped.map((r) => ({ ...r, who: row.name })));
+    $("skipped-card").hidden = !skipped.length;
+    if (skipped.length) {
+      $("skipped").innerHTML = skipped.map((r) => {
+        const why = BATTLE_SKIP_REASONS[r.reason] ?? { label: "数えられません", fix: "" };
+        /* 直し方は**行を分けて丸ごと 1 行**にする。右端に寄せると
+           「数えられま／す」のように 1〜2 文字で折れて読みにくい */
+        return `<div class="skip-row">
+          <div class="skip-top">
+            <div class="skip-main">
+              <div class="skip-who">${escapeHtml(r.who)} · ${escapeHtml(
+                formatJstDate(r.fished_at))} ${escapeHtml(String(r.fished_time ?? "").slice(0, 5))}</div>
+              <div class="skip-fish">${escapeHtml(r.fish_label ?? "魚")}${
+                r.length_cm != null ? ` ${Number(r.length_cm)}cm` : ""}</div>
+            </div>
+            <span class="skip-tag">${escapeHtml(why.label)}</span>
+          </div>
+          <div class="skip-fix">${escapeHtml(why.fix)}</div>
+        </div>`;
+      }).join("");
+    }
+    renderIcons();
+  }
+
+  /** 小数を出しっぱなしにしない。合計は 1 桁、匹数は整数 */
+  function formatValue(v) {
+    return Number.isInteger(v) ? String(v) : String(Math.round(v * 10) / 10);
+  }
+
+  $("delete").addEventListener("click", async () => {
+    if (!confirm(`「${battle.name}」を消しますか？ 順位も一緒に消えます。`)) return;
+    try {
+      await deleteBattle(battleId);
+      location.href = "plans.html";
+    } catch (err) { show(err.message ?? "消せませんでした"); }
+  });
+</script>
+</body>
+</html>

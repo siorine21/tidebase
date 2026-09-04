@@ -122,10 +122,13 @@ body {
   border-color: var(--border-strong);
 }
 
-.field .hint {
+/* 補足の 1 行。**.field の外でも効くようにする**（D-146）。
+   .field .hint だけだと、欄の外に置いた注記が本文と同じ大きさで出る */
+.hint {
   margin-top: 5px;
   font-size: 11px;
   color: var(--text-muted);
+  line-height: 1.5;
 }
 
 .btn {
@@ -694,7 +697,15 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
   background: none; border: none; color: var(--text-secondary);
   font-size: 20px; cursor: pointer; padding: 0 4px;
 }
-.page-title { font-size: 15px; }
+/* 題は伸び縮みする。**flex-shrink を 0 にしない**（.app-header の h1 は 0 で、
+   長い名前が右のボタンを画面の外へ押し出した・D-146）。
+   右端のボタンは最後に置き、題との間を自動で空ける */
+.page-title { font-size: 15px; flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* .btn は既定で width: 100%。見出しの中では中身ぶんだけにする
+   （.app-header button と同じ扱い） */
+.page-head > .btn { flex: 0 0 auto; width: auto; }
+.page-head .back { text-decoration: none; line-height: 1; }
 .page-sub { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-muted); }
 
 .stepper { display: flex; padding: 14px 8px 4px; }
@@ -1773,3 +1784,191 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
   line-height: 1.7;
 }
 .point-notice a { color: var(--blue); }
+
+/* ================= みんなの予定とバトル（D-146） =========================
+
+   ナビの 6 枠は埋まっているので、予定とバトルを 1 画面に畳んでいる。
+   どちらも「仲間と合わせる」ためのものなので、並べて置いても迷わない。 */
+
+/* 2 つの帯。中身が入れ替わるだけなので、押した側だけ色を持たせる */
+.seg {
+  display: flex; gap: 4px; margin: 0 0 14px;
+  background: var(--bg-deep); border: 1px solid var(--border);
+  border-radius: 999px; padding: 3px;
+}
+.seg-btn {
+  flex: 1; padding: 8px 0; border: none; border-radius: 999px;
+  background: none; color: var(--text-secondary);
+  font-family: inherit; font-size: 13px; cursor: pointer;
+}
+.seg-btn.active { background: var(--mustard-bg); color: var(--mustard-lt); }
+
+/* ---- カレンダー ---- */
+.cal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-bottom: 10px;
+}
+/* **.btn は既定で width: 100%。** 見出しの中では中身ぶんだけにする。
+   これを忘れて、前後の月のボタンが伸び「2026 年 9 月」が 3 行に折れた */
+.cal-head .btn { flex: 0 0 auto; width: auto; }
+.cal-month {
+  flex: 1; text-align: center; white-space: nowrap;
+  font-family: 'JetBrains Mono', monospace; font-size: 15px;
+}
+.cal {
+  display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px;
+  background: var(--bg-card); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 10px;
+}
+.cal-dow {
+  text-align: center; font-size: 11px; color: var(--text-muted); padding-bottom: 4px;
+}
+.cal-dow.sun { color: var(--red); }
+.cal-dow.sat { color: var(--blue); }
+/* 升目は正方形に近づける。日付が読めることを最優先にして、
+   件数は数字ではなく点で出す（数字を入れると升目が数字だらけになる） */
+.cal-cell {
+  aspect-ratio: 1 / 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 2px;
+  border: 1px solid transparent; border-radius: 8px;
+  background: var(--bg-deep); color: var(--text-primary);
+  font-family: inherit; font-size: 13px; cursor: pointer; padding: 0;
+}
+.cal-cell.empty { background: none; cursor: default; }
+.cal-cell.sun .d { color: var(--red); }
+.cal-cell.sat .d { color: var(--blue); }
+.cal-cell.today { border-color: var(--border-strong); }
+.cal-cell.picked { background: var(--mustard-bg); border-color: var(--mustard); }
+.cal-cell.picked .d { color: var(--mustard-lt); }
+.cal-cell .dots { font-size: 6px; line-height: 1; color: var(--mustard); letter-spacing: 1px; }
+
+/* ---- 「行きたい」の 1 行 ---- */
+.plan-row {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 11px 0; border-bottom: 1px solid var(--border);
+}
+.plan-row:last-child { border-bottom: none; }
+.plan-row.mine { border-left: 3px solid var(--mustard); padding-left: 9px; }
+.plan-main { flex: 1; min-width: 0; }
+.plan-when { font-family: 'JetBrains Mono', monospace; font-size: 14px; }
+.plan-who { margin-left: 8px; font-family: inherit; font-size: 12px; color: var(--text-muted); }
+.plan-spot, .plan-note, .plan-hands {
+  margin-top: 3px; font-size: 12px; color: var(--text-secondary); line-height: 1.5;
+}
+.plan-spot { display: flex; align-items: center; gap: 4px; color: var(--text-muted); }
+.plan-hands { color: var(--mustard-lt); }
+.plan-side { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+/* 挙手。**押されているかが一目で分かること**が全部（誰が行くかを読む画面なので） */
+.hand {
+  display: flex; align-items: center; gap: 5px; padding: 6px 11px;
+  border-radius: 999px; background: var(--bg-deep);
+  border: 1px solid var(--border); color: var(--text-muted);
+  font-family: inherit; font-size: 12px; cursor: pointer;
+}
+.hand.on { background: var(--mustard-bg); border-color: var(--mustard); color: var(--mustard-lt); }
+.hand:disabled { opacity: .55; }
+.plan-del {
+  background: none; border: none; color: var(--text-muted);
+  font-size: 14px; cursor: pointer; padding: 4px 2px; font-family: inherit;
+}
+
+/* ---- 下から出る箱（地図の .sheet とは別物） ----
+   .sheet はマップの入力欄が使っている。名前を分けないと、
+   位置も高さも違うものが同じ規則に当たる */
+.msheet { position: fixed; inset: 0; z-index: 700; }
+.msheet[hidden] { display: none; }
+.msheet-back { position: absolute; inset: 0; background: rgba(6, 14, 22, 0.6); }
+.msheet-panel {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  max-height: 86dvh; display: flex; flex-direction: column;
+  background: var(--bg-card); border-top: 1px solid var(--border-strong);
+  border-radius: 14px 14px 0 0; box-shadow: 0 -6px 20px rgba(0,0,0,0.5);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.msheet-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px 10px; font-size: 14px; border-bottom: 1px solid var(--border);
+}
+.msheet-close {
+  background: none; border: none; color: var(--text-muted);
+  font-size: 16px; cursor: pointer; padding: 0 4px; font-family: inherit;
+}
+.msheet-body { overflow-y: auto; padding: 14px 16px 18px; -webkit-overflow-scrolling: touch; }
+.msheet-body .field:last-of-type { margin-bottom: 6px; }
+.chip small { opacity: .7; margin-left: 4px; font-size: 11px; }
+label.check { display: flex; align-items: center; gap: 8px; cursor: pointer;
+  text-transform: none; letter-spacing: 0; font-size: 14px; color: var(--text-primary); }
+label.check input { width: auto; }
+
+/* ---- バトル ---- */
+.phase {
+  font-size: 11px; padding: 2px 8px; border-radius: 999px;
+  border: 1px solid currentColor; white-space: nowrap;
+}
+.ph-running { color: var(--mustard-lt); }
+.ph-before  { color: var(--blue); }
+.ph-done    { color: var(--text-muted); }
+.ph-unknown { color: var(--text-muted); }
+
+.b-head { display: flex; align-items: center; gap: 10px; }
+.b-metric { font-size: 14px; }
+.b-when {
+  margin-top: 10px; font-family: 'JetBrains Mono', monospace;
+  font-size: 13px; color: var(--text-secondary); line-height: 1.7;
+}
+.b-rules {
+  list-style: none; margin: 12px 0 0; padding: 0;
+  font-size: 12px; color: var(--text-muted); line-height: 1.7;
+}
+.b-rules li { padding-left: 13px; position: relative; }
+.b-rules li::before { content: "・"; position: absolute; left: 0; }
+.b-rules strong { color: var(--mustard-lt); font-weight: normal; }
+.b-note {
+  margin-top: 10px; padding: 9px 11px; font-size: 12px; line-height: 1.6;
+  background: var(--bg-deep); border-radius: 8px; color: var(--text-secondary);
+}
+
+/* 順位。**数字より名前と点が読めること**を優先する */
+.rank-row {
+  display: flex; align-items: center; gap: 11px;
+  padding: 11px 0; border-bottom: 1px solid var(--border);
+}
+.rank-row:last-child { border-bottom: none; }
+.rank-row.mine .rank-name { color: var(--mustard-lt); }
+.rank-no {
+  flex: 0 0 28px; height: 28px; display: flex; align-items: center; justify-content: center;
+  border-radius: 999px; font-family: 'JetBrains Mono', monospace; font-size: 13px;
+  background: var(--bg-deep); color: var(--text-muted);
+}
+/* 1〜3 位だけ色を変える。4 位以降を塗り分けても意味が増えない */
+.rank-no.r1 { background: var(--mustard-bg); color: var(--mustard-lt); }
+.rank-no.r2 { background: var(--bg-raised); color: var(--text-secondary); }
+.rank-no.r3 { background: var(--bg-raised); color: var(--text-muted); }
+.rank-body { flex: 1; min-width: 0; }
+.rank-name { font-size: 14px; }
+.rank-detail { margin-top: 3px; display: flex; flex-wrap: wrap; gap: 4px; }
+.rank-detail.muted { color: var(--text-muted); font-size: 12px; }
+.rank-fish {
+  font-size: 11px; padding: 1px 7px; border-radius: 999px;
+  background: var(--bg-deep); color: var(--text-secondary);
+}
+.rank-value {
+  flex: 0 0 auto; font-family: 'JetBrains Mono', monospace;
+  font-size: 20px; color: var(--text-primary);
+}
+.rank-value small { font-size: 11px; color: var(--text-muted); margin-left: 2px; }
+
+/* 数えなかったもの。**隠さない。** 「写真を付ければ数えられる」が分かること */
+.skip-row { padding: 10px 0; border-bottom: 1px solid var(--border); }
+.skip-row:last-child { border-bottom: none; }
+.skip-top { display: flex; gap: 10px; align-items: flex-start; }
+.skip-main { flex: 1; min-width: 0; }
+.skip-who { font-size: 11px; color: var(--text-muted); }
+.skip-fish { margin-top: 2px; font-size: 13px; }
+.skip-tag {
+  flex: 0 0 auto; white-space: nowrap;
+  font-size: 11px; padding: 1px 7px; border-radius: 999px;
+  border: 1px solid var(--orange); color: var(--orange);
+}
+/* 直し方は行を分けて丸ごと 1 行に置く。右端に寄せると 1〜2 文字で折れる */
+.skip-fix { margin-top: 5px; font-size: 11px; color: var(--text-muted); line-height: 1.5; }

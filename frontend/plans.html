@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PLANS | TIDEBASE</title>
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" href="assets/icons/app-icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0F1E2E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="TIDEBASE">
+<link rel="stylesheet" href="vendor/fonts/fonts.css">
+<link rel="stylesheet" href="assets/theme.css">
+</head>
+<body class="app-body">
+<!-- SCR-020 みんなの予定とバトル（D-146） -->
+<header class="app-header">
+  <h1>PLANS</h1>
+  <span class="head-actions">
+    <span class="page-sub" id="group-name">—</span>
+  </span>
+</header>
+
+<main>
+  <div id="message" class="message" hidden role="alert"></div>
+
+  <!-- 予定とバトルは別の話だが、**どちらも「仲間と合わせる」ためのもの**なので
+       同じ画面に置く。ナビの 6 枠は埋まっているので、増やさずここに畳む -->
+  <div class="seg" id="tabs" role="tablist">
+    <button type="button" class="seg-btn active" data-tab="plans" role="tab">予定</button>
+    <button type="button" class="seg-btn" data-tab="battles" role="tab">バトル</button>
+  </div>
+
+  <!-- ========== 予定（カレンダー） ========== -->
+  <section id="tab-plans">
+    <div class="cal-head">
+      <button type="button" class="btn btn-quiet icon-only" id="cal-prev"
+              aria-label="前の月"><span data-icon="chevron-left"></span></button>
+      <span class="cal-month" id="cal-month">—</span>
+      <button type="button" class="btn btn-quiet icon-only" id="cal-next"
+              aria-label="次の月"><span data-icon="chevron-right"></span></button>
+    </div>
+    <div class="cal" id="cal"></div>
+
+    <div class="card" id="day-card" hidden>
+      <h2 id="day-title">—</h2>
+      <div id="day-plans"></div>
+      <button type="button" class="btn" id="add-plan" style="width:100%;margin-top:12px">
+        <span data-icon="plus"></span>この日に行きたい
+      </button>
+    </div>
+  </section>
+
+  <!-- ========== バトル ========== -->
+  <section id="tab-battles" hidden>
+    <div id="battle-list"></div>
+    <button type="button" class="btn" id="add-battle" style="width:100%;margin-top:12px">
+      <span data-icon="plus"></span>バトルを作る
+    </button>
+  </section>
+</main>
+
+<!-- 「行きたい」を書く。**時間帯は選択式**（本人の要望） -->
+<div class="msheet" id="plan-sheet" hidden>
+  <div class="msheet-back" data-close></div>
+  <div class="msheet-panel">
+    <div class="msheet-head">
+      <span id="plan-sheet-title">この日に行きたい</span>
+      <button type="button" class="msheet-close" data-close aria-label="閉じる">✕</button>
+    </div>
+    <div class="msheet-body">
+      <div class="field">
+        <label>時間帯</label>
+        <!-- まず 1 タップで置ける形を出す。端から端まで自分で選ばせると、
+             毎回同じことを組み立て直すことになる -->
+        <div class="chips" id="plan-presets"></div>
+        <div class="row-2" style="margin-top:10px">
+          <select id="plan-start" aria-label="始まりの時刻"></select>
+          <select id="plan-end" aria-label="終わりの時刻"></select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="plan-spot">行き先（決まっていれば）</label>
+        <select id="plan-spot"><option value="">まだ決めていない</option></select>
+      </div>
+      <div class="field">
+        <label for="plan-note">一言</label>
+        <input type="text" id="plan-note" maxlength="200"
+               placeholder="下げ潮に合わせて入りたい">
+      </div>
+      <div class="actions">
+        <button type="button" class="btn" id="plan-save" style="flex:1">出す</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- バトルを作る -->
+<div class="msheet" id="battle-sheet" hidden>
+  <div class="msheet-back" data-close></div>
+  <div class="msheet-panel">
+    <div class="msheet-head">
+      <span>バトルを作る</span>
+      <button type="button" class="msheet-close" data-close aria-label="閉じる">✕</button>
+    </div>
+    <div class="msheet-body">
+      <div class="field">
+        <label for="b-name">名前</label>
+        <input type="text" id="b-name" maxlength="60" placeholder="秋のシーバス杯">
+      </div>
+      <div class="field">
+        <label>いつからいつまで</label>
+        <div class="row-2">
+          <input type="date" id="b-start-date" aria-label="始まりの日">
+          <select id="b-start-hour" aria-label="始まりの時刻"></select>
+        </div>
+        <div class="row-2" style="margin-top:8px">
+          <input type="date" id="b-end-date" aria-label="終わりの日">
+          <select id="b-end-hour" aria-label="終わりの時刻"></select>
+        </div>
+        <div class="hint">終わりの時刻ちょうどの釣果は入りません（その 1 分前まで）。</div>
+      </div>
+      <div class="field">
+        <label>何で競うか</label>
+        <div class="chips" id="b-metrics"></div>
+        <div class="hint" id="b-metric-note">—</div>
+      </div>
+      <div class="field">
+        <label>対象の魚</label>
+        <div class="chips" id="b-species"></div>
+        <div class="hint">何も選ばなければ、期間中に釣ったものは全部数えます。</div>
+      </div>
+      <div class="field">
+        <label class="check">
+          <input type="checkbox" id="b-photo" checked>
+          <span>写真が付いた釣果だけ数える</span>
+        </label>
+        <div class="hint">証拠として写真を求めるときはこのまま。</div>
+      </div>
+      <div class="field">
+        <label for="b-note">ひとこと（任意）</label>
+        <input type="text" id="b-note" maxlength="400" placeholder="負けたら次回のコーヒー">
+      </div>
+      <div class="actions">
+        <button type="button" class="btn" id="b-save" style="flex:1">作る</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="vendor/supabase.js"></script>
+<script src="assets/config.js"></script>
+<script type="module">
+  import {
+    requireSession, renderNav, escapeHtml, icon, renderIcons,
+    myGroup, listGroupMembers, listSpots, listSpecies,
+    todayInJst, addJstDays, formatJstDate, nowInJst,
+    listPlans, listPlanHands, createPlan, deletePlan, raiseHand, planHours, PLAN_PRESETS,
+    listBattles, createBattle, listBattleEntries,
+    BATTLE_METRICS, battleMetric, battlePhase, BATTLE_PHASE_LABELS,
+  } from "./assets/app.js";
+
+  /* 状態の宣言はセッション処理より前に置く。**const / let は巻き上がらない。**
+     描画関数より後に置くと、最初の描画で落ちる（D-077 / D-144 でやった） */
+  let group = null;
+  let members = [];
+  let spots = [];
+  let species = [];
+  let plans = [];
+  let hands = [];              // { plan_id, user_id }
+  let battles = [];
+  let entryCounts = new Map(); // battle_id → 参加人数
+  let me = null;
+  let monthAnchor = todayInJst().slice(0, 7) + "-01";
+  let selectedDate = todayInJst();
+  let sheetDate = null;
+  let pickedMetric = "total_length";
+  const pickedSpecies = new Set();
+
+  const $ = (id) => document.getElementById(id);
+  const show = (text) => {
+    const box = $("message");
+    box.hidden = !text;
+    box.textContent = text ?? "";
+  };
+
+  const session = await requireSession();
+  if (session) {
+    renderNav("plans");
+    me = session.user.id;
+    group = await myGroup().catch(() => null);
+    if (!group) {
+      $("group-name").textContent = "";
+      document.querySelector("main").innerHTML =
+        `<div class="card"><div class="empty">`
+        + `仲間と予定を合わせたりバトルをするには、まずグループが要ります。<br>`
+        + `<a href="settings.html">設定</a>から作るか、招待を受けてください。</div></div>`;
+    } else {
+      $("group-name").textContent = group.name;
+      [members, spots, species] = await Promise.all([
+        listGroupMembers(group.id).catch(() => []),
+        listSpots().catch(() => []),
+        listSpecies().catch(() => []),
+      ]);
+      fillPickers();
+      await Promise.all([loadMonth(), loadBattles()]);
+      renderCalendar();
+      renderDay();
+      renderBattles();
+    }
+  }
+
+  /* ---------- タブ ---------- */
+  $("tabs").addEventListener("click", (e) => {
+    const btn = e.target.closest(".seg-btn");
+    if (!btn) return;
+    for (const b of $("tabs").querySelectorAll(".seg-btn"))
+      b.classList.toggle("active", b === btn);
+    $("tab-plans").hidden = btn.dataset.tab !== "plans";
+    $("tab-battles").hidden = btn.dataset.tab !== "battles";
+  });
+
+  /* ---------- カレンダー ---------- */
+  function monthDays(anchor) {
+    const [y, m] = anchor.split("-").map(Number);
+    const first = new Date(Date.UTC(y, m - 1, 1));
+    const last = new Date(Date.UTC(y, m, 0));
+    const days = [];
+    // 週の頭（日曜）から埋める。**空きも枠として置く**（曜日がずれると読めない）
+    for (let i = 0; i < first.getUTCDay(); i++) days.push(null);
+    for (let d = 1; d <= last.getUTCDate(); d++)
+      days.push(`${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`);
+    return days;
+  }
+
+  async function loadMonth() {
+    const days = monthDays(monthAnchor).filter(Boolean);
+    plans = await listPlans(group.id, days[0], days.at(-1)).catch(() => []);
+    hands = await listPlanHands(plans.map((p) => p.id)).catch(() => []);
+  }
+
+  function renderCalendar() {
+    const [y, m] = monthAnchor.split("-").map(Number);
+    $("cal-month").textContent = `${y}年 ${m}月`;
+    const today = todayInJst();
+    const byDate = new Map();
+    for (const p of plans) byDate.set(p.plan_date, (byDate.get(p.plan_date) ?? 0) + 1);
+
+    const head = ["日", "月", "火", "水", "木", "金", "土"]
+      .map((w, i) => `<div class="cal-dow${i === 0 ? " sun" : i === 6 ? " sat" : ""}">${w}</div>`)
+      .join("");
+    const cells = monthDays(monthAnchor).map((date, i) => {
+      if (!date) return `<div class="cal-cell empty"></div>`;
+      const n = byDate.get(date) ?? 0;
+      const dow = i % 7;
+      /* **人数ではなく「何件出ているか」を点で出す。** 数字を入れると
+         カレンダーの升目が数字だらけになり、日付が読めなくなる */
+      return `<button type="button" class="cal-cell${date === today ? " today" : ""}`
+        + `${date === selectedDate ? " picked" : ""}`
+        + `${dow === 0 ? " sun" : dow === 6 ? " sat" : ""}" data-date="${date}">`
+        + `<span class="d">${Number(date.slice(8))}</span>`
+        + (n ? `<span class="dots">${"●".repeat(Math.min(n, 3))}</span>` : "")
+        + `</button>`;
+    }).join("");
+    $("cal").innerHTML = head + cells;
+  }
+
+  $("cal").addEventListener("click", (e) => {
+    const cell = e.target.closest(".cal-cell[data-date]");
+    if (!cell) return;
+    selectedDate = cell.dataset.date;
+    renderCalendar();
+    renderDay();
+  });
+
+  const shiftMonth = async (by) => {
+    const [y, m] = monthAnchor.split("-").map(Number);
+    const d = new Date(Date.UTC(y, m - 1 + by, 1));
+    monthAnchor = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-01`;
+    await loadMonth();
+    renderCalendar();
+    renderDay();
+  };
+  $("cal-prev").addEventListener("click", () => shiftMonth(-1));
+  $("cal-next").addEventListener("click", () => shiftMonth(1));
+
+  const memberName = (userId) =>
+    members.find((m) => m.user_id === userId)?.name ?? "メンバー";
+  const spotName = (spotId) =>
+    spots.find((s) => s.id === spotId)?.name ?? null;
+
+  function renderDay() {
+    const box = $("day-card");
+    box.hidden = false;
+    $("day-title").textContent = formatJstDate(selectedDate, { weekday: true });
+    const today = plans.filter((p) => p.plan_date === selectedDate);
+    if (!today.length) {
+      $("day-plans").innerHTML =
+        `<div class="empty">まだ誰も出していません。</div>`;
+      return;
+    }
+    $("day-plans").innerHTML = today.map((p) => {
+      const up = hands.filter((h) => h.plan_id === p.id);
+      const mine = up.some((h) => h.user_id === me);
+      const spot = spotName(p.spot_id);
+      return `<div class="plan-row${p.user_id === me ? " mine" : ""}">
+        <div class="plan-main">
+          <div class="plan-when">${escapeHtml(planHours(p))}
+            <span class="plan-who">${escapeHtml(memberName(p.user_id))}</span></div>
+          ${spot ? `<div class="plan-spot">${icon("map-pin", { size: 12 })} ${escapeHtml(spot)}</div>` : ""}
+          ${p.note ? `<div class="plan-note">${escapeHtml(p.note)}</div>` : ""}
+          ${up.length ? `<div class="plan-hands">${
+            up.map((h) => escapeHtml(memberName(h.user_id))).join("・")} が行く</div>` : ""}
+        </div>
+        <div class="plan-side">
+          <button type="button" class="hand${mine ? " on" : ""}" data-hand="${p.id}"
+                  aria-pressed="${mine}" aria-label="自分も行く">
+            ${icon("hand", { size: 18 })}<span>${up.length}</span></button>
+          ${p.user_id === me
+            ? `<button type="button" class="plan-del" data-del="${p.id}"
+                       aria-label="取り消す">✕</button>` : ""}
+        </div>
+      </div>`;
+    }).join("");
+    renderIcons();
+  }
+
+  $("day-plans").addEventListener("click", async (e) => {
+    const hand = e.target.closest("[data-hand]");
+    if (hand) {
+      const id = hand.dataset.hand;
+      const on = hand.classList.contains("on");
+      hand.disabled = true;
+      try {
+        await raiseHand(id, !on);
+        hands = on
+          ? hands.filter((h) => !(h.plan_id === id && h.user_id === me))
+          : [...hands, { plan_id: id, user_id: me }];
+        renderDay();
+      } catch (err) {
+        show(err.message ?? "うまくいきませんでした");
+        hand.disabled = false;
+      }
+      return;
+    }
+    const del = e.target.closest("[data-del]");
+    if (del && confirm("この「行きたい」を取り消しますか？")) {
+      try {
+        await deletePlan(del.dataset.del);
+        plans = plans.filter((p) => p.id !== del.dataset.del);
+        renderCalendar();
+        renderDay();
+      } catch (err) { show(err.message ?? "取り消せませんでした"); }
+    }
+  });
+
+  /* ---------- 「行きたい」を出す ---------- */
+  function fillPickers() {
+    const hourOptions = (from, to) => {
+      let out = "";
+      for (let h = from; h <= to; h++) out += `<option value="${h}">${h}:00</option>`;
+      return out;
+    };
+    $("plan-start").innerHTML = hourOptions(0, 23);
+    $("plan-end").innerHTML = hourOptions(1, 24);
+    $("b-start-hour").innerHTML = hourOptions(0, 23);
+    $("b-end-hour").innerHTML = hourOptions(1, 24);
+    $("plan-presets").innerHTML = PLAN_PRESETS.map((p) =>
+      `<button type="button" class="chip" data-preset="${p.key}">${escapeHtml(p.label)}`
+      + `<small> ${p.start}-${p.end}</small></button>`).join("");
+    $("plan-spot").innerHTML = `<option value="">まだ決めていない</option>`
+      + spots.map((s) => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join("");
+    $("b-metrics").innerHTML = BATTLE_METRICS.map((m) =>
+      `<button type="button" class="chip${m.key === pickedMetric ? " selected" : ""}"
+               data-metric="${m.key}">${escapeHtml(m.label)}</button>`).join("");
+    $("b-metric-note").textContent = battleMetric(pickedMetric).note;
+    $("b-species").innerHTML = species.map((s) =>
+      `<button type="button" class="chip" data-species="${s.id}">${escapeHtml(s.name)}</button>`)
+      .join("");
+  }
+
+  $("plan-presets").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-preset]");
+    if (!b) return;
+    const p = PLAN_PRESETS.find((x) => x.key === b.dataset.preset);
+    $("plan-start").value = String(p.start);
+    $("plan-end").value = String(p.end);
+    for (const c of $("plan-presets").querySelectorAll(".chip"))
+      c.classList.toggle("selected", c === b);
+  });
+
+  /* 始まりを動かしたら、終わりが前にならないように押し出す。
+     **選び直させない。** 逆さまのまま出そうとして怒られるほうが手間 */
+  $("plan-start").addEventListener("change", () => {
+    if (Number($("plan-end").value) <= Number($("plan-start").value))
+      $("plan-end").value = String(Math.min(24, Number($("plan-start").value) + 4));
+  });
+
+  const openSheet = (id) => { $(id).hidden = false; document.body.style.overflow = "hidden"; };
+  const closeSheet = (id) => { $(id).hidden = true; document.body.style.overflow = ""; };
+  for (const id of ["plan-sheet", "battle-sheet"]) {
+    $(id).addEventListener("click", (e) => {
+      if (e.target.closest("[data-close]")) closeSheet(id);
+    });
+  }
+
+  $("add-plan").addEventListener("click", () => {
+    sheetDate = selectedDate;
+    $("plan-sheet-title").textContent =
+      `${formatJstDate(sheetDate, { weekday: true })} に行きたい`;
+    const dusk = PLAN_PRESETS.find((p) => p.key === "dusk");
+    $("plan-start").value = String(dusk.start);
+    $("plan-end").value = String(dusk.end);
+    $("plan-note").value = "";
+    $("plan-spot").value = "";
+    for (const c of $("plan-presets").querySelectorAll(".chip"))
+      c.classList.toggle("selected", c.dataset.preset === "dusk");
+    openSheet("plan-sheet");
+  });
+
+  $("plan-save").addEventListener("click", async () => {
+    const start = Number($("plan-start").value);
+    const end = Number($("plan-end").value);
+    if (end <= start) { show("終わりは始まりより後にしてください"); return; }
+    $("plan-save").disabled = true;
+    try {
+      await createPlan({
+        groupId: group.id, date: sheetDate, startHour: start, endHour: end,
+        spotId: $("plan-spot").value || null, note: $("plan-note").value,
+      });
+      show("");
+      closeSheet("plan-sheet");
+      await loadMonth();
+      selectedDate = sheetDate;
+      renderCalendar();
+      renderDay();
+    } catch (err) {
+      show(err.message ?? "出せませんでした");
+    } finally {
+      $("plan-save").disabled = false;
+    }
+  });
+
+  /* ---------- バトル ---------- */
+  async function loadBattles() {
+    battles = await listBattles(group.id).catch(() => []);
+    entryCounts = new Map();
+    await Promise.all(battles.map(async (b) => {
+      const e = await listBattleEntries(b.id).catch(() => []);
+      entryCounts.set(b.id, e.length);
+    }));
+  }
+
+  function renderBattles() {
+    const box = $("battle-list");
+    if (!battles.length) {
+      box.innerHTML = `<div class="empty">まだバトルはありません。<br>`
+        + `期間と勝ち方を決めて作ると、釣果から自動で順位を出します。</div>`;
+      return;
+    }
+    box.innerHTML = battles.map((b) => {
+      const phase = battlePhase(b);
+      const m = battleMetric(b.metric);
+      return `<a class="list-item" href="battle.html?id=${b.id}">
+        <div class="thumb">${icon("trophy", { size: 20 })}</div>
+        <div class="list-body">
+          <div class="list-title">${escapeHtml(b.name)}</div>
+          <div class="list-sub">${escapeHtml(m.label)} · `
+        + `${escapeHtml(shortRange(b))} · ${entryCounts.get(b.id) ?? 0}人</div>
+        </div>
+        <div class="list-aside"><span class="phase ph-${phase}">`
+        + `${BATTLE_PHASE_LABELS[phase]}</span></div>
+      </a>`;
+    }).join("");
+    renderIcons();
+  }
+
+  function shortRange(b) {
+    const at = (s) => {
+      const d = String(s ?? "");
+      return `${Number(d.slice(5, 7))}/${Number(d.slice(8, 10))} ${d.slice(11, 16)}`;
+    };
+    return `${at(b.starts_at)}〜${at(b.ends_at)}`;
+  }
+
+  $("b-metrics").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-metric]");
+    if (!b) return;
+    pickedMetric = b.dataset.metric;
+    for (const c of $("b-metrics").querySelectorAll(".chip"))
+      c.classList.toggle("selected", c === b);
+    $("b-metric-note").textContent = battleMetric(pickedMetric).note;
+  });
+
+  $("b-species").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-species]");
+    if (!b) return;
+    const id = b.dataset.species;
+    if (pickedSpecies.has(id)) pickedSpecies.delete(id);
+    else pickedSpecies.add(id);
+    b.classList.toggle("selected", pickedSpecies.has(id));
+  });
+
+  $("add-battle").addEventListener("click", () => {
+    const today = todayInJst();
+    $("b-name").value = "";
+    $("b-start-date").value = today;
+    $("b-end-date").value = addJstDays(today, 1);
+    $("b-start-hour").value = "0";
+    $("b-end-hour").value = "24";
+    $("b-note").value = "";
+    $("b-photo").checked = true;
+    pickedSpecies.clear();
+    for (const c of $("b-species").querySelectorAll(".chip")) c.classList.remove("selected");
+    openSheet("battle-sheet");
+  });
+
+  $("b-save").addEventListener("click", async () => {
+    const name = $("b-name").value.trim();
+    if (!name) { show("名前を入れてください"); return; }
+    /* **1 分前まで**にして半開区間を守る。24 時は翌日 0 時のこと。
+       DB は「終わりちょうどは入らない」で揃えてあるので、
+       ここで 24:00 を作ってはいけない（そんな時刻は無い） */
+    const at = (dateId, hourId) => {
+      const d = $(dateId).value;
+      const h = Number($(hourId).value);
+      if (h === 24) return `${addJstDays(d, 1)}T00:00:00`;
+      return `${d}T${String(h).padStart(2, "0")}:00:00`;
+    };
+    const startsAt = at("b-start-date", "b-start-hour");
+    const endsAt = at("b-end-date", "b-end-hour");
+    if (!(startsAt < endsAt)) { show("終わりは始まりより後にしてください"); return; }
+    $("b-save").disabled = true;
+    try {
+      const id = await createBattle({
+        groupId: group.id, name, startsAt, endsAt, metric: pickedMetric,
+        requirePhoto: $("b-photo").checked, note: $("b-note").value,
+        speciesIds: [...pickedSpecies],
+      });
+      location.href = `battle.html?id=${id}`;
+    } catch (err) {
+      show(err.message ?? "作れませんでした");
+      $("b-save").disabled = false;
+    }
+  });
+</script>
+</body>
+</html>
