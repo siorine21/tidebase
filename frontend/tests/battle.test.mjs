@@ -16,14 +16,22 @@ import { sliceApp } from './_slice.mjs';
 
 const prelude = `
   function nowInJst() { return { date: "2026-09-10", hhmm: "12:00" }; }
+  function formatCountdown(minutes) {
+    if (minutes == null || !Number.isFinite(minutes) || minutes < 0) return null;
+    const m = Math.round(minutes);
+    if (m < 60) return \`\${m}分\`;
+    const h = Math.floor(m / 60), rest = m % 60;
+    return rest === 0 ? \`\${h}時間\` : \`\${h}時間\${rest}分\`;
+  }
 `;
 const code = sliceApp([
   ['/** 集計方法。**この 3 つだけ。** */', 'export async function listBattles'],
 ], prelude);
 
-const { BATTLE_METRICS, battleMetric, battleStandings, battlePhase, BATTLE_SKIP_REASONS } =
+const { BATTLE_METRICS, battleMetric, battleStandings, battlePhase, BATTLE_SKIP_REASONS,
+        homeBattles, battleRemain } =
   new Function(code + `; return { BATTLE_METRICS, battleMetric, battleStandings,
-    battlePhase, BATTLE_SKIP_REASONS };`)();
+    battlePhase, BATTLE_SKIP_REASONS, homeBattles, battleRemain };`)();
 
 let failed = 0;
 const check = (name, ok, extra = '') => {
@@ -148,6 +156,49 @@ eq('null でも落ちない', battlePhase(null), 'unknown');
 // 秒まで入ってきても比べられる（PostgREST は timestamp を秒付きで返す）
 eq('秒が付いていても比べられる',
   battlePhase({ starts_at: '2026-09-10T00:00:00', ends_at: '2026-09-11T00:00:00' }), 'running');
+
+/* ---- ホームの一番上に出すもの（D-147） ----
+   ホームのいちばん上は潮とスコアの場所。そこを譲るからには出しっぱなしにできない。
+   **終わったバトルが積み上がると、毎日それを押しのけて潮を見ることになる。**
+   いまは 2026-09-10 12:00（prelude で固定） */
+const bt = (name, starts, ends) => ({ name, starts_at: starts, ends_at: ends });
+const live1 = bt('いま1', '2026-09-09T00:00', '2026-09-11T00:00');   // あと 12時間
+const live2 = bt('いま2', '2026-09-01T00:00', '2026-09-30T00:00');   // あと 19日
+const soon1 = bt('これから1', '2026-09-12T00:00', '2026-09-13T00:00');
+const soon2 = bt('これから2', '2026-09-20T00:00', '2026-09-21T00:00');
+const done1 = bt('おわり', '2026-09-01T00:00', '2026-09-05T00:00');
+
+eq('終わったバトルは出さない',
+  homeBattles([done1, live1]).map((b) => b.name), ['いま1']);
+/* **開催中が先、これからは後。** 開催中は終わるのが近い順、
+   これからは始まるのが近い順。どちらも先に気にすべきものが上 */
+// 並び順そのものを見たいので、上限は広げて渡す（既定は 3 件）
+eq('開催中が先、そのあとこれから',
+  homeBattles([soon2, done1, live2, soon1, live1], 9).map((b) => b.name),
+  ['いま1', 'いま2', 'これから1', 'これから2']);
+eq('上限で切る', homeBattles([live1, live2, soon1, soon2], 2).map((b) => b.name),
+  ['いま1', 'いま2']);
+eq('1 件も無ければ空', homeBattles([]).length, 0);
+eq('null でも落ちない', homeBattles(null).length, 0);
+eq('終わったものだけなら空', homeBattles([done1]).length, 0);
+
+/* ---- 残り時間の言い方 ----
+   **日をまたぐので「時間」だけでは言えない。** formatCountdown は分と時間しか
+   返さないので、1 か月のバトルだと「720時間」になり、頭の中で割り算させる */
+eq('開催中は「あと」', battleRemain(live1).text, 'あと 12時間');
+eq('1 日以上は日で言う', battleRemain(live2).text, 'あと 19日');
+eq('これからは「はじまる」', battleRemain(soon1).text, '1日後にはじまる');
+eq('1 日未満のこれから',
+  battleRemain(bt('x', '2026-09-10T15:30', '2026-09-11T00:00')).text, '3時間30分後にはじまる');
+eq('1 時間未満',
+  battleRemain(bt('x', '2026-09-10T11:00', '2026-09-10T12:40')).text, 'あと 40分');
+eq('終わったものは「終わりました」', battleRemain(done1).text, '終わりました');
+eq('段階も返す', battleRemain(live1).key, 'running');
+eq('日時が無くても落ちない', battleRemain({}).text, '');
+eq('null でも落ちない', battleRemain(null).key, 'unknown');
+// 秒付きでも読める（PostgREST は timestamp を秒付きで返す）
+eq('秒が付いていても読める',
+  battleRemain(bt('x', '2026-09-09T00:00:00', '2026-09-11T00:00:00')).text, 'あと 12時間');
 
 console.log(failed ? `\nFAIL ${failed} 件` : '\nすべて通過');
 process.exit(failed ? 1 : 0);

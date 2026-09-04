@@ -3333,6 +3333,57 @@ export const BATTLE_PHASE_LABELS = {
   before: "これから", running: "開催中", done: "終了", unknown: "—",
 };
 
+/**
+ * ホームの一番上に出すバトル（D-147）。**終わったものは出さない。**
+ *
+ * 本人の要望は「バトルを作ったら、ダッシュボードの一番上に詳細ページへ
+ * つながるセクションを作ってほしい」。ホームのいちばん上は
+ * **潮とスコアの場所**なので、そこを譲るからには出しっぱなしにはできない。
+ * 終わったバトルが積み上がると、毎日それを押しのけて潮を見ることになる。
+ *
+ * 並びは **開催中 → これから**。開催中は終わるのが近い順、
+ * これからは始まるのが近い順。どちらも「先に気にすべきもの」が上に来る。
+ *
+ * @param {object[]} battles listBattles が返したもの
+ * @param {number}   limit   出す上限。ホームの上を占め過ぎないため
+ */
+export function homeBattles(battles, limit = 3, now = nowInJst()) {
+  const live = [];
+  const soon = [];
+  for (const b of battles ?? []) {
+    const phase = battlePhase(b, now);
+    if (phase === "running") live.push(b);
+    else if (phase === "before") soon.push(b);
+  }
+  live.sort((a, b) => String(a.ends_at).localeCompare(String(b.ends_at)));
+  soon.sort((a, b) => String(a.starts_at).localeCompare(String(b.starts_at)));
+  return [...live, ...soon].slice(0, limit);
+}
+
+/**
+ * バトルの残り（D-147）。**日をまたぐので「時間」だけでは言えない。**
+ * formatCountdown は分と時間しか返さず、1 か月のバトルだと「720時間」になる。
+ *
+ * @returns {{text: string, key: "running"|"before"|"done"|"unknown"}}
+ */
+export function battleRemain(battle, now = nowInJst()) {
+  const key = battlePhase(battle, now);
+  if (key === "unknown" || key === "done") {
+    return { key, text: key === "done" ? "終わりました" : "" };
+  }
+  const target = key === "running" ? battle.ends_at : battle.starts_at;
+  const at = Date.parse(`${now.date}T${now.hhmm}:00Z`);
+  const to = Date.parse(`${String(target).slice(0, 16)}:00Z`);
+  if (!Number.isFinite(at) || !Number.isFinite(to)) return { key, text: "" };
+  const minutes = Math.max(0, Math.round((to - at) / 60000));
+  /* **1 日以上あれば日で言う。** 「あと 3日」で足りる場面に
+     「あと 76時間」と出しても、頭の中で割り算させるだけ */
+  const left = minutes >= 1440
+    ? `${Math.floor(minutes / 1440)}日`
+    : (formatCountdown(minutes) ?? "0分");
+  return { key, text: key === "running" ? `あと ${left}` : `${left}後にはじまる` };
+}
+
 /** グループのバトル。新しいものから。 */
 export async function listBattles(groupId) {
   const { data, error } = await client
