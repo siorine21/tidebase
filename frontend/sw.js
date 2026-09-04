@@ -30,6 +30,7 @@ const SHELL = [
   "./records.html", "./record.html", "./record-new.html", "./trends.html",
   "./recipes.html", "./recipe.html", "./recipe-edit.html",
   "./tackle.html", "./settings.html", "./news.html", "./login.html",
+  "./plans.html", "./battle.html",
   `./assets/theme.css${V}`, `./assets/app.js${V}`,
   `./assets/icons.js${V}`, `./assets/config.js${V}`,
   "./vendor/supabase.js", "./vendor/fonts/fonts.css",
