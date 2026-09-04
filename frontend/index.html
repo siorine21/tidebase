@@ -43,6 +43,13 @@
   <div id="message" class="message" hidden role="alert"></div>
   <!-- 潮汐地点が場所ごとに決まるようになったことの知らせ（D-105）。1 度だけ -->
   <div id="point-notice" class="message point-notice" hidden role="status"></div>
+
+  <!-- 開催中・これからのバトル（D-147）。**いちばん上に置く**（本人の要望）。
+       ここは潮とスコアの場所なので、譲るからには出しっぱなしにはしない。
+       **終わったバトルは出さない。** 積み上がると、毎日それを押しのけて
+       潮を見ることになる。押すとそのバトルの順位へ行く -->
+  <div class="home-battles" id="home-battles" hidden></div>
+
   <section class="hero">
     <div class="hero-top">
       <div>
@@ -130,12 +137,15 @@
     fishingScoreAhead, hourScorer,
     showFishingScoreHelp, tideType, TIDE_TYPE_COLORS,
     renderHourlyStrip,
-    listSpots, listRecords, icon,
+    listSpots, listRecords, icon, renderIcons,
     recordFishName, ownerBadge, nowInJst, hoursFromHhmm, addJstDays,
     listTidePoints, fetchTideForPoint, savedTidePoint, saveTidePoint, formatLag,
     pickBaseSpot, spotTidePoint, savedBaseSpot, saveBaseSpot, attachSpotPicker,
     rememberedView, rememberView, sameView,
     spotFacesOpenSea, describeWaves, waveSummary, fetchWaves,
+    myGroup, listBattles, listBattleEntries, battleRecords,
+    homeBattles, battleRemain, battleStandings, battleMetric,
+    BATTLE_PHASE_LABELS, battlePhase,
     liveCameraEmbedUrl, listLiveCameras,
     warmTideCache,
     hasUnreadNews, WEATHER_SOURCE,
@@ -153,6 +163,7 @@
   let tideCache = new Map();          // 日付 → 潮汐
   const sunCache = new Map();         // 日付 → 日の出・日没
   let todayHours = null;              // 今日の時間別予報（波の行が読む・D-142）
+  let myId = null;                    // 自分の順位を見つけるのに使う（D-147）
   const camWaves = new Map();         // ライブカメラの code → その浜の予報（D-144）
   let liveCams = [];                  // 出しているカメラ（毎分の書き直しが引く）
   const CHART_H = 152;                // グラフの高さ（潮位目盛りの箱もこれに合わせる）
@@ -168,6 +179,7 @@
   const session = await requireSession();
   if (session) {
     renderNav("home");
+    myId = session.user.id;
 
     // 未読のお知らせがあるときだけ点を出す（D-074）。
     // 読み込めなくてもホームは動かしたいので、失敗は握りつぶす
@@ -189,6 +201,10 @@
        届いた時点で描く。海の様子を見てから行き先を決める、という順番なので、
        むしろ上の表示より先に出てよい */
     listLiveCameras().then(renderLiveCams).catch(() => {});
+    /* バトルもスポットに依らないので待たない（D-147）。
+       届いた時点で上に出す。**失敗したら黙って出さない**。
+       バトルが取れないくらいで、潮とスコアを止める理由は無い */
+    loadHomeBattles().catch(() => {});
 
     /* **前回と同じところなら、決まるのを待たずに投げておく**（D-140）。
        下の 2 本は「どの地点を見るか」を決めるためだけにあり、
@@ -585,6 +601,76 @@
       const old = item.querySelector(".live-cam-wave-box");
       if (old) old.outerHTML = camWaveBody(c);
     });
+  }
+
+  /* 開催中・これからのバトル（D-147）。**ホームのいちばん上。**
+
+     本人の要望:「バトルを作ったら、ダッシュボードの一番上に詳細ページに
+     つながる用にセクションを作ってほしい」。
+
+     ここは潮とスコアの場所なので、譲るからには**終わったものは出さない**。
+     積み上がると、毎日それを押しのけて潮を見ることになる（homeBattles）。
+
+     **開催中のものだけ順位まで取りに行く。** これからのバトルは
+     まだ 1 匹も釣られていないので、集計を叩いても全員 0 が返るだけ。
+     要らない通信をしない（D-142 と同じ考え）。 */
+  async function loadHomeBattles() {
+    const group = await myGroup();
+    if (!group) return;
+    const shown = homeBattles(await listBattles(group.id));
+    if (!shown.length) return;
+
+    /* まず名前と残り時間だけで出す。**順位を待たない。**
+       集計は 1 つにつき 2 本の通信になるので、そこで待つと
+       上の帯だけ遅れて降ってきて、下の潮が押し下げられる */
+    renderHomeBattles(shown, new Map());
+
+    const standings = new Map();
+    await Promise.all(shown
+      .filter((b) => battlePhase(b) === "running")
+      .map(async (b) => {
+        try {
+          const [entries, rows] = await Promise.all([
+            listBattleEntries(b.id), battleRecords(b.id),
+          ]);
+          if (!entries.length) return;
+          const entrants = entries.map((e) => ({ user_id: e.user_id, name: "" }));
+          const all = battleStandings(rows, entrants, b.metric);
+          /* **変数を r にしない。** 釣果の列を見張るテスト（D-126）が
+             `r.列名` を走査するので、順位の行を r と書くと
+             「index.html が user_id を読んでいる」と誤って拾われる */
+          const mine = all.find((row) => row.user_id === myId);
+          if (mine) standings.set(b.id, { ...mine, of: all.length });
+        } catch { /* 取れなければ順位は出さない。名前と残りは出たまま */ }
+      }));
+    renderHomeBattles(shown, standings);
+  }
+
+  function renderHomeBattles(battles, standings) {
+    const box = document.getElementById("home-battles");
+    box.hidden = !battles.length;
+    if (!battles.length) { box.innerHTML = ""; return; }
+    box.innerHTML = battles.map((b) => {
+      const phase = battlePhase(b);
+      const remain = battleRemain(b);
+      const mine = standings.get(b.id);
+      return `<a class="hb" href="battle.html?id=${b.id}">
+        <div class="hb-main">
+          <div class="hb-top">
+            <span class="phase ph-${phase}">${BATTLE_PHASE_LABELS[phase]}</span>
+            <span class="hb-name">${escapeHtml(b.name)}</span>
+          </div>
+          <div class="hb-sub">${escapeHtml(battleMetric(b.metric).label)}`
+        + `${remain.text ? ` · ${escapeHtml(remain.text)}` : ""}</div>
+        </div>
+        ${mine
+          ? `<div class="hb-rank"><span class="hb-no">${mine.rank}</span>`
+            + `<span class="hb-of">/${mine.of}位</span>`
+            + `<span class="hb-val">${mine.value}${escapeHtml(mine.unit)}</span></div>`
+          : `<div class="hb-go">${icon("chevron-right", { size: 16 })}</div>`}
+      </a>`;
+    }).join("");
+    renderIcons();
   }
 
   function renderNow() {
