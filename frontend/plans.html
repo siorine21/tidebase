@@ -26,6 +26,7 @@
 
 <main>
   <div id="message" class="message" hidden role="alert"></div>
+  <div class="card" id="no-group" hidden><div class="empty"></div></div>
 
   <!-- 予定とバトルは別の話だが、**どちらも「仲間と合わせる」ためのもの**なので
        同じ画面に置く。ナビの 6 枠は埋まっているので、増やさずここに畳む -->
@@ -193,11 +194,19 @@
     me = session.user.id;
     group = await myGroup().catch(() => null);
     if (!group) {
+      /* **main を innerHTML で塗り潰さない。** 塗り潰すと #tabs や #cal が
+         消えるのに、下で $("tabs").addEventListener(...) を呼ぶので
+         null で落ちる。実際に落ちていた（グループ未加入と、
+         myGroup() が通信で失敗して null になったときの両方）。
+         隠すだけにすれば、要素は残るので下の配線が生きる */
       $("group-name").textContent = "";
-      document.querySelector("main").innerHTML =
-        `<div class="card"><div class="empty">`
-        + `仲間と予定を合わせたりバトルをするには、まずグループが要ります。<br>`
-        + `<a href="settings.html">設定</a>から作るか、招待を受けてください。</div></div>`;
+      $("tabs").hidden = true;
+      $("tab-plans").hidden = true;
+      $("tab-battles").hidden = true;
+      $("no-group").hidden = false;
+      $("no-group").querySelector(".empty").innerHTML =
+        `仲間と予定を合わせたりバトルをするには、まずグループが要ります。<br>`
+        + `<a href="settings.html">設定</a>から作るか、招待を受けてください。`;
     } else {
       $("group-name").textContent = group.name;
       [members, spots, species] = await Promise.all([
