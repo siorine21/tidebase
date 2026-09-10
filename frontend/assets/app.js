@@ -3550,6 +3550,81 @@ export async function raiseHand(planId, up = true) {
   if (error && error.code !== "23505") throw error;
 }
 
+/* ============ ボウズをすぐ残す（D-150） ==================================
+
+   **なぜ要るか。** D-139 で釣行スコアを作り直したとき、
+   「このスコアは本人の釣果を予測できていない」という結果が出た。原因も分かっている:
+   **記録が「何かあった日」ばかり**で、比べる相手がいないため。
+
+   実データ（2026-09-11 時点）: 釣れた 27 / バラシ 4 / アタリ 4 に対し **ボウズ 3**。
+   天気を残す機能が入った 8/11 以降の 21 件で見ても 3 件しかない。
+
+   釣果の登録は 5 段階・42 個の操作要素を通る。**釣れなかった日にそれはやらない。**
+   だからスコアという看板機能が、燃料切れのまま検証できずにいる。
+
+   ここは「新しい機能」というより、**すでにある機能を動かすための燃料入れ**。
+
+   **記録するのは 1 か所だけ。** 釣果登録の画面と別々に payload を組み立てると、
+   片方だけ直したときに必ず食い違う（この取り違えを何度もやっている）。 */
+
+/**
+ * ボウズ（何も無し）を 1 回で残す（D-150）。
+ *
+ * @param {object|null} spot    行った場所。座標があれば天気も一緒に残す
+ * @param {string} date         釣行日（"YYYY-MM-DD"）
+ * @param {string} time         時刻（"HH:MM"）
+ * @param {string|null} memo    ひとこと。メモの言葉（D-148）もここに入る
+ * @param {string} visibility   公開範囲
+ * @returns {Promise<string>} できた記録の id
+ */
+export async function logBlankOuting({
+  spot = null, date, time, memo = null, visibility = "group",
+} = {}) {
+  if (!date || !time) throw new Error("釣行日と時刻が要ります。");
+  const userId = await requireUserId();
+  const payload = {
+    user_id: userId,
+    spot_id: spot?.id ?? null,
+    fished_at: date,
+    fished_time: time,
+    outcome: "none",
+    /* outcome が正。is_skunked は古い画面と混ざっても壊れないよう明示して送る（D-092）。
+       釣果の欄は**送らない**（DB の既定が null。ボウズに魚の情報は無い） */
+    is_skunked: true,
+    memo: memo?.trim() ? memo.trim() : null,
+    visibility,
+  };
+
+  /* その時刻の天気を一緒に残す（D-103）。**取れなくても保存は止めない。**
+     圏外でも記録が残るほうが先（D-096）。潮は DB のトリガーが埋める（004） */
+  if (spot && isCoordinateInJapan(spot.latitude, spot.longitude)) {
+    const snapshot = await captureWeatherSnapshot({
+      lat: spot.latitude, lng: spot.longitude, date, time,
+    }).catch(() => null);
+    if (snapshot) payload.weather_snapshot = snapshot;
+  }
+
+  const { data, error } = await client
+    .from("fishing_records").insert(payload).select("id").single();
+  if (error) throw error;
+  return data.id;
+}
+
+/**
+ * 今日すでにボウズを残していないか（D-150）。**二重に押させない。**
+ * 同じ日・同じ場所で 2 回押すと、比べる相手が水増しされて
+ * スコアの検証そのものが狂う。押す側には気づけない。
+ */
+export async function blankLoggedToday(spotId, date = todayInJst()) {
+  const userId = await requireUserId();
+  let query = client.from("fishing_records")
+    .select("id").eq("user_id", userId).eq("fished_at", date).eq("outcome", "none");
+  query = spotId ? query.eq("spot_id", spotId) : query.is("spot_id", null);
+  const { data, error } = await query.limit(1);
+  if (error) throw error;
+  return (data ?? [])[0]?.id ?? null;
+}
+
 /* ============ メモの言葉で絞る（雨後・濁り・増水）・D-148 ==================
 
    要望:「釣果登録時に雨後の影響を記録して、雨後にフィルターした釣果を

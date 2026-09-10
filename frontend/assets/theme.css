@@ -485,7 +485,14 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
   font-size: 11px; letter-spacing: 1.5px; color: var(--text-muted);
   margin: 18px 0 8px;
 }
-.section-label .note { letter-spacing: 0; font-size: 11px; }
+/* **押せる字は当たりを広げる**（D-150）。実測で「詳細 →」が 35x19px、
+   「すべて見る →」が 69x19px しかなかった。目安の 44px の半分以下で、
+   濡れた手や手袋では押しにくい。**見た目は変えず、当たりだけ広げる**
+   （padding で伸ばし、右端に寄せたぶんを負のマージンで戻す） */
+.section-label .note {
+  letter-spacing: 0; font-size: 11px;
+  padding: 13px 4px; margin: -13px -4px;
+}
 
 /* ---------- 潮汐グラフ ---------- */
 .tide-graph { width: 100%; height: 132px; display: block; }
@@ -695,7 +702,11 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 }
 .page-head .back {
   background: none; border: none; color: var(--text-secondary);
-  font-size: 20px; cursor: pointer; padding: 0 4px;
+  font-size: 20px; cursor: pointer;
+  /* 戻るは**いちばん押される**のに 28x20px しかなかった（D-150）。
+     44px の当たりにする。見た目の位置は負のマージンで元に戻す */
+  padding: 12px; margin: -12px -8px -12px -12px;
+  display: inline-flex; align-items: center;
 }
 /* 題は伸び縮みする。**flex-shrink を 0 にしない**（.app-header の h1 は 0 で、
    長い名前が右のボタンを画面の外へ押し出した・D-146）。
@@ -2020,3 +2031,31 @@ label.check input { width: auto; }
   font-family: inherit; font-size: 15px;
 }
 .field input[type="search"]:focus { outline: none; border-color: var(--border-strong); }
+
+/* ボウズをすぐ残す（D-150）。**目立たせすぎない。**
+   釣れた記録より上に置くと「今日もダメだった」が先に目に入る。
+   一覧の下、FAB の手前に、押しやすい大きさで置く */
+.blank-btn {
+  width: 100%; margin-top: 12px; margin-bottom: 8px;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  font-size: 14px; font-weight: normal; color: var(--text-secondary);
+  /* FAB（右下）と重ならないよう、右側だけ空ける */
+  padding-right: 72px; padding-left: 12px;
+}
+.blank-btn:hover { color: var(--text-primary); }
+#blank-tags { margin-top: 10px; }
+#blank-summary .hint { color: var(--text-muted); }
+
+/* 畳んだ欄（D-150）。**消さずに畳む。** 実データで使われていない欄を
+   常に出しておくと、毎回それを飛ばす操作が要る */
+.fold { margin-bottom: 16px; }
+.fold > summary {
+  cursor: pointer; list-style: none;
+  font-size: 12px; color: var(--text-muted);
+  padding: 10px 2px;                      /* 当たりを 44px 近くまで広げる */
+  display: flex; align-items: center; gap: 6px;
+}
+.fold > summary::-webkit-details-marker { display: none; }
+.fold > summary::before { content: "＋"; font-size: 13px; }
+.fold[open] > summary::before { content: "−"; }
+.fold > summary:hover { color: var(--text-secondary); }
