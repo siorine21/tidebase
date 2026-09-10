@@ -2001,3 +2001,22 @@ label.check input { width: auto; }
 .hb-no { font-size: 22px; line-height: 1; color: var(--mustard-lt); }
 .hb-of { font-size: 10px; color: var(--text-muted); }
 .hb-val { margin-left: 7px; font-size: 12px; color: var(--text-secondary); }
+
+/* メモの言葉（D-148）。**欄は増やさず、綴りを揃えるためだけの帯。**
+   自由文のままだと「笹濁り」「ささ濁り」が別物になり、絞り込みが黙って取りこぼす */
+#memo-tags { margin-top: 10px; }
+.memo-tag-row { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+.memo-tag-label {
+  flex: 0 0 34px; font-size: 11px; color: var(--text-muted); text-align: right;
+}
+.memo-tag-row .chips { flex: 1; min-width: 0; }
+.memo-tag-row .chip { padding: 5px 11px; font-size: 12px; }
+/* 絞り込みの語も同じ見た目にする。**同じ言葉が同じ形で出る**ようにしたい */
+#word-chips .chip { padding: 5px 11px; font-size: 12px; }
+.field input[type="search"] {
+  width: 100%; padding: 11px 12px;
+  background: var(--bg-deep); border: 1px solid var(--border);
+  border-radius: 8px; color: var(--text-primary);
+  font-family: inherit; font-size: 15px;
+}
+.field input[type="search"]:focus { outline: none; border-color: var(--border-strong); }

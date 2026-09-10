@@ -25,6 +25,17 @@
 
 <main>
   <div id="message" class="message" hidden role="alert"></div>
+  <!-- メモの言葉で絞る（D-148）。**絞ると下の集計が全部それに合わせて出し直る。**
+       「場所別に見たい」ための専用の画面を足すより、もともとある「場所」の節が
+       そのまま効くほうがいい（魚種別・時間帯別・潮回り別も一緒に付いてくる） -->
+  <div class="card" id="word-filter" hidden>
+    <div class="field" style="margin:0">
+      <label for="filter-word">メモの言葉で絞る</label>
+      <input type="search" id="filter-word" placeholder="雨後・笹濁り・増水 など">
+      <div class="chips" id="word-chips" style="margin-top:8px"></div>
+      <div class="hint" id="word-hint"></div>
+    </div>
+  </div>
   <div id="content"><div class="empty">読み込み中…</div></div>
 </main>
 
@@ -38,6 +49,7 @@
     TIME_BANDS, timeBandOf, tally, tideTypeDays,
     spotType, entryStyle, categoryLabel, recordOutcome, OUTCOMES,
     RECORD_TREND_COLUMNS,
+    memoMatches, memoFilterWords,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -51,12 +63,13 @@
 
   /* 数えるのは **自分の記録だけ**。グループで共有された他人の釣果が混ざると、
      「自分がどこで出しているか」を見る画面ではなくなる */
-  let records = null;
+  let allRecords = null;      // 取ってきた全件
+  let records = null;         // メモの言葉で絞ったあと。**節はこちらを数える**
   try {
     /* **サーバー側で絞る**（D-126）。前は 1000 件を全列で取ってから
        JS で他人のぶんを捨てていた。運んでから捨てるのは二重の無駄。
        列も数えるのに要るぶんだけにしてある（RECORD_TREND_COLUMNS）。 */
-    records = await listRecords({
+    allRecords = await listRecords({
       limit: 1000, mineOnly: true, columns: RECORD_TREND_COLUMNS,
     });
   } catch (error) {
@@ -64,7 +77,46 @@
     message(toJapaneseError(error), "error");
   }
 
-  if (records) render();
+  if (allRecords) {
+    setupWordFilter();
+    applyWordFilter();
+  }
+
+  /* メモの言葉で絞る（D-148）。**候補は押すだけで入る。**
+     打ち間違いで 0 件になるのがいちばん困る（絞り込みが効いていないのか、
+     本当に無いのかが分からない） */
+  function setupWordFilter() {
+    document.getElementById("word-filter").hidden = false;
+    document.getElementById("word-chips").innerHTML = memoFilterWords()
+      .map((w) => `<button type="button" class="chip" data-word="${escapeHtml(w)}">`
+        + `${escapeHtml(w)}</button>`).join("");
+    document.getElementById("word-chips").addEventListener("click", (e) => {
+      const button = e.target.closest("[data-word]");
+      if (!button) return;
+      const input = document.getElementById("filter-word");
+      // もう一度押したら外す（同じ操作で戻せる）
+      input.value = input.value.trim() === button.dataset.word ? "" : button.dataset.word;
+      applyWordFilter();
+    });
+    document.getElementById("filter-word").addEventListener("input", applyWordFilter);
+  }
+
+  function applyWordFilter() {
+    const word = document.getElementById("filter-word").value;
+    const trimmed = word.trim();
+    for (const c of document.querySelectorAll("#word-chips .chip"))
+      c.classList.toggle("selected", c.dataset.word === trimmed);
+    records = allRecords.filter((r) => memoMatches(r.memo, word));
+    /* **絞った結果が 0 件のときに黙らない。** 「そういう日は無かった」のか
+       「言葉が違う」のかが分からないと、書き方を直しようがない */
+    const hint = document.getElementById("word-hint");
+    hint.textContent = !trimmed
+      ? `メモに書いた言葉で絞れます。「濁り」なら笹濁りもドチャ濁りも出ます。`
+      : records.length
+        ? `「${trimmed}」を含むメモの釣果 ${records.length} 件で数えています`
+        : `「${trimmed}」を含むメモの釣果はありません（全 ${allRecords.length} 件）`;
+    render();
+  }
 
   function message(text, kind) {
     const box = document.getElementById("message");
@@ -86,8 +138,14 @@
   function render() {
     const box = document.getElementById("content");
     if (!records.length) {
-      box.innerHTML = `<div class="empty">まだ記録がありません。
-        釣行を何回か記録すると、ここに傾向が出ます。</div>`;
+      /* **「記録が無い」と「絞った結果が無い」を分ける。**
+         6 件あるのに「まだ記録がありません」と出すと、絞り込みが効いている
+         ことに気づけず、記録そのものが消えたように見える（実機で見つけた） */
+      box.innerHTML = allRecords.length
+        ? `<div class="empty">この言葉を含むメモの釣果はありません。<br>
+           上の言葉を消すか、別の言葉で絞ってください。</div>`
+        : `<div class="empty">まだ記録がありません。
+           釣行を何回か記録すると、ここに傾向が出ます。</div>`;
       document.getElementById("period").textContent = "0 件";
       return;
     }
