@@ -48,16 +48,20 @@
       <label for="species">魚種（任意）</label>
       <select id="species"><option value="">選択しない</option></select>
     </div>
-    <div class="row-2">
-      <div class="field">
-        <label for="length">サイズ（cm）</label>
-        <input type="number" id="length" inputmode="decimal" step="0.1" min="0">
-      </div>
-      <div class="field">
+    <div class="field">
+      <label for="length">サイズ（cm）</label>
+      <input type="number" id="length" inputmode="decimal" step="0.1" min="0">
+    </div>
+    <!-- 重量は畳む（D-150）。**実データで 38 件中 1 件、しかも 8/11 以降は 0 件。**
+         外すと過去の 1 件が編集できなくなるので、消さずに畳むだけにする。
+         値が入っているときは開いた状態で出す（下の JS） -->
+    <details class="fold" id="weight-fold">
+      <summary>重さも入れる</summary>
+      <div class="field" style="margin:12px 0 0">
         <label for="weight">重量（g）</label>
         <input type="number" id="weight" inputmode="numeric" step="1" min="0">
       </div>
-    </div>
+    </details>
     <div id="name-suggest"></div>
     <div class="field">
       <label for="count" id="count-label">匹数</label>
@@ -967,6 +971,13 @@
     if (state.step === 5) renderMemoTags();
   });
 
+  /* 重さが入っている記録を編集するときは、畳んだままにしない（D-150）。
+     **畳まれていると「消えた」ように見える** */
+  function syncWeightFold() {
+    const fold = document.getElementById("weight-fold");
+    if (document.getElementById("weight").value) fold.open = true;
+  }
+
   function renderSummary() {
     const spot = document.querySelector(`.spot-option[data-id="${state.spotId}"] .list-title`)?.textContent;
     const speciesName = document.getElementById("species").selectedOptions[0]?.textContent;
@@ -1135,6 +1146,7 @@
   function applyValues(data) {
     const set = (id, v) => { if (v != null) document.getElementById(id).value = v; };
     set("species", data.species); set("length", data.length); set("weight", data.weight);
+    syncWeightFold();          // 入っていれば畳まない（D-150）
     set("count", data.count); set("quantity-note", data.quantityNote);
     set("recipe", data.recipe); set("lure-name", data.lureName);
     set("rod", data.rod); set("reel", data.reel);
