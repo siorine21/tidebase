@@ -83,8 +83,17 @@ for (const c of ['outcome', 'is_skunked']) {
   check(`傾向側にも ${c} がある`, TREND.has(c));
 }
 
-/* ---- 減らした意味があるか（全 44 列より十分少ないこと） ---- */
-check('一覧の列は record_feed の半分以下', LIST.size <= 22, `${LIST.size} 列`);
+/* ---- 減らした意味があるか（全 44 列より十分少ないこと） ----
+   **わざと今の数ちょうどで止めてある。** 列を足すたびにここが落ちるので、
+   「本当に要るのか」を 1 回考えることになる。落ちたときの直し方は 2 つ。
+     - その列が本当に要る       → 数を 1 つ上げ、**なぜ要るのかをここに書く**
+     - ほかに要らない列がある   → そちらを消す（数は動かさない）
+
+   23 になった経緯: D-148 でメモの言葉による絞り込みを入れたので memo が要る。
+   ほかの 22 列に外せるものが無いか調べたが、outcome / is_skunked は
+   recordOutcome() が、lure_category_large は lureCategoryText() が
+   中で読んでいて（`r.列名` の走査には出てこない）、どれも外せなかった。 */
+check('一覧の列は record_feed の半分あたりに収まっている', LIST.size <= 23, `${LIST.size} 列`);
 check('傾向の列は record_feed の半分以下', TREND.size <= 22, `${TREND.size} 列`);
 
 /* ---- 並び替えに使う列は select に無くてよい（PostgREST の仕様）が、

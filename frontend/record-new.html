@@ -198,6 +198,10 @@
     <div class="field">
       <label for="memo">メモ</label>
       <textarea id="memo" maxlength="2000" placeholder="潮の状況、アタリの出方など"></textarea>
+      <!-- 水の様子を 1 タップで足せるようにする（D-148）。**欄は増やさない。**
+           自由文のままだと「笹濁り」「ささ濁り」が別物になり、
+           あとで絞り込むときに黙って取りこぼす。綴りだけ揃える -->
+      <div id="memo-tags"></div>
     </div>
     <div class="field">
       <label>公開範囲</label>
@@ -236,6 +240,7 @@
     OUTCOMES, recordOutcome, renderIcons,
     deleteRecordPhotos, signedPhotoUrls, PHOTO_MAX_COUNT,
     navigate,
+    memoTagGroups, memoHasWord, toggleMemoWord,
   } from "./assets/app.js";
 
   const STEPS = ["魚種", "タックル", "スポット", "写真", "メモ"];
@@ -453,7 +458,7 @@
        Leaflet は hidden の箱の寸法を測れないので、先に作ると真っ白になる。
        前は「新しいスポットを登録」を開いたときに作っていた */
     if (step === 3) initSpotMap();
-    if (step === 5) renderSummary();
+    if (step === 5) { renderSummary(); renderMemoTags(); }
     renderStepper();
     window.scrollTo(0, 0);
     saveDraft();
@@ -921,6 +926,46 @@
     const time = document.getElementById("fished-time").value;
     return time ? `${date} ${time}` : date;
   }
+
+  /* 水の様子の言葉（D-148）。**メモの欄はそのまま、言葉だけ 1 タップで入る。**
+
+     本人の指定は「メモに投稿者の判断で 3 段階を記載する」「メモに記載したワードを
+     部分一致させてフィルターできるように」。だから項目は増やさない。
+
+     ただし自由文のままだと「笹濁り」「ささ濁り」「笹にごり」が別物になり、
+     **絞り込みが黙って取りこぼす。** 綴りだけ揃えるのがこの帯の役目。
+     打ちたければ何でも打てる（欄は自由文のまま）。
+
+     増水はスポットの水域で出し分ける。サーフで「平水」と書いても読む意味が無い。 */
+  function renderMemoTags() {
+    const box = document.getElementById("memo-tags");
+    const spot = knownSpots.find((sp) => sp.id === state.spotId) ?? null;
+    const memo = document.getElementById("memo").value;
+    box.innerHTML = memoTagGroups(spot).map((g) => `
+      <div class="memo-tag-row">
+        <span class="memo-tag-label">${escapeHtml(g.label)}</span>
+        <span class="chips">${g.words.map((w) =>
+          `<button type="button" class="chip${memoHasWord(memo, w) ? " selected" : ""}"
+                   data-word="${escapeHtml(w)}">${escapeHtml(w)}</button>`).join("")}</span>
+      </div>`).join("")
+      + `<div class="hint">押すとメモの末尾に入ります。あとで釣果一覧や傾向から`
+      + `この言葉で絞り込めます。</div>`;
+  }
+
+  document.getElementById("memo-tags").addEventListener("click", (e) => {
+    const button = e.target.closest("[data-word]");
+    if (!button) return;
+    const area = document.getElementById("memo");
+    area.value = toggleMemoWord(area.value, button.dataset.word);
+    renderMemoTags();
+    saveDraft();
+  });
+
+  /* 手で打ち直したときも印を合わせる。**押した／押していないがずれると、
+     入っているのに入っていないように見えて、二重に足すことになる */
+  document.getElementById("memo").addEventListener("input", () => {
+    if (state.step === 5) renderMemoTags();
+  });
 
   function renderSummary() {
     const spot = document.querySelector(`.spot-option[data-id="${state.spotId}"] .list-title`)?.textContent;

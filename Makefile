@@ -41,6 +41,7 @@ test-frontend:
 	node frontend/tests/waves.test.mjs
 	node frontend/tests/youtube.test.mjs
 	node frontend/tests/battle.test.mjs
+	node frontend/tests/memo_words.test.mjs
 
 # 本番 Supabase への操作（要: SUPABASE_ACCESS_TOKEN / SUPABASE_PROJECT_REF）
 db-migrate:

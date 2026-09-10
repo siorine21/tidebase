@@ -50,6 +50,14 @@
         </select>
       </div>
     </div>
+    <!-- メモの言葉で絞る（D-148）。**部分一致。**
+         「濁り」で笹濁りもドチャ濁りも出る（段階をまとめて見たいとき）。
+         段階を名指しすればその段階だけ出る -->
+    <div class="field" style="margin:10px 0 0">
+      <label for="filter-word">メモの言葉</label>
+      <input type="search" id="filter-word" placeholder="雨後・笹濁り・増水 など">
+      <div class="chips" id="word-chips" style="margin-top:8px"></div>
+    </div>
     <div class="field" id="owner-field" style="margin:10px 0 0" hidden>
       <label for="filter-owner">投稿者</label>
       <select id="filter-owner">
@@ -77,6 +85,7 @@
     formatJstDate, relativeDays, icon, recordFishName, signedPhotoUrls,
     recordOutcome,
     outcomeLead,
+    memoMatches, memoFilterWords,
   } from "./assets/app.js";
 
   const session = await requireSession();
@@ -126,13 +135,41 @@
   document.getElementById("filter-spot").addEventListener("change", render);
   document.getElementById("filter-kind").addEventListener("change", render);
   document.getElementById("filter-owner").addEventListener("change", render);
+
+  /* メモの言葉（D-148）。**候補は押すだけで入る。**
+     打ち間違いで 0 件になるのがいちばん困る（絞り込みが効いていないのか、
+     本当に無いのかが分からない） */
+  document.getElementById("word-chips").innerHTML = memoFilterWords()
+    .map((w) => `<button type="button" class="chip" data-word="${escapeHtml(w)}">`
+      + `${escapeHtml(w)}</button>`).join("");
+  document.getElementById("word-chips").addEventListener("click", (e) => {
+    const button = e.target.closest("[data-word]");
+    if (!button) return;
+    const input = document.getElementById("filter-word");
+    // もう一度押したら外す（同じ操作で戻せる）
+    input.value = input.value.trim() === button.dataset.word ? "" : button.dataset.word;
+    syncWordChips();
+    render();
+  });
+  document.getElementById("filter-word").addEventListener("input", () => {
+    syncWordChips();
+    render();
+  });
+  function syncWordChips() {
+    const value = document.getElementById("filter-word").value.trim();
+    for (const c of document.querySelectorAll("#word-chips .chip"))
+      c.classList.toggle("selected", c.dataset.word === value);
+  }
+
   render();
 
   function render() {
     const spotId = document.getElementById("filter-spot").value;
     const kind = document.getElementById("filter-kind").value;
     const owner = document.getElementById("filter-owner").value;
+    const word = document.getElementById("filter-word").value;
     const filtered = records.filter((r) => {
+      if (!memoMatches(r.memo, word)) return false;
       if (spotId && r.spot_id !== spotId) return false;
       if (recipeId && r.recipe_id !== recipeId) return false;
       if (kind === "reaction" && !recordOutcome(r).reaction) return false;

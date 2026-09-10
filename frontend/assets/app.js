@@ -2749,6 +2749,8 @@ export const RECORD_LIST_COLUMNS = [
   "spot_id", "spot_name",
   "lure_label", "lure_category_large", "lure_category_small", "recipe_id",
   "photo_thumb_path", "photo_count",
+  // メモの言葉で絞るのに要る（D-148）。平均 40 字なので 1 行あたりの増えは小さい
+  "memo",
 ].join(",");
 
 /** 傾向画面が数えるのに要る列だけ。一覧とは必要なものが違う（座標と天気が要る） */
@@ -2757,6 +2759,7 @@ export const RECORD_TREND_COLUMNS = [
   "tide_type", "water_layer", "lure_category_large",
   "spot_name", "spot_spot_type", "spot_entry_style",
   "spot_latitude", "spot_longitude", "weather_snapshot",
+  "memo",                                   // メモの言葉で絞る（D-148）
 ].join(",");
 
 /**
@@ -3545,6 +3548,103 @@ export async function raiseHand(planId, up = true) {
   const { error } = await client.from("plan_hands")
     .insert({ plan_id: planId, user_id: userId });
   if (error && error.code !== "23505") throw error;
+}
+
+/* ============ メモの言葉で絞る（雨後・濁り・増水）・D-148 ==================
+
+   要望:「釣果登録時に雨後の影響を記録して、雨後にフィルターした釣果を
+   場所別に確認できるようにしたい。雨後の影響とは、濁りと増水の 2 つの観点で
+   考えており、影響度は 3 段階を考えている。ただし、**この 3 段階の評価をするのは
+   投稿するユーザーごとになってしまい、評価指標がブレてしまう**ことが懸念される。」
+
+   **項目を増やさない。** 本人の判断で「メモに言葉を書き、その言葉で絞る」形にした。
+   実データを見ると、メモは 38 件中 35 件で使われていて（平均 40 字）、
+   すでに「クリアで明るいナイトの時は…」のように水の様子を自分の言葉で書いている。
+   **もともとある習慣に乗るほうが、新しい欄を覚えてもらうより続く。**
+
+   ただし自由文のままだと「笹濁り」「ささ濁り」「笹にごり」が別物になり、
+   **絞り込みが黙って取りこぼす。** そこで、よく使う言葉を 1 タップで入れられる
+   ようにして、綴りだけ揃える。打ちたければ何でも打てる（欄は自由文のまま）。
+
+   **言葉は入れ子にしてある。** 「笹濁り」「ドチャ濁り」はどちらも「濁り」を含む。
+   絞り込みは部分一致なので:
+     「濁り」    → 笹濁り も ドチャ濁り も出る（濁っていた日ぜんぶ）
+     「ドチャ濁り」→ その段階だけ
+   これは事故ではなく**そう並べてある**。段階で見たいときと、
+   まとめて見たいときの両方が 1 つの仕組みで足りる。 */
+
+/** メモに 1 タップで入れられる言葉。**3 段階は弱い順に並べる。** */
+export const MEMO_TAG_GROUPS = [
+  {
+    key: "clarity", label: "濁り",
+    words: ["クリア", "笹濁り", "ドチャ濁り"],
+    note: "水の見え方。「濁り」で絞ると笹濁りとドチャ濁りの両方が出ます",
+  },
+  {
+    /* **増水は淡水・汽水のスポットだけ。** サーフや磯で「平水」と書いても読む意味が無い
+       （波を外洋の場所だけに出すのと同じ考え・D-142） */
+    key: "level", label: "増水", freshOnly: true,
+    words: ["平水", "少し増水", "大増水"],
+    note: "水位。「増水」で絞ると少し増水と大増水の両方が出ます",
+  },
+  { key: "rain", label: "雨", words: ["雨後"], note: "雨のあとに入ったとき" },
+];
+
+/** そのスポットで意味を持つ言葉だけ。スポット未選択なら全部出す。 */
+export function memoTagGroups(spot) {
+  if (!spot) return MEMO_TAG_GROUPS;
+  const fresh = spot.water_type === "freshwater" || spot.water_type === "brackish";
+  return MEMO_TAG_GROUPS.filter((g) => !g.freshOnly || fresh);
+}
+
+/**
+ * メモにその言葉が「独立した語」として入っているか（D-148）。
+ *
+ * **空白区切りの語として見る。部分一致では見ない。**
+ * 部分一致にすると「ドチャ濁り」が入っているだけで「濁り」も入っていることになり、
+ * 外そうとしたときに「ドチャ濁り」を壊す。
+ * 絞り込み（memoMatches）はわざと部分一致で、こちらとは別の規則。
+ */
+export function memoHasWord(memo, word) {
+  if (!word) return false;
+  return String(memo ?? "").split(/\s+/).includes(word);
+}
+
+/**
+ * メモの言葉を入れる／外す（D-148）。
+ * 入れるときは**末尾に足す**。本文の途中に割り込むと、書いた文が読めなくなる。
+ */
+export function toggleMemoWord(memo, word) {
+  if (!word) return String(memo ?? "");
+  const text = String(memo ?? "");
+  if (memoHasWord(text, word)) {
+    /* 外す。**区切りごと畳む。** 単に置き換えると空白が二重に残り、
+       もう一度入れたときに「笹濁り  雨後」のように間が開いていく */
+    return text.split(/(\s+)/)
+      .filter((part, i) => !(i % 2 === 0 && part === word))
+      .join("")
+      .replace(/[ \t]{2,}/g, " ")
+      .replace(/\n{3,}/g, "\n\n")
+      .replace(/[ \t]+\n/g, "\n")
+      .trim();
+  }
+  return text.trim() ? `${text.trim()} ${word}` : word;
+}
+
+/**
+ * 絞り込み（D-148）。**こちらはわざと部分一致。**
+ * 「濁り」で笹濁りもドチャ濁りも拾えるようにするため。
+ * 空の条件は「絞らない」（全部通す）。
+ */
+export function memoMatches(memo, query) {
+  const q = String(query ?? "").trim();
+  if (!q) return true;
+  return String(memo ?? "").includes(q);
+}
+
+/** 絞り込みに使う候補（重複を畳んで 1 列に並べる）。 */
+export function memoFilterWords() {
+  return MEMO_TAG_GROUPS.flatMap((g) => g.words);
 }
 
 /** 招待リンク。GitHub Pages でもローカルでも、今いる場所を基準に組み立てる。 */
