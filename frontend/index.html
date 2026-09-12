@@ -147,7 +147,7 @@
     myGroup, listBattles, listBattleEntries, battleRecords,
     homeBattles, battleRemain, battleStandings, battleMetric,
     BATTLE_PHASE_LABELS, battlePhase,
-    liveCameraEmbedUrl, listLiveCameras,
+    liveCameraEmbedUrl, liveCameraWatchUrl, listLiveCameras,
     warmTideCache,
     hasUnreadNews, WEATHER_SOURCE,
     isCoordinateInJapan, tideTimelineSvg, sunStripHtml, levelAxisHtml, tideLevelAt, sunTimes,
@@ -572,7 +572,17 @@
           + `<div class="live-cam-note">${escapeHtml(c.name)}`
           + `${c.note ? ` — ${escapeHtml(c.note)}` : ""}。`
           + `波は沖の推算値なので、映像に見えているものとは差が出ます。`
-          + `見比べると、何 m がどう見えるかの見当が付きます。</div>`;
+          + `見比べると、何 m がどう見えるかの見当が付きます。`
+          /* 枠の中が「オフライン」になることがある（D-152）。
+             **アプリの不具合と見分けが付かない**ので、そう書いておく */
+          + `<br>枠の中が「オフライン」のときは、配信する側が止めています。`
+          + `</div>`
+          /* 向こうを直接開ける口。止まっているのか、別の配信に移ったのかを確かめられる */
+          + (liveCameraWatchUrl(c)
+            ? `<a class="live-cam-away" href="${liveCameraWatchUrl(c)}"`
+              + ` target="_blank" rel="noopener noreferrer">`
+              + `${icon("external", { size: 12 })}YouTube で開く</a>`
+            : "");
         bar.setAttribute("aria-expanded", "true");
       });
       /* 波はカメラの座標で別に取る（D-144）。**待たない。**

@@ -951,6 +951,14 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 }
 .live-cam-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 .live-cam-note { margin-top: 6px; font-size: 11px; line-height: 1.5; color: var(--text-muted); }
+/* YouTube 側を開く（D-152）。**枠の中が「オフライン」でも行き先がある。**
+   押せる高さを 44px 近くまで取る（D-150 と同じ理由） */
+.live-cam-away {
+  display: inline-flex; align-items: center; gap: 5px;
+  margin-top: 8px; padding: 10px 2px;
+  font-size: 12px; color: var(--mustard-lt); text-decoration: none;
+}
+.live-cam-away:hover { text-decoration: underline; }
 
 /* 波の帯（D-142）。穏やか→荒れ を青からの段階で示す。
    ★の色（--sc）とは別系統にする。意味が違うものを同じ色で言わない。 */
@@ -1660,6 +1668,9 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
   width: auto; display: inline-flex; align-items: center; gap: 5px;
   padding: 7px 12px; font-size: 13px;
 }
+/* 見出しの右に出すページ名（D-152）。**縮ませない。**
+   縮むと「統」だけが残る。狭いときに削るのは隣の件数のほう（そちらは ellipsis） */
+.app-header .head-page { flex-shrink: 0; white-space: nowrap; }
 .card h2 { display: flex; align-items: center; gap: 6px; }
 .card h2 .icon { color: var(--mustard); }
 #settings-link .icon { width: 15px; height: 15px; }

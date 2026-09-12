@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>TRENDS | TIDEBASE</title>
+<title>STATS | TIDEBASE</title>
 <link rel="icon" href="favicon.ico" sizes="any">
 <link rel="icon" href="assets/icons/app-icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
@@ -16,10 +16,10 @@
 <link rel="stylesheet" href="assets/theme.css">
 </head>
 <body class="app-body">
-<!-- SCR-018 釣果の傾向（D-102） -->
+<!-- SCR-018 釣果の統計（D-102 / D-152） -->
 <header class="page-head">
   <button type="button" class="back" id="back" aria-label="戻る">←</button>
-  <div class="page-title">TRENDS</div>
+  <div class="page-title">STATS</div>
   <span class="page-sub" id="period">—</span>
 </header>
 
@@ -145,7 +145,7 @@
         ? `<div class="empty">この言葉を含むメモの釣果はありません。<br>
            上の言葉を消すか、別の言葉で絞ってください。</div>`
         : `<div class="empty">まだ記録がありません。
-           釣行を何回か記録すると、ここに傾向が出ます。</div>`;
+           釣行を何回か記録すると、ここに統計が出ます。</div>`;
       document.getElementById("period").textContent = "0 件";
       return;
     }
@@ -194,7 +194,7 @@
             釣れなかった回もこの数字に入っています。</p>`}
         ${thin ? `<p class="thin-warn">まだ ${records.length} 件です。
           1 件増えるだけで棒の長さが変わる段階なので、
-          <b>傾向というより「これまでの内訳」</b>として見てください。</p>` : ""}
+          <b>まだ傾向とは言えません。「これまでの内訳」</b>として見てください。</p>` : ""}
         <p class="note-period">${escapeHtml(from)} 〜 ${escapeHtml(to)} の記録を数えています。</p>
       </div>`;
   }
