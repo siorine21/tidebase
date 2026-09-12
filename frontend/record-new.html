@@ -124,6 +124,13 @@
       <span>何も無しとして記録します。</span>
       <button type="button" class="chip" id="unskunk">結果を選び直す</button>
     </div>
+    <!-- ボウズはここで終われる（D-151）。**釣れなかった日にだけ、残りの 3 画面を省く。**
+         魚も写真もルアーも無いのだから、STEP4・5 を通る理由が無い。
+         押す場所と時刻はボタンに書いてあるので、黙って何かが入ることはない -->
+    <div class="quick-blank" id="quick-blank" hidden>
+      <button type="button" class="btn" id="quick-blank-save">このまま記録する</button>
+      <div class="hint" id="quick-blank-hint">場所・日付・時刻を変えるときは、下で直してください。</div>
+    </div>
     <div class="row-2">
       <div class="field">
         <label for="fished-at">釣行日</label>
@@ -245,6 +252,7 @@
     deleteRecordPhotos, signedPhotoUrls, PHOTO_MAX_COUNT,
     navigate,
     memoTagGroups, memoHasWord, toggleMemoWord,
+    savedBaseSpot, logBlankOuting, blankLoggedToday, formatJstDate,
   } from "./assets/app.js";
 
   const STEPS = ["魚種", "タックル", "スポット", "写真", "メモ"];
@@ -461,7 +469,7 @@
     /* 地図は**このステップを出してから**作る（D-106）。
        Leaflet は hidden の箱の寸法を測れないので、先に作ると真っ白になる。
        前は「新しいスポットを登録」を開いたときに作っていた */
-    if (step === 3) initSpotMap();
+    if (step === 3) { initSpotMap(); renderQuickBlank(); }
     if (step === 5) { renderSummary(); renderMemoTags(); }
     renderStepper();
     window.scrollTo(0, 0);
@@ -536,8 +544,73 @@
     const button = e.target.closest(".outcome-choice");
     if (!button) return;
     setOutcome(button.dataset.value);
-    if (state.isSkunked) show(3);        // 入れる項目が無いので、そのままスポットへ
+    if (state.isSkunked) {
+      /* **「何も無し」のときだけ、ホームで選んでいる場所を先に入れる**（D-151）。
+         釣果のときは入れない。魚が釣れた場所は 1 か所に決まるので、
+         黙って入ると取り違えがそのまま残る。ボウズは
+         「このまま記録する」のボタンに場所の名前が出るので、違えばその場で分かる */
+      if (!recordId && !state.spotId) {
+        const saved = savedBaseSpot();
+        if (saved && knownSpots.some((sp) => sp.id === saved)) selectSpot(saved);
+      }
+      show(3);        // 入れる項目が無いので、そのままスポットへ
+    }
     saveDraft();
+  });
+
+  /* ボウズをここで終わらせる（D-151）。
+     **ホームにあった「今日は釣れなかった」を畳んで、＋ の中へ寄せた。**
+     入口が 2 つあると、同じ「記録する」に 2 通りの覚え方が要る。
+     ＋ → 何も無し → このまま記録する の 3 タップで終わり、
+     場所・日付・時刻を変えたい日は、そのまま下の欄で直せる。 */
+  const QUICK_BLANK_HINT = "場所・日付・時刻を変えるときは、下で直してください。";
+
+  function renderQuickBlank() {
+    const box = document.getElementById("quick-blank");
+    /* 出すたびに案内へ戻す。**「もう残っています」を残したままにしない。**
+       日付を変えたら当てはまらなくなる文言なので、出しっぱなしだと嘘になる */
+    document.getElementById("quick-blank-hint").textContent = QUICK_BLANK_HINT;
+    const spot = knownSpots.find((sp) => sp.id === state.spotId) ?? null;
+    const date = document.getElementById("fished-at").value;
+    const time = document.getElementById("fished-time").value;
+    /* 編集（?id=）では出さない。押すと**もう 1 件**できてしまう */
+    box.hidden = !(state.isSkunked && !recordId && spot && date && time);
+    if (box.hidden) return;
+    document.getElementById("quick-blank-save").textContent =
+      `${spot.name ?? "無名スポット"} · ${formatJstDate(date)} ${time} で記録する`;
+  }
+
+  for (const id of ["fished-at", "fished-time"]) {
+    document.getElementById(id).addEventListener("input", renderQuickBlank);
+  }
+
+  document.getElementById("quick-blank-save").addEventListener("click", async () => {
+    const button = document.getElementById("quick-blank-save");
+    const hint = document.getElementById("quick-blank-hint");
+    const spot = knownSpots.find((sp) => sp.id === state.spotId) ?? null;
+    const date = document.getElementById("fished-at").value;
+    const time = document.getElementById("fished-time").value;
+    const label = button.textContent;
+    button.disabled = true;
+    button.textContent = "記録中…";
+    try {
+      /* **同じ日・同じ場所で 2 回残させない。** 水増しされると、
+         スコアの答え合わせそのものが狂う。押した側には気づけない */
+      const already = await blankLoggedToday(spot?.id ?? null, date).catch(() => null);
+      if (already) {
+        hint.innerHTML = `この日のこの場所は、もう「釣れなかった」として残っています。`
+          + ` <a href="record.html?id=${already}">その記録を見る</a>`;
+        return;
+      }
+      await logBlankOuting({ spot, date, time, visibility: state.visibility });
+      clearDraft();
+      navigate("records.html?saved=1", { replace: true });
+    } catch (err) {
+      hint.textContent = toJapaneseError(err) ?? "記録できませんでした。";
+    } finally {
+      button.disabled = false;
+      button.textContent = label;
+    }
   });
 
   // 「何も無し」だと STEP1・2 が押せなくなるため、選び直す導線を STEP3 に置く
@@ -663,6 +736,7 @@
         + `<span class="name">${escapeHtml(spot.name ?? "無名スポット")}</span>`;
     }
     drawSpotPins();
+    renderQuickBlank();           // ボタンに出す場所の名前も一緒に変える（D-151）
     // 一覧から選んだときは地図をその場所へ寄せる（地図から選んだときは動かさない）
     if (fly && spotMap && spot && isCoordinateInJapan(spot.latitude, spot.longitude)) {
       spotMap.setView([spot.latitude, spot.longitude], Math.max(spotMap.getZoom(), 13));

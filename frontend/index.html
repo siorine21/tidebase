@@ -124,52 +124,10 @@
 
   <div class="section-label"><span>RECENT CATCH</span><a class="note" href="records.html">すべて見る →</a></div>
   <div id="recent"><div class="empty">読み込み中…</div></div>
-
-  <!-- ボウズをすぐ残す（D-150）。**スコアを検証するための燃料。**
-       釣果の登録は 5 段階あるので、釣れなかった日には誰もやらない。
-       比べる相手が無いままだと、★スコアが当たっているかを永久に確かめられない -->
-  <button type="button" class="btn btn-quiet blank-btn" id="log-blank">
-    <span data-icon="skunk"></span>今日は釣れなかった
-  </button>
 </main>
 
-<!-- ボウズを残す（D-150）。既定のまま押せば 2 タップで終わる -->
-<div class="msheet" id="blank-sheet" hidden>
-  <div class="msheet-back" data-close></div>
-  <div class="msheet-panel">
-    <div class="msheet-head">
-      <span>釣れなかったことを残す</span>
-      <button type="button" class="msheet-close" data-close aria-label="閉じる">✕</button>
-    </div>
-    <div class="msheet-body">
-      <div id="blank-summary" class="b-when"></div>
-      <div class="row-2" style="margin-top:12px">
-        <div class="field" style="margin:0">
-          <label for="blank-date">釣行日</label>
-          <input type="date" id="blank-date">
-        </div>
-        <div class="field" style="margin:0">
-          <label for="blank-time">時刻</label>
-          <input type="time" id="blank-time">
-        </div>
-      </div>
-      <div class="field" style="margin-top:12px">
-        <label for="blank-memo">ひとこと（任意）</label>
-        <input type="text" id="blank-memo" maxlength="200"
-               placeholder="反応なし・ベイトも見えず など">
-        <!-- 水の様子は**ボウズのときこそ効く**（D-148）。
-             「ドチャ濁りで 0 匹」は、釣れた日の記録と同じくらい判断材料になる -->
-        <div id="blank-tags"></div>
-      </div>
-      <div class="actions">
-        <button type="button" class="btn" id="blank-save" style="flex:1">記録する</button>
-      </div>
-      <div class="hint" id="blank-hint" style="margin-top:8px"></div>
-    </div>
-  </div>
-</div>
-
-<a class="fab" href="record-new.html" title="釣果を記録" data-icon="plus"></a>
+<a class="fab" href="record-new.html" title="釣行を記録"
+   aria-label="釣行を記録" data-icon="plus"></a>
 
 <script src="vendor/supabase.js"></script>
 <script src="assets/config.js"></script>
@@ -187,8 +145,6 @@
     rememberedView, rememberView, sameView,
     spotFacesOpenSea, describeWaves, waveSummary, fetchWaves,
     myGroup, listBattles, listBattleEntries, battleRecords,
-    logBlankOuting, blankLoggedToday,
-    memoTagGroups, memoHasWord, toggleMemoWord,
     homeBattles, battleRemain, battleStandings, battleMetric,
     BATTLE_PHASE_LABELS, battlePhase,
     liveCameraEmbedUrl, listLiveCameras,
@@ -873,107 +829,6 @@
       scoreOf,
     });
   }
-
-  /* ボウズをすぐ残す（D-150）。**既定のまま押せば 2 タップ。**
-
-     釣果の登録は 5 段階・42 個の操作要素を通る。釣れなかった日にそれはやらない。
-     結果、比べる相手が無いままスコアの当たり外れを確かめられずにいる（D-139）。
-
-     場所・日付・時刻は**いま画面が知っているもの**を入れておく。
-     ホームは基準スポットを選んでいるので、そこへ行ったと見なす。
-     違えば直せる（開いた状態で編集できる）。 */
-  function openBlankSheet() {
-    const now = nowInJst();
-    document.getElementById("blank-date").value = now.date;
-    document.getElementById("blank-time").value = now.hhmm;
-    document.getElementById("blank-memo").value = "";
-    renderBlankTags();
-    renderBlankSummary();
-    document.getElementById("blank-sheet").hidden = false;
-    document.body.style.overflow = "hidden";
-  }
-
-  function closeBlankSheet() {
-    document.getElementById("blank-sheet").hidden = true;
-    document.body.style.overflow = "";
-  }
-
-  function renderBlankSummary() {
-    const name = baseSpot?.name ?? "スポット未選択";
-    document.getElementById("blank-summary").innerHTML =
-      `<div>${icon("map-pin", { size: 13 })} ${escapeHtml(name)}</div>`
-      + `<div class="hint" style="margin-top:4px">`
-      + `潮回りと天気は自動で一緒に残ります。あとから釣果に書き換えることもできます。</div>`;
-    renderIcons(document.getElementById("blank-summary"));
-  }
-
-  /* 水の様子は**ボウズのときこそ効く**（D-148）。
-     「ドチャ濁りで 0 匹」は、釣れた日の記録と同じくらい判断材料になる */
-  function renderBlankTags() {
-    const box = document.getElementById("blank-tags");
-    const memo = document.getElementById("blank-memo").value;
-    box.innerHTML = memoTagGroups(baseSpot).map((g) => `
-      <div class="memo-tag-row">
-        <span class="memo-tag-label">${escapeHtml(g.label)}</span>
-        <span class="chips">${g.words.map((w) =>
-          `<button type="button" class="chip${memoHasWord(memo, w) ? " selected" : ""}"
-                   data-word="${escapeHtml(w)}">${escapeHtml(w)}</button>`).join("")}</span>
-      </div>`).join("");
-  }
-
-  document.getElementById("log-blank").addEventListener("click", openBlankSheet);
-  document.getElementById("blank-sheet").addEventListener("click", (e) => {
-    if (e.target.closest("[data-close]")) closeBlankSheet();
-  });
-  document.getElementById("blank-tags").addEventListener("click", (e) => {
-    const button = e.target.closest("[data-word]");
-    if (!button) return;
-    const input = document.getElementById("blank-memo");
-    input.value = toggleMemoWord(input.value, button.dataset.word);
-    renderBlankTags();
-  });
-  document.getElementById("blank-memo").addEventListener("input", renderBlankTags);
-
-  document.getElementById("blank-save").addEventListener("click", async () => {
-    const button = document.getElementById("blank-save");
-    const hint = document.getElementById("blank-hint");
-    const date = document.getElementById("blank-date").value;
-    const time = document.getElementById("blank-time").value;
-    if (!date || !time) { hint.textContent = "釣行日と時刻を入れてください。"; return; }
-    button.disabled = true;
-    button.textContent = "記録中…";
-    hint.textContent = "";
-    try {
-      /* **同じ日・同じ場所で 2 回押させない。** 水増しされると、
-         スコアの検証そのものが狂う。押した側には気づけない */
-      const already = await blankLoggedToday(baseSpot?.id ?? null, date).catch(() => null);
-      if (already) {
-        hint.innerHTML = `この日のこの場所は、もう「釣れなかった」として残っています。`
-          + ` <a href="record.html?id=${already}">その記録を見る</a>`;
-        button.disabled = false;
-        button.textContent = "記録する";
-        return;
-      }
-      await logBlankOuting({
-        spot: baseSpot, date, time,
-        memo: document.getElementById("blank-memo").value,
-      });
-      closeBlankSheet();
-      /* 残ったことが分かるように、最近の釣果を取り直す。
-         **「押したのに何も起きない」をつくらない** */
-      listRecords({ limit: 2 }).then(renderRecent).catch(() => {});
-      const box = document.getElementById("message");
-      box.hidden = false;
-      box.className = "message";
-      box.textContent = "釣れなかったことを記録しました。スコアの答え合わせに使われます。";
-      setTimeout(() => { box.hidden = true; }, 6000);
-    } catch (err) {
-      hint.textContent = err?.message ?? "記録できませんでした。";
-    } finally {
-      button.disabled = false;
-      button.textContent = "記録する";
-    }
-  });
 
   function renderRecent(records) {
     const box = document.getElementById("recent");

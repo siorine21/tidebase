@@ -2032,19 +2032,15 @@ label.check input { width: auto; }
 }
 .field input[type="search"]:focus { outline: none; border-color: var(--border-strong); }
 
-/* ボウズをすぐ残す（D-150）。**目立たせすぎない。**
-   釣れた記録より上に置くと「今日もダメだった」が先に目に入る。
-   一覧の下、FAB の手前に、押しやすい大きさで置く */
-.blank-btn {
-  width: 100%; margin-top: 12px; margin-bottom: 8px;
-  display: flex; align-items: center; justify-content: center; gap: 8px;
-  font-size: 14px; font-weight: normal; color: var(--text-secondary);
-  /* FAB（右下）と重ならないよう、右側だけ空ける */
-  padding-right: 72px; padding-left: 12px;
+/* ボウズをその場で終わらせる（D-151）。STEP3 のいちばん上。
+   **ホームにあった専用ボタンはここへ畳んだ。** 入口を 1 つにするため。
+   下に続く通常の欄と混ざらないよう、囲いで区切る */
+.quick-blank {
+  margin-bottom: 16px; padding: 12px; border-radius: 8px;
+  background: var(--bg-deep); border: 1px solid var(--border);
 }
-.blank-btn:hover { color: var(--text-primary); }
-#blank-tags { margin-top: 10px; }
-#blank-summary .hint { color: var(--text-muted); }
+.quick-blank[hidden] { display: none; }
+.quick-blank .hint { margin-top: 8px; margin-bottom: 0; }
 
 /* 畳んだ欄（D-150）。**消さずに畳む。** 実データで使われていない欄を
    常に出しておくと、毎回それを飛ばす操作が要る */
