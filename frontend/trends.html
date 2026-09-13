@@ -251,17 +251,23 @@
       ${missing(records.length - known, "時刻かスポットの位置が無くて分けられない記録")}`);
   }
 
-  /* 天気は記録した時点にしか取れない（D-103）。入っている記録だけで数え、
+  /* 天気は記録した時点の予報（D-103）。入っている記録だけで数え、
      **入っていない件数を必ず出す。** ここを黙って除くと、
-     3 件のうち 2 件が晴れというだけで「晴れが多い」に見えてしまう。 */
+     3 件のうち 2 件が晴れというだけで「晴れが多い」に見えてしまう。
+     古い釣行は、その日の実況で埋めてあることがある（D-153）。 */
   function weatherSection() {
     const withWeather = records.filter((r) => r.weather_snapshot?.weather_code != null);
     const missingCount = records.length - withWeather.length;
+    /* **あとから埋めたぶんを数える**（D-153）。記録した時点の予報（気象庁 5km）と、
+       その日の実況（ERA5 約 25km）は別のデータ。まとめて数えるのは構わないが、
+       **まとまっていること自体が見えなくなるのはまずい** */
+    const backfilled = withWeather.filter(
+      (r) => r.weather_snapshot?.source === "open-meteo-archive").length;
     if (!withWeather.length) {
       return section("天気", "cloud", `
         <p class="trend-note" style="margin-top:0">記録に天気が残っているものがまだありません。
           <b>これから記録するぶんには、その時刻の天気が一緒に残ります。</b>
-          あとから取り直せないので、いまある ${records.length} 件には入りません。</p>`);
+          いまある ${records.length} 件には、記録した時点の天気が入っていません。</p>`);
     }
     const rows = tally(withWeather, (r) => weatherCategoryOf(r.weather_snapshot.weather_code));
     const max = rows[0]?.n ?? 0;
@@ -276,8 +282,11 @@
         <div class="trend-rows">
           ${winds.map((w) => bar({ label: w.key, n: w.n, ratio: maxWind > 0 ? w.n / maxWind : 0 })).join("")}
         </div>` : ""}
+      ${backfilled > 0 ? `<p class="trend-note">うち ${backfilled} 件は、あとから補った値です。
+        記録した時点の予報ではなく、その日の実況を後から入れたものなので、
+        場所の細かさが少し粗くなります。</p>` : ""}
       ${missingCount > 0 ? `<p class="trend-note">${missingCount} 件は天気が残っていません。
-        記録した時点でしか取れないので、それより前の釣行には入りません。</p>` : ""}`);
+        記録した時点の天気が入っていないものです。</p>` : ""}`);
   }
 
   function weatherCategoryOf(code) {

@@ -1314,6 +1314,41 @@ async function fetchForecast(query) {
 }
 
 /**
+ * 過去の実況（ERA5）。**予報が届かない日はこちらで埋める**（D-153）。
+ *
+ * 予報の API は models を名指しすると、**約 55 日より前は 200 を返しながら
+ * 中身が全部 null** になる。実測（2026-09-13 時点）:
+ *   07-20 は 24/24、07-18 は 3/24、07-16 と 07-12 は 0/24。
+ * しかも `models=jma_seamless,best_match` と並べたときは
+ * **best_match のほうも空**で返る。「best_match を名指しする」ことと
+ * 「models を付けない」ことは別物で、後者だけが過去を埋めてくれる。
+ * つまり fetchForecast の「だめなら best_match」は、この失敗には効かない
+ * （`ok` は返っているので、そもそも取り直しに入らない）。
+ *
+ * **models は付けない。** 付けた瞬間にそのモデルの持ち物しか返らなくなる。
+ * 予報（気象庁 MSM・5km 格子）とは別のデータ（ERA5 再解析・約 25km）なので、
+ * 混ざったことが分かるように、使った側が source を書き分けること。
+ */
+async function fetchArchiveHourly(query) {
+  const url = `https://archive-api.open-meteo.com/v1/archive?${query}`;
+  const response = await fetchWithTimeout(url).catch(() => null);
+  if (!response || !response.ok) return null;
+  return (await response.json()).hourly ?? null;
+}
+
+/**
+ * 予報の中身が空か（D-153）。**200 が返ってきても値が 1 つも無いことがある。**
+ *
+ * 行そのものは時刻の数だけ並ぶので、`hours.length` を見ても気づけない。
+ * ここを見落とすと、**全部 null の「天気」が記録に残る。**
+ * 画面には何も出ないので、取れなかったのか本当に無風無降水なのか分からなくなる。
+ */
+export function forecastIsEmpty(hours) {
+  return !(hours ?? []).some((row) =>
+    row?.temp_c != null || row?.weather_code != null || row?.wind_speed_ms != null);
+}
+
+/**
  * 指定座標・指定日の 1 時間刻み予報と、その日の日の出・日没。
  * 波高は海上グリッド外だと null になる（設計補完書 1.1 章）。
  * @returns {{hours: object[], sun: {rise: string, set: string}|null}}
@@ -1406,17 +1441,40 @@ async function fetchWeatherUncached(lat, lng, date, waves = true) {
     fetchForecast(`${base}&hourly=${WEATHER_HOURLY_DETAIL}&wind_speed_unit=ms`),
     waves ? fetchWithTimeout(marineUrl).catch(() => null) : null,
   ]);
-  if (!forecastRes.ok) throw new Error(`天気データを取得できませんでした (${forecastRes.status})`);
-
-  const forecast = await forecastRes.json();
+  /* **ここで投げない**（D-153）。予報の API は 92 日より前を 400 で断る。
+     先に投げてしまうと、いちばん埋めたい古い日付で
+     過去の実況にたどり着けない。断られたことは覚えておいて、
+     実況でも駄目だったときに、これまでどおり投げる */
+  const forecast = forecastRes.ok ? await forecastRes.json() : null;
   let sea = null;
   if (marineRes && marineRes.ok) {
     const marine = await marineRes.json();
     sea = marine.hourly ?? null;
   }
 
+  let hours = forecast?.hourly?.time ? mapHourly(forecast.hourly, sea) : [];
+  /* **予報が届かなければ過去の実況へ落とす**（D-153）。届かない形は 2 つある。
+       - 55 日〜92 日前: 200 が返るが**中身が全部 null**
+       - 92 日より前:    400 で断られる
+     ここを足すまで、前者は「全部 null の天気」が静かに残り、
+     後者は天気そのものが残らなかった。
+     **ふだんの表示では 1 本も増えない**（届かなかったときだけ取りに行く） */
+  let source = "open-meteo";
+  if (forecastIsEmpty(hours)) {
+    const archived = await fetchArchiveHourly(`${base}&hourly=${WEATHER_HOURLY_DETAIL}`
+      + "&wind_speed_unit=ms");
+    const rows = archived ? mapHourly(archived, sea) : [];
+    if (!forecastIsEmpty(rows)) {
+      hours = rows;
+      source = "open-meteo-archive";
+    }
+  }
+  if (!forecastRes.ok && source === "open-meteo") {
+    throw new Error(`天気データを取得できませんでした (${forecastRes.status})`);
+  }
+
   // 日の出・日没は計算で出す（D-056）。API から取ると過去 3 か月しか遡れない
-  return { hours: mapHourly(forecast.hourly, sea), sun: sunTimes(lat, lng, date) };
+  return { hours, sun: sunTimes(lat, lng, date), source };
 }
 
 /** Open-Meteo の hourly（配列の束）を 1 時間 1 件の形に直す。 */
@@ -4924,10 +4982,20 @@ export async function captureWeatherSnapshot({ lat, lng, date, time }) {
   }
   const row = forecastHourAt(forecast?.hours, time, date);
   if (!row) return null;
+  /* **中身が空なら残さない**（D-153）。予報も過去の実況も届かない日があり、
+     そのとき行だけは時刻の数だけ並ぶ。ここで弾かないと
+     **値が全部 null の「天気」**が記録に入り、画面には何も出ないまま
+     「取れなかったのか、本当に無風無降水だったのか」が分からなくなる。
+     残っていないことは、嘘の値が残っていることよりずっとましで、
+     あとから埋め直せる（NULL を探せばいい） */
+  if (forecastIsEmpty([row])) return null;
 
   const sun = forecast.sun ?? null;
   return {
-    source: "open-meteo",
+    /* **どこから来た値かを書く**（D-153）。予報（気象庁 MSM・5km）と
+       過去の実況（ERA5・約 25km）は別のデータ。混ぜて数えるのは構わないが、
+       **混ざっていること自体が消えてしまうのはまずい** */
+    source: forecast.source ?? "open-meteo",
     captured_at: new Date().toISOString(),
     for_time: String(time).slice(0, 5),   // 釣行の時刻
     at: `${String(row.hour).padStart(2, "0")}:00`,   // 実際に使った予報の時刻
@@ -4946,6 +5014,16 @@ export async function captureWeatherSnapshot({ lat, lng, date, time }) {
     sunrise: sun?.rise ?? null,
     sunset: sun?.set ?? null,
   };
+}
+
+/**
+ * 天気がどこから来たかの一言（D-153）。**予報のときは何も言わない。**
+ * ふだんはそちらなので、毎回書くと意味を持たなくなる。
+ */
+export function weatherSourceNote(snapshot) {
+  return snapshot?.source === "open-meteo-archive"
+    ? "あとから補った値（過去の実況）"
+    : null;
 }
 
 /** 保存した天気を 1 行の文にする。無ければ null。 */
