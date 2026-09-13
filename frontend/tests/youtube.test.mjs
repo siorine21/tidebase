@@ -17,9 +17,11 @@ const code = sliceApp([
   ['/* ---------------- ライブ映像（D-143）', '/* ---------------- 天気の参照先（D-076）'],
 ]);
 const { parseYouTubeId, youTubeEmbedUrl,
-        parseYouTubeChannelId, youTubeChannelEmbedUrl, liveCameraEmbedUrl } =
+        parseYouTubeChannelId, youTubeChannelEmbedUrl, liveCameraEmbedUrl,
+        liveCameraWatchUrl } =
   new Function(code + `; return { parseYouTubeId, youTubeEmbedUrl,
-    parseYouTubeChannelId, youTubeChannelEmbedUrl, liveCameraEmbedUrl };`)();
+    parseYouTubeChannelId, youTubeChannelEmbedUrl, liveCameraEmbedUrl,
+    liveCameraWatchUrl };`)();
 
 let failed = 0;
 const check = (name, ok, extra = '') => {
@@ -164,6 +166,32 @@ check('壊れた値なら null',
     === null);
 check('カメラそのものが無くても落ちない',
   liveCameraEmbedUrl(null) === null && liveCameraEmbedUrl(undefined) === null);
+
+/* ---- YouTube 側を開く URL（D-152） ----
+   枠の中が「ライブ ストリームはオフラインです」になることがある。
+   こちらの不具合と見分けが付かないので、向こうを開ける口を出す。
+   **埋め込みとは別の URL。** 混ぜると、押した先が枠の中と同じものになる */
+check('チャンネルは /live を開く',
+  liveCameraWatchUrl({ youtube_channel_id: CH }) === `https://www.youtube.com/channel/${CH}/live`);
+check('チャンネルが無ければ動画を開く',
+  liveCameraWatchUrl({ youtube_id: ID }) === `https://www.youtube.com/watch?v=${ID}`);
+check('両方あってもチャンネルが勝つ（埋め込みと同じ順番）',
+  liveCameraWatchUrl({ youtube_channel_id: CH, youtube_id: ID })
+    === `https://www.youtube.com/channel/${CH}/live`);
+/* **埋め込み用とは別物**。同じだと「YouTube で開く」がまた枠の中を出す */
+check('埋め込み用の URL とは別のもの',
+  liveCameraWatchUrl({ youtube_channel_id: CH })
+    !== liveCameraEmbedUrl({ youtube_channel_id: CH }));
+check('開く先は nocookie ではない（本人が YouTube を開く操作）',
+  !liveCameraWatchUrl({ youtube_channel_id: CH }).includes('nocookie'));
+/* **形を確かめてから組み立てる。** ここは href にそのまま入る */
+for (const bad of ['javascript:alert(1)', '../../evil', 'a"><script>', '', null])
+  check(`開く先も形を確かめる: ${JSON.stringify(bad)}`,
+    liveCameraWatchUrl({ youtube_channel_id: bad, youtube_id: bad }) === null);
+check('どちらも無ければ null（リンクを出さない）',
+  liveCameraWatchUrl({ youtube_channel_id: null, youtube_id: null }) === null);
+check('カメラそのものが無くても落ちない',
+  liveCameraWatchUrl(null) === null && liveCameraWatchUrl(undefined) === null);
 
 console.log(failed ? `\nFAIL ${failed} 件` : '\nすべて通過');
 process.exit(failed ? 1 : 0);

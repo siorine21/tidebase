@@ -1241,6 +1241,27 @@ export function liveCameraEmbedUrl(camera) {
     ?? youTubeEmbedUrl(camera?.youtube_id);
 }
 
+/**
+ * YouTube 側で開く URL（D-152）。埋め込みとは**別に**持つ。
+ *
+ * 枠の中が「ライブ ストリームはオフラインです」になることがある。
+ * こちらの不具合ではなく、配信する側が止めているだけなのだが、
+ * **枠の中だけを見ていると、どちらなのか分からない。**
+ * 向こうを直接開ければ、止まっているのか・別の配信に移ったのかを確かめられる。
+ *
+ * チャンネルは `/live`（いま生放送していればそれ、していなければチャンネル）。
+ * nocookie は使わない。**ここは埋め込みではなく、本人が YouTube を開く操作**で、
+ * 見た目を偽らないほうがいい。
+ */
+export function liveCameraWatchUrl(camera) {
+  const channelId = String(camera?.youtube_channel_id ?? "");
+  if (YOUTUBE_CHANNEL_ID.test(channelId)) {
+    return `https://www.youtube.com/channel/${channelId}/live`;
+  }
+  const videoId = String(camera?.youtube_id ?? "");
+  return YOUTUBE_ID.test(videoId) ? `https://www.youtube.com/watch?v=${videoId}` : null;
+}
+
 /* ---------------- 天気の参照先（D-076） ----------------
    Open-Meteo 経由で **気象庁の数値予報（MSM 5km メッシュ / 39 時間以降は GSM）** を使う。
    日本の海沿いを見るなら、全球モデル（GFS・ICON・ECMWF）より格子が細かく、
