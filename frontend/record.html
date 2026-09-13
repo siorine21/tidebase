@@ -37,7 +37,7 @@
     createMap, spotMarker, googleMapsUrl, googleDirectionsUrl, isCoordinateInJapan,
     listTidePoints, fetchTideForPoint, tideAt, tideTimelineSvg, sunStripHtml,
     sunTimes, tideFlowAt, TIDE_FLOW_LABELS, tidePhaseAt, nearestMazume, mazumeLabel,
-    weatherSnapshotText,
+    weatherSnapshotText, weatherSourceNote,
     listRecordPhotos, deleteRecordPhotos, signedPhotoUrls, lureCategoryText, ownerBadge,
     navigate,
     recordOutcome,
@@ -191,8 +191,14 @@
       ["スポット", r.spot_name ? `${r.spot_name}（${WATER[r.spot_water_type] ?? "—"}）` : null],
       ["潮回り", r.tide_type],
       ["月齢", r.tide_snapshot?.moon_age],
-      // 記録した時点の天気（D-103）。あとから取り直せないので、残っていれば出す
+      /* 記録した時点の天気（D-103）。その瞬間の予報はあとから取り直せない
+         （その日の実況なら埋められる・D-153）。残っていれば出す */
       ["天気", weatherSnapshotText(r.weather_snapshot)],
+      /* **あとから埋めた値には、そう書く**（D-153）。予報（気象庁 5km）と
+         過去の実況（ERA5 約 25km）は別のデータ。同じ顔をして並ぶと、
+         どちらを見ているのか分からなくなる。
+         ふだんは null なので、この行はそもそも出ない（下の filter が落とす） */
+      ["天気の出どころ", weatherSourceNote(r.weather_snapshot)],
       ["魚種", r.species_name],
       ["呼称", r.fish_name_local],
       ["サイズ", r.length_cm ? `${r.length_cm} cm` : null],
