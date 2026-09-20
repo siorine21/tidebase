@@ -44,6 +44,7 @@ test-frontend:
 	node frontend/tests/waves.test.mjs
 	node frontend/tests/youtube.test.mjs
 	node frontend/tests/weather_archive.test.mjs
+	node frontend/tests/watch_now.test.mjs
 	node frontend/tests/battle.test.mjs
 	node frontend/tests/memo_words.test.mjs
 	node frontend/tests/blank_outing.test.mjs

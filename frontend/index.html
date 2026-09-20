@@ -135,7 +135,7 @@
   import {
     client, requireSession, renderNav, escapeHtml,
     fetchTide, fetchWeather, todayInJst, formatJstDate, relativeDays,
-    fishingScoreAhead, hourScorer,
+    fishingScoreAhead, hourScorer, watchNow,
     showFishingScoreHelp, tideType, TIDE_TYPE_COLORS,
     renderHourlyStrip,
     listSpots, listRecords, icon, renderIcons,
@@ -309,8 +309,15 @@
     renderHero(baseSpot, tide, weather, point, sunCache.get(today) ?? null);
     renderChart();
     renderNow();
-    // 「いま」なので、開きっぱなしでも合っているようにする。通信はしない
-    setInterval(() => { renderNow(); refreshCamWaves(); }, 60000);
+    /* 開きっぱなしにして、しばらく経ってからまた見たときに
+       **開いた時刻のまま止まっている**のを直す（D-157）。**通信はしない。**
+       潮位の曲線も予報も手元にあるので、動かすのは「いま」の位置と時刻だけ。
+       戻ってきた瞬間にも描き直す（そこがいちばん古い）。
+       日付が変わったときだけ材料が足りないので、そこで読み込み直す */
+    watchNow({
+      tick: () => { renderNow(); renderChart(); refreshCamWaves(); },
+      onNewDay: () => location.reload(),
+    });
     // どこの天気なのかを出す。基準スポットが無ければ潮汐地点の座標で取っている
     document.getElementById("weather-source").textContent = weatherAt
       ? `${spotUsable ? (baseSpot.name ?? "無名スポット") : (point?.label ?? "既定の地点")}`

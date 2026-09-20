@@ -100,6 +100,7 @@
   import {
     requireSession, renderNav, escapeHtml, icon,
     todayInJst, formatJstDate, WEEKDAYS_EN, nowInJst, hoursFromHhmm, addJstDays, weekOf,
+    watchNow,
     fetchWeatherRange, describeWeather, windDirection,
     fishingScoreOfDay, hourScorer, showFishingScoreHelp, stars,
     listSpots, listTidePoints, fetchTideForPoint, tidePointOfSpot,
@@ -756,6 +757,17 @@
   scrollToDate(state.date, "auto");
   await loadWeekDays();
   scrollToNow("auto");        // 開いた直後は「いま」が見えている状態にする
+
+  /* 開きっぱなしにして、しばらく経ってからまた見たときに
+     **開いた時刻のまま止まっている**のを直す（D-157）。**通信はしない。**
+     潮位の曲線はその週ぶんが手元にあるので、動かすのは現在時刻の線と
+     凡例の「現在 HH:MM · 潮位 ◯cm」だけ。**横スクロールの位置は動かさない**
+     （器の幅は変わらないので、中身を描き直しても見ている場所はそのまま）。
+     日付が変わったときだけ、その日の潮汐が手元に無いので読み込み直す */
+  watchNow({
+    tick: renderChart,
+    onNewDay: () => location.reload(),
+  });
 </script>
 </body>
 </html>
