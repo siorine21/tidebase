@@ -18,10 +18,10 @@ const code = sliceApp([
 ]);
 const { parseYouTubeId, youTubeEmbedUrl,
         parseYouTubeChannelId, youTubeChannelEmbedUrl, liveCameraEmbedUrl,
-        liveCameraWatchUrl } =
+        liveCameraWatchUrl, liveCameraFrameUrl } =
   new Function(code + `; return { parseYouTubeId, youTubeEmbedUrl,
     parseYouTubeChannelId, youTubeChannelEmbedUrl, liveCameraEmbedUrl,
-    liveCameraWatchUrl };`)();
+    liveCameraWatchUrl, liveCameraFrameUrl };`)();
 
 let failed = 0;
 const check = (name, ok, extra = '') => {
@@ -192,6 +192,35 @@ check('どちらも無ければ null（リンクを出さない）',
   liveCameraWatchUrl({ youtube_channel_id: null, youtube_id: null }) === null);
 check('カメラそのものが無くても落ちない',
   liveCameraWatchUrl(null) === null && liveCameraWatchUrl(undefined) === null);
+
+/* ---- 埋め込む URL は「いま流れている動画」を優先する（D-156） ----
+   チャンネル指定の埋め込みは実際に映らなくなった。サーバー側で解決した
+   動画 ID があるなら、そちらを直接指す。**持たずに毎回引き直す**ので、
+   配信が切り直されても追従する（047 で動画 ID を DB に固定して 1 日で壊れた） */
+const CAM = { youtube_channel_id: CH, youtube_id: null };
+check('配信中なら、その動画を埋め込む',
+  liveCameraFrameUrl(CAM, { live: true, video_id: ID }) === youTubeEmbedUrl(ID));
+/* **分からないときは、これまでどおりチャンネル指定に戻す。**
+   ここで null を返すと、関数が落ちている間じゅうカメラが消える */
+check('分からないときはチャンネル指定に戻す',
+  liveCameraFrameUrl(CAM, { live: null, video_id: null })
+    === youTubeChannelEmbedUrl(CH));
+check('状態そのものが無くてもチャンネル指定に戻す',
+  liveCameraFrameUrl(CAM, null) === youTubeChannelEmbedUrl(CH));
+check('配信していないときもチャンネル指定（呼ぶ側が枠を出さない）',
+  liveCameraFrameUrl(CAM, { live: false, video_id: null })
+    === youTubeChannelEmbedUrl(CH));
+/* **live が true でも、動画 ID の形が違えば使わない。** ここが iframe の src に入る */
+for (const bad of ['javascript:alert(1)', '../../evil', 'a"><script>', '', null, `${ID}x`])
+  check(`動画 ID の形も確かめる: ${JSON.stringify(bad)}`,
+    liveCameraFrameUrl(CAM, { live: true, video_id: bad })
+      === youTubeChannelEmbedUrl(CH));
+/* 動画 ID だけのカメラでも壊れない */
+check('チャンネルを持たないカメラでも落ちない',
+  liveCameraFrameUrl({ youtube_channel_id: null, youtube_id: ID }, null)
+    === youTubeEmbedUrl(ID));
+check('カメラそのものが無くても落ちない',
+  liveCameraFrameUrl(null, null) === null);
 
 console.log(failed ? `\nFAIL ${failed} 件` : '\nすべて通過');
 process.exit(failed ? 1 : 0);
