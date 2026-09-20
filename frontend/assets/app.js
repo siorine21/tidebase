@@ -97,6 +97,72 @@ export function nowInJst(base = new Date()) {
   };
 }
 
+/**
+ * 「いま」の表示を、見ている間だけ追いつかせる（D-157）。
+ *
+ * **開きっぱなしにして、しばらく経ってからまた見たとき**が問題だった。
+ * 潮汐の画面は開いた時刻のまま止まっていて、現在時刻の線も「現在 07:53」も
+ * 動かない。手で読み込み直すしかなく、それを毎回やるのは手間になる。
+ *
+ * ここで効くのは `setInterval` ではなく **`visibilitychange`** のほう。
+ * 端末は画面を消したりアプリを切り替えたりした時点でタイマーを止める（止めて
+ * よい）。だから**戻ってきた瞬間に 1 回描き直す**のがいちばん効く。
+ * 戻ってきた瞬間が、いちばん古いから。
+ *
+ * **通信はしない。** 潮位の曲線も予報もその日ぶんは手元にあるので、
+ * 動かすのは「いま」の位置と時刻の文字だけ。日付が変わったときだけ、
+ * 材料が足りないので呼ぶ側に知らせる（onNewDay）。
+ *
+ * 刻みは**分の頭に合わせる**。ずらしたまま 60 秒ごとに刻むと、
+ * 画面の時計が最大 59 秒だけ古いまま並ぶ。
+ *
+ * @param {{tick?: () => void, onNewDay?: (date: string) => void,
+ *          doc?: Document, win?: Window}} options
+ * @returns {() => void} 止める関数
+ */
+export function watchNow({ tick, onNewDay, doc = globalThis.document,
+                           win = globalThis.window } = {}) {
+  let day = todayInJst();
+  let timer = null;
+
+  const stop = () => {
+    if (timer !== null) clearTimeout(timer);
+    timer = null;
+  };
+
+  const run = () => {
+    const today = todayInJst();
+    if (today !== day) {
+      day = today;
+      onNewDay?.(today);          // 材料が要る。取りに行くかは呼ぶ側が決める
+    }
+    tick?.();
+  };
+
+  const schedule = () => {
+    stop();
+    // 次の分の頭まで。+50ms は「まだ前の分」に着地しないための余白
+    const delay = 60000 - (Date.now() % 60000) + 50;
+    timer = setTimeout(() => { run(); schedule(); }, delay);
+  };
+
+  const wake = () => {
+    if (doc?.visibilityState === "hidden") { stop(); return; }
+    run();                        // **見えた瞬間に 1 回。ここが主眼**
+    schedule();
+  };
+
+  doc?.addEventListener?.("visibilitychange", wake);
+  // 端末によっては戻ってきても visibilitychange が来ない（bfcache から戻る形）
+  win?.addEventListener?.("pageshow", wake);
+  wake();
+  return () => {
+    stop();
+    doc?.removeEventListener?.("visibilitychange", wake);
+    win?.removeEventListener?.("pageshow", wake);
+  };
+}
+
 /* 曜日は**英語の 3 文字**（D-113）。週間カレンダーが前からこれで、
    等幅で幅が揃うので一覧の列が縦にそろう（「水」と「日」は全角で見た目の重さも違う）。
    画面の見出しもすべて英語なので、そちらとも揃う。
