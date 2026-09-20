@@ -899,15 +899,23 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 /* ライブ映像（D-143）。押されるまで iframe を作らないので、
    既定はボタン 1 つぶんの高さしか取らない。 */
 .live-cam { margin: 10px 0 0; display: grid; gap: 8px; }
+/* **grid の子は既定で min-content より縮まない**（min-width: auto）。
+   カメラ 1 台ぶんの箱がここ。中の帯が増えると、この箱ごと親からはみ出した
+   （D-158 で実際に出た。390px で中身 364px / 親 324px）。
+   0 にしておくと、はみ出す代わりに中の名前が「…」で詰まる */
+.live-cam-item { min-width: 0; }
 .live-cam-open {
   display: flex; align-items: center; gap: 8px; width: 100%;
   padding: 10px 12px; border-radius: var(--radius);
   background: var(--bg-raised); border: 1px solid var(--border);
   color: var(--text-primary); font-size: 13px; text-align: left; cursor: pointer;
 }
+/* 狭いときに譲るのは**名前のほう**。帯（配信中・波）は縮ませない。
+   縮ませると「配信中」が「配」だけになったり、帯が箱から溢れたりする */
 .live-cam-open .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  min-width: 0; }
-.live-cam-open .head-wave { margin-left: auto; display: flex; flex: 0 0 auto; }
+  flex: 1 1 auto; min-width: 0; }
+.live-cam-open .head-live { display: flex; flex: 0 0 auto; }
+.live-cam-open .head-wave { display: flex; flex: 0 0 auto; }
 .live-cam-open:hover { border-color: var(--border-strong); }
 /* 畳めるようにした（D-144）。開いているあいだは印を上向きに倒す。
    下の器は中身ごと捨てるので、閉じれば配信も止まる */
