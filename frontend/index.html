@@ -148,6 +148,7 @@
     homeBattles, battleRemain, battleStandings, battleMetric,
     BATTLE_PHASE_LABELS, battlePhase,
     liveCameraEmbedUrl, liveCameraWatchUrl, listLiveCameras,
+    liveCameraFrameUrl, fetchLiveStatus,
     warmTideCache,
     hasUnreadNews, WEATHER_SOURCE,
     isCoordinateInJapan, tideTimelineSvg, sunStripHtml, levelAxisHtml, tideLevelAt, sunTimes,
@@ -169,6 +170,7 @@
      外に配線してあるので、ブロックの中の const だと見えない */
   let baseSpot = null;                // いま選んでいるスポット
   const camWaves = new Map();         // ライブカメラの code → その浜の予報（D-144）
+  const camLive = new Map();          // ライブカメラの code → いま配信中か（D-156）
   let liveCams = [];                  // 出しているカメラ（毎分の書き直しが引く）
   const CHART_H = 152;                // グラフの高さ（潮位目盛りの箱もこれに合わせる）
 
@@ -543,6 +545,7 @@
       + `<button type="button" class="live-cam-open" aria-expanded="false">`
       + `${icon("camera", { size: 15 })}`
       + `<span class="nm">${escapeHtml(c.name)}のライブ映像</span>`
+      + `<span class="head-live"></span>`
       + `<span class="head-wave"></span>`
       + `<span class="caret">${icon("chevron-down", { size: 14 })}</span>`
       + `</button>`
@@ -552,7 +555,7 @@
       const c = usable[Number(item.dataset.i)];
       const bar = item.querySelector(".live-cam-open");
       const body = item.querySelector(".live-cam-body");
-      bar.addEventListener("click", () => {
+      bar.addEventListener("click", async () => {
         const open = bar.getAttribute("aria-expanded") === "true";
         if (open) {
           /* **中身ごと捨てる。** iframe が残っていると畳んでも配信が続く */
@@ -562,34 +565,72 @@
           return;
         }
         body.hidden = false;
+        /* **いま流れている動画を引き直してから出す**（D-156）。
+           チャンネル指定の埋め込みは実際に映らなくなったので、
+           その場で解決した動画 ID を直接指す。分からなければ元のやり方に戻る */
+        body.innerHTML = `<div class="empty">読み込んでいます…</div>`;
+        bar.setAttribute("aria-expanded", "true");
+        const status = await camStatus(c);
+        if (bar.getAttribute("aria-expanded") !== "true") return;   // 待つ間に畳まれた
+        paintLive(item, c);
+        if (status?.live === false) {
+          /* **止まっているなら枠を出さない。** 黒い枠を見せられても、
+             こちらが壊れているのか向こうが止めているのか分からない */
+          body.innerHTML = `<div class="empty">いま配信は止まっています。<br>`
+            + `配信する側が流しはじめると、ここに映ります。</div>`
+            + camWaveBody(c) + camNote(c);
+          renderIcons(body);
+          return;
+        }
         body.innerHTML = `<div class="live-cam-frame">`
-          + `<iframe src="${c.url}" title="${escapeHtml(c.name)}のライブ映像"`
+          + `<iframe src="${liveCameraFrameUrl(c, status)}" title="${escapeHtml(c.name)}のライブ映像"`
           + ` loading="lazy" allowfullscreen`
           + ` referrerpolicy="strict-origin-when-cross-origin"`
           + ` sandbox="allow-scripts allow-same-origin allow-presentation"></iframe>`
           + `</div>`
-          + camWaveBody(c)
-          + `<div class="live-cam-note">${escapeHtml(c.name)}`
-          + `${c.note ? ` — ${escapeHtml(c.note)}` : ""}。`
-          + `波は沖の推算値なので、映像に見えているものとは差が出ます。`
-          + `見比べると、何 m がどう見えるかの見当が付きます。`
-          /* 枠の中が「オフライン」になることがある（D-152）。
-             **アプリの不具合と見分けが付かない**ので、そう書いておく */
-          + `<br>枠の中が「オフライン」のときは、配信する側が止めています。`
-          + `</div>`
-          /* 向こうを直接開ける口。止まっているのか、別の配信に移ったのかを確かめられる */
-          + (liveCameraWatchUrl(c)
-            ? `<a class="live-cam-away" href="${liveCameraWatchUrl(c)}"`
-              + ` target="_blank" rel="noopener noreferrer">`
-              + `${icon("external", { size: 12 })}YouTube で開く</a>`
-            : "");
-        bar.setAttribute("aria-expanded", "true");
+          + camWaveBody(c) + camNote(c);
+        renderIcons(body);
       });
       /* 波はカメラの座標で別に取る（D-144）。**待たない。**
          届いたら見出しを書き替え、開いていれば中も描き直す */
       loadCamWave(c).then(refreshCamWaves);
       item.querySelector(".head-wave").innerHTML = camWaveHead(c);
+      /* 配信中かどうかも待たない（D-156）。**開く前に分かるのが値打ち** */
+      camStatus(c).then(() => paintLive(item, c));
     });
+  }
+
+  /** 映像の下の説明と「YouTube で開く」。**止まっているときも出す**ので切り出した */
+  function camNote(c) {
+    return `<div class="live-cam-note">${escapeHtml(c.name)}`
+      + `${c.note ? ` — ${escapeHtml(c.note)}` : ""}。`
+      + `波は沖の推算値なので、映像に見えているものとは差が出ます。`
+      + `見比べると、何 m がどう見えるかの見当が付きます。</div>`
+      + (liveCameraWatchUrl(c)
+        ? `<a class="live-cam-away" href="${liveCameraWatchUrl(c)}"`
+          + ` target="_blank" rel="noopener noreferrer">`
+          + `${icon("external", { size: 12 })}YouTube で開く</a>`
+        : "");
+  }
+
+  /* 配信中かどうか（D-156）。**1 回引いたら覚える。**
+     ホームを開き直すたびに Edge Function を叩かない（向こうも 60 秒は覚えている）。
+     **入れ物の宣言は上の状態の並びに置いてある**（const は巻き上がらない・D-077） */
+  async function camStatus(c) {
+    if (!camLive.has(c.code)) {
+      camLive.set(c.code, await fetchLiveStatus(c.youtube_channel_id).catch(() => null));
+    }
+    return camLive.get(c.code);
+  }
+
+  /** 見出しの「配信中 / いま止まっています」。**分からないときは何も出さない。** */
+  function paintLive(item, c) {
+    const box = item.querySelector(".head-live");
+    if (!box) return;
+    const live = camLive.get(c.code)?.live;
+    box.innerHTML = live === true ? `<span class="live-now">配信中</span>`
+      : live === false ? `<span class="live-off">いま止まっています</span>`
+      : "";
   }
 
   /** カメラの座標の波を取って覚える。取れなければ null を覚える（何も出さない）。 */

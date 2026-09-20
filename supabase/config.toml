@@ -14,3 +14,9 @@ verify_jwt = false
 # 関数の中でも利用者のトークンかどうかを確かめている。
 [functions.resolve-map-link]
 verify_jwt = true
+
+# live-status は外へ取りに行くので、ログイン済みの人だけに絞る（D-156）。
+# resolve-map-link と同じく、verify_jwt = true でも publishable（anon）キーだけで
+# 通ってしまうため、関数の中でも利用者のトークンかどうかを確かめている
+[functions.live-status]
+verify_jwt = true

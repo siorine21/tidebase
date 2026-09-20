@@ -951,6 +951,16 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 }
 .live-cam-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 .live-cam-note { margin-top: 6px; font-size: 11px; line-height: 1.5; color: var(--text-muted); }
+/* 見出しの「配信中 / いま止まっています」（D-156）。**開く前に分かるのが値打ち。**
+   分からないときは何も出さない（空の枠も出さない） */
+.head-live:empty { display: none; }
+.live-now, .live-off {
+  display: inline-block; padding: 1px 7px; border-radius: 999px;
+  font-size: 11px; white-space: nowrap; border: 1px solid currentColor;
+}
+.live-now { color: var(--mustard-lt); }
+.live-off { color: var(--text-muted); }
+
 /* YouTube 側を開く（D-152）。**枠の中が「オフライン」でも行き先がある。**
    押せる高さを 44px 近くまで取る（D-150 と同じ理由） */
 .live-cam-away {

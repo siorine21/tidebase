@@ -1242,6 +1242,52 @@ export function liveCameraEmbedUrl(camera) {
 }
 
 /**
+ * 埋め込むときの URL（D-156）。**いま流れている動画を直接指す。**
+ *
+ * `embed/live_stream?channel=` は「チャンネルのいまの生放送」を出す古い入口で、
+ * 実際に**映らなくなった**（本人の画面で 3 度）。一方、サーバー側から
+ * `/channel/<id>/live` を読むと、いま流れている動画 ID がちゃんと取れる
+ * （実測: 同笠は `maTr7UQfHkE`「海岸監視カメラ 同笠海岸」で配信中だった）。
+ *
+ * **毎回その場で引き直すので、配信が切り直されても追従する。**
+ * DB に動画 ID を固定していた 047 の失敗（1 日ももたなかった）と違い、
+ * ここは持たない。分からなければ、これまでどおりチャンネル指定に戻す。
+ */
+export function liveCameraFrameUrl(camera, status = null) {
+  const id = String(status?.video_id ?? "");
+  if (status?.live === true && YOUTUBE_ID.test(id)) return youTubeEmbedUrl(id);
+  return liveCameraEmbedUrl(camera);
+}
+
+/**
+ * ライブ映像が「いま配信中か」を Supabase 側から見に行く（D-156）。
+ *
+ * **ブラウザからは枠の中を一切読めない。** 別オリジンなので、止まっているのか
+ * 埋め込みが拒否されているのか、そもそも出ていないのかが区別できない。
+ * Edge Function（live-status）はサーバー側から 1 回読むので、そこが分かる。
+ *
+ * 取れなければ null。**null は「配信していない」ではない。**
+ * 呼ぶ側は、分からないときはこれまでどおりの出し方に戻すこと。
+ */
+export async function fetchLiveStatus(channelId) {
+  if (!YOUTUBE_CHANNEL_ID.test(String(channelId ?? ""))) return null;
+  const { data } = await client.auth.getSession();
+  const token = data?.session?.access_token;
+  if (!token) return null;
+  try {
+    const response = await fetchWithTimeout(
+      `${config.supabaseUrl}/functions/v1/live-status?channel=${channelId}`,
+      { headers: { apikey: config.supabaseAnonKey, Authorization: `Bearer ${token}` } },
+    );
+    if (!response.ok) return null;
+    const body = await response.json();
+    return typeof body?.live === "boolean" || body?.live === null ? body : null;
+  } catch {
+    return null;                       // 圏外・関数が落ちている。画面は止めない
+  }
+}
+
+/**
  * YouTube 側で開く URL（D-152）。埋め込みとは**別に**持つ。
  *
  * 枠の中が「ライブ ストリームはオフラインです」になることがある。

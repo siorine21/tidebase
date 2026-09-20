@@ -15,6 +15,9 @@ test-edge:
 	tsc supabase/functions/resolve-map-link/parse.ts --outDir supabase/functions/resolve-map-link/_build \
 	  --target es2022 --module es2022 --moduleResolution bundler --strict
 	node --test supabase/functions/resolve-map-link/parse.test.mjs
+	tsc supabase/functions/live-status/parse.ts --outDir supabase/functions/live-status/_build \
+	  --target es2022 --module es2022 --moduleResolution bundler --strict
+	node --test supabase/functions/live-status/parse.test.mjs
 
 # フロントの純粋関数のテスト（要: node 22+）
 test-frontend:
