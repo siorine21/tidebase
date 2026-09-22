@@ -2084,3 +2084,34 @@ label.check input { width: auto; }
 .fold > summary::before { content: "＋"; font-size: 13px; }
 .fold[open] > summary::before { content: "−"; }
 .fold > summary:hover { color: var(--text-secondary); }
+
+/* ---------- 今日のおすすめスポット（D-160） ---------- */
+/* **条件（★）と実績を並べて出す。掛けない。** 1 スポットあたりの記録が
+   1 桁しかないので、掛けると根拠の無い差が★に出る。
+   だから★は右に置いたまま、実績は下に**別の行**として足す。 */
+.suggest-item { align-items: flex-start; }
+/* 名前と★の高さを揃える。実績の行が増えても★は上に残る */
+.suggest-item .list-aside { padding-top: 1px; }
+
+/* 実績の行。**本文より 1 段落とす**。ここは「条件」ではなく「起きたこと」で、
+   同じ強さで並べると、どちらが今日の話なのか読めなくなる */
+.suggest-fact {
+  font-size: 11px; color: var(--text-muted); margin-top: 4px;
+  line-height: 1.5;
+  /* **狭いときは折り返す。** 「この時期に 3 回 ／ 最大 8 匹・メッキ 20cm ／
+     最後は 09.19（タツマ）」は 390px では 1 行に収まらない。
+     … で詰めると、いちばん後ろの「誰の実績か」から消える（D-064 で
+     必ず出すと決めたもの）ので、詰めずに折り返す */
+  overflow-wrap: anywhere;
+}
+/* 潮位置の行だけカラシ。**いまと同じ条件**という、今日にかかる事実なので */
+.suggest-phase { color: var(--mustard); }
+
+/* ★の意味を 1 行で断っておく。**掛けていないことを書かないと、
+   実績が多いから★が高いのだと読まれる** */
+.suggest-note { margin-top: 6px; }
+/* 区切りの中では折り返さない。折り返すなら「／」の位置で。
+   1 本の文で流すと 390px で「最後は」と日付の間が切れ、日付と誰の実績かが離れた */
+.suggest-fact .fact-seg { white-space: nowrap; }
+/* 区切り自身は折り返してよい。ここが唯一の折り返せる場所になる */
+.suggest-fact .fact-sep { white-space: normal; opacity: 0.6; }

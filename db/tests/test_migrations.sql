@@ -183,6 +183,75 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL: 手動スナップショットが上書きされる';
   END IF;
 
+  ------------------------------------------------------------
+  -- 釣果: 潮位置（上げ◯分）は日時が動いたら落ちる（D-159）
+  --
+  -- 潮位置は fished_at と fished_time の**両方**から決まる。どちらかが
+  -- 変われば保存してある値は嘘になるが、毎時潮位は DB に無いので
+  -- 計算し直せない。**だから消す。** 古い値を残すと、画面には
+  -- 正しい顔で出続ける。消したぶんはクライアントが次の保存で入れ直す。
+  ------------------------------------------------------------
+  INSERT INTO public.fishing_records
+    (user_id, spot_id, fished_at, fished_time, catch_count,
+     tide_phase_tenth, tide_phase_rising)
+  VALUES (u, spot_tokyo, '2026-09-01', '07:00', 1, 7, TRUE)
+  RETURNING * INTO rec;
+  IF rec.tide_phase_tenth IS DISTINCT FROM 7
+     OR rec.tide_phase_rising IS DISTINCT FROM TRUE THEN
+    RAISE EXCEPTION 'TEST FAIL: 入れた潮位置が残らない: % / %',
+      rec.tide_phase_tenth, rec.tide_phase_rising;
+  END IF;
+
+  -- 時刻だけ変える → 落ちる
+  UPDATE public.fishing_records SET fished_time = '19:00'
+  WHERE id = rec.id RETURNING * INTO rec;
+  IF rec.tide_phase_tenth IS NOT NULL OR rec.tide_phase_rising IS NOT NULL THEN
+    RAISE EXCEPTION 'TEST FAIL: 時刻を変えても潮位置が残る（前の時刻の値）: %',
+      rec.tide_phase_tenth;
+  END IF;
+
+  -- 日付だけ変える → 落ちる
+  UPDATE public.fishing_records SET tide_phase_tenth = 3, tide_phase_rising = FALSE
+  WHERE id = rec.id;
+  UPDATE public.fishing_records SET fished_at = '2026-09-02'
+  WHERE id = rec.id RETURNING * INTO rec;
+  IF rec.tide_phase_tenth IS NOT NULL OR rec.tide_phase_rising IS NOT NULL THEN
+    RAISE EXCEPTION 'TEST FAIL: 日付を変えても潮位置が残る（前の日の値）: %',
+      rec.tide_phase_tenth;
+  END IF;
+
+  -- 同じ UPDATE で新しい潮位置を渡したら、そちらを残す
+  UPDATE public.fishing_records
+  SET fished_at = '2026-09-03', tide_phase_tenth = 9, tide_phase_rising = TRUE
+  WHERE id = rec.id RETURNING * INTO rec;
+  IF rec.tide_phase_tenth IS DISTINCT FROM 9 THEN
+    RAISE EXCEPTION 'TEST FAIL: 同じ UPDATE で渡した潮位置が消える: %', rec.tide_phase_tenth;
+  END IF;
+
+  -- 関係ない列だけ変えても残る
+  UPDATE public.fishing_records SET memo = 'メモだけ変える'
+  WHERE id = rec.id RETURNING * INTO rec;
+  IF rec.tide_phase_tenth IS DISTINCT FROM 9 THEN
+    RAISE EXCEPTION 'TEST FAIL: 関係ない列の変更で潮位置が落ちる';
+  END IF;
+
+  -- 片方だけは入らない（CHECK）。向きの無い「7 分」は数えようが無い
+  BEGIN
+    INSERT INTO public.fishing_records
+      (user_id, spot_id, fished_at, fished_time, catch_count, tide_phase_tenth)
+    VALUES (u, spot_tokyo, '2026-09-01', '07:00', 1, 7);
+    RAISE EXCEPTION 'TEST FAIL: 向きの無い潮位置が入る';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  BEGIN
+    INSERT INTO public.fishing_records
+      (user_id, spot_id, fished_at, fished_time, catch_count,
+       tide_phase_tenth, tide_phase_rising)
+    VALUES (u, spot_tokyo, '2026-09-01', '07:00', 1, 11, TRUE);
+    RAISE EXCEPTION 'TEST FAIL: 11 分が入る（0〜10 のはず）';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+
   -- 潮汐×釣果相関ビュー（確定仕様書 14.3 章）が集計できること
   IF NOT EXISTS (SELECT 1 FROM public.tide_correlation WHERE user_id = u) THEN
     RAISE EXCEPTION 'TEST FAIL: tide_correlation ビューが集計しない';
