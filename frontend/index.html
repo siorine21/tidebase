@@ -122,6 +122,20 @@
   <!-- 淡水スポットのとき。空のグラフを出さない -->
   <div class="card no-tide" id="no-tide" hidden></div>
 
+  <!-- 今日のおすすめスポット（D-160）。**★は条件だけ、実績は添えるだけ**。
+       材料（天気・潮汐・過去の釣果）が要るので、ヒーローの描画は待たせない。
+       出せる候補が無ければ、枠ごと出さない -->
+  <div id="suggest-block" hidden>
+    <div class="section-label">
+      <span>TODAY'S PICK</span>
+      <a class="note" href="spots.html">スポット一覧 →</a>
+    </div>
+    <div id="suggest"></div>
+    <div class="page-sub suggest-note">
+      ★は天気・風・潮の動きだけで付けています（実績は掛けていません）
+    </div>
+  </div>
+
   <div class="section-label"><span>RECENT CATCH</span><a class="note" href="records.html">すべて見る →</a></div>
   <div id="recent"><div class="empty">読み込み中…</div></div>
 </main>
@@ -155,6 +169,9 @@
     tideFlowAt, TIDE_FLOW_LABELS, tidePhaseAt, nextTideEvent, nextSunEvent, formatCountdown,
     recordOutcome,
     outcomeLead,
+    recommendSpots, groupOutings, historyLine, phaseLine,
+    RECORD_RECOMMEND_COLUMNS, isRecommendable, fishingScoreOfDay, fetchWeatherMulti,
+    stars, tidePointOfSpot,
   } from "./assets/app.js";
 
   // 静岡県特化のため既定は舞阪（浜名湖口・遠州灘西部の基準）
@@ -332,11 +349,122 @@
                        sunCache.get(today) ?? null), wantWaves);
 
     recentSoon.then(renderRecent);
+    /* 今日のおすすめ（D-160）。**待たない。** 天気を全スポットぶん取るので
+       いちばん遅く、ヒーローより先に要るものでもない。
+       失敗したら枠ごと出さない（空の見出しだけ残るほうが困る） */
+    loadSuggestions(spots, points, today, tide, point).catch(() => {});
   }
 
   async function loadTide(point, date) {
     if (!point) return null;
     try { return await fetchTideForPoint(point, date); } catch { return null; }
+  }
+
+  /* ---------------- 今日のおすすめスポット（D-160） ----------------
+
+     **条件と実績を並べる。掛けない。** ★は今までどおり条件（天気・風・潮の動き）
+     だけで付け、実績は添えるだけ。1 スポットあたりの記録が 1 桁なので、
+     掛けると根拠の無い差が★に出る。
+
+     **管理釣り場と、潮汐の効かない場所は出さない**（本人の要望）。
+     判定は app.js の isRecommendable に寄せてある。
+
+     通信の数は 天気 1 本 ＋ 潮汐は地点の数だけ ＋ 釣果 1 本。
+     天気は fetchWeatherMulti が複数地点を 1 本にまとめる（D-140）。
+     潮汐は実データで 3 地点しか無く、Service Worker が持っている。 */
+  async function loadSuggestions(spots, points, today, baseTide, basePoint) {
+    const candidates = (spots ?? []).filter(isRecommendable);
+    if (!candidates.length) return;
+
+    /* **いまの潮位置。** 基準スポットの潮汐から出す。おすすめする場所の
+       潮汐地点は候補ごとに違うが、遠州灘・浜名湖の中では満干の時刻が
+       数十分しか違わないので、帯（始め・中盤・終わり）は変わらない。
+       基準の潮汐が無ければ潮位置の行は出さない（推測で書かない） */
+    const now = nowInJst();
+    const phase = !baseTide ? null : tidePhaseAt(baseTide, now.hhmm, {
+      previous: tideCache.get(addJstDays(today, -1)) ?? null,
+      next: tideCache.get(addJstDays(today, 1)) ?? null,
+    });
+
+    /* 候補ぶんの潮汐を、**地点ごとに 1 回だけ**取る */
+    const needed = [...new Set(candidates.map(tidePointOfSpot).filter(Boolean))];
+    const tides = new Map();
+    await Promise.all(needed.map(async (value) => {
+      if (basePoint && value === basePoint.value && baseTide) {
+        tides.set(value, baseTide);          // 基準ぶんは取り直さない
+        return;
+      }
+      const p = points.find((x) => x.value === value);
+      if (!p) return;
+      const t = await fetchTideForPoint(p, today).catch(() => null);
+      if (t) tides.set(value, t);
+    }));
+
+    /* 天気と釣果は互いに関係が無いので同時に投げる（D-140） */
+    const [weather, records] = await Promise.all([
+      fetchWeatherMulti(
+        candidates.map((s) => ({ lat: Number(s.latitude), lng: Number(s.longitude) })), today),
+      listRecords({ limit: 500, columns: RECORD_RECOMMEND_COLUMNS }).catch(() => []),
+    ]);
+
+    const type = tideType(today);
+    const scores = new Map();
+    candidates.forEach((spot, i) => {
+      const hours = weather[i];
+      if (!hours) return;
+      const p = points.find((x) => x.value === tidePointOfSpot(spot)) ?? null;
+      const day = fishingScoreOfDay({
+        tideType: type, hours,
+        sun: sunTimes(spot.latitude, spot.longitude, today),
+        tide: tides.get(tidePointOfSpot(spot)) ?? null,
+        tideMatters: true, point: p, date: today,
+      });
+      if (day) scores.set(spot.id, day);
+    });
+
+    renderSuggestions(recommendSpots({
+      spots: candidates, scores, outings: groupOutings(records), today, phase,
+      /* 距離の基準は**いま選んでいるスポット**。選んでいなければ切らない
+         （切ると候補が 1 つも出ない） */
+      from: baseSpot ?? null,
+    }));
+  }
+
+  /** 距離の一言。**いま選んでいるスポット自身に「0.0km」と出さない** */
+  function distanceNote(row) {
+    if (row.spot.id === baseSpot?.id) return " · いま選んでいる場所";
+    if (row.km == null) return "";
+    return ` · ${row.km < 10 ? row.km.toFixed(1) : Math.round(row.km)}km`;
+  }
+
+  function renderSuggestions(picks) {
+    const block = document.getElementById("suggest-block");
+    if (!picks.length) { block.hidden = true; return; }
+    const box = document.getElementById("suggest");
+    box.innerHTML = picks.map((row) => {
+      /* **区切りごとに span で包む。** 1 本の文につなげて流すと
+         390px で「最後は」と日付の間で折れ、日付と名前が離れる */
+      const history = (historyLine(row.history) ?? [])
+        .map((part) => `<span class="fact-seg">${escapeHtml(part)}</span>`)
+        /* **区切りは本物の要素にする。** ::before の content だと
+           textContent にも読み上げにも出ない（コピーもできない） */
+        .join(`<span class="fact-sep"> ／ </span>`);
+      const phase = phaseLine(row.history);
+      return `
+      <a class="list-item suggest-item" href="spot.html?id=${row.spot.id}">
+        <div class="list-body">
+          <div class="list-title">${escapeHtml(row.spot.name ?? "無名スポット")}</div>
+          <div class="list-sub">${escapeHtml(row.day.best?.label ?? "")}${
+            row.day.best?.hour != null ? ` ${row.day.best.hour}時` : ""}${
+            distanceNote(row)}</div>
+          ${history ? `<div class="suggest-fact">${history}</div>` : ""}
+          ${phase ? `<div class="suggest-fact suggest-phase">${escapeHtml(phase)}</div>` : ""}
+        </div>
+        <div class="list-aside"><span class="spot-score">${stars(row.day.score)}</span></div>
+      </a>`;
+    }).join("");
+    block.hidden = false;
+    renderIcons(box);
   }
 
   /** 座標が入っていないスポットは天気がまるで別の場所になるので、直し方を案内する。 */
