@@ -507,6 +507,18 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .tide-graph .catch-label { fill: #A5D6A7; font-weight: 700; }
 .tide-graph .sun-line { stroke: var(--text-muted); stroke-width: 1; stroke-dasharray: 2 3; }
 .tide-graph .night    { fill: rgba(10,21,32,0.7); }
+/* マヅメ（日の出・日没の前後 1 時間・D-163）。**夜の帯の上に重ねる。**
+   マヅメは昼と夜の両側にまたがるので、下に敷くと半分が夜の塗りに消える。
+
+   色は時間別天気の帯と同じカラシ。**濃さは実際に並べて選んだ**（0.13 / 0.20 / 0.28）。
+   0.13 と 0.20 では灰色に見えて「日の出の色」に読めない。0.28 で暖色として
+   読めるようになり、それでも潮位の曲線は透けている。
+
+   **「いま」の線（カラシの実線）と同じ色になるが、形が違うので区別できる**
+   （いま = 細い明るい実線 / マヅメ = 幅のある淡い面）。
+   D-029 で「カラシの破線が日の出と誤解された」経緯があるが、
+   いまはカラシが日の出側にも付くので、むしろ意味が揃う。 */
+.tide-graph .mazume   { fill: rgba(201,168,76,0.28); }
 .tide-graph text { font-family: 'JetBrains Mono', monospace; font-size: 9px; fill: var(--text-muted); }
 .tide-graph text.peak { fill: var(--text-secondary); }
 .tide-graph text.sun-time { font-size: 8px; fill: var(--text-muted); }
@@ -2132,17 +2144,22 @@ label.check input { width: auto; }
   display: flex; align-items: center; justify-content: center; gap: 3px;
   font-size: 9px; letter-spacing: 0.02em; white-space: nowrap;
   border-radius: 3px;
-  /* **カラシは使わない。** このアプリでカラシは「自分のもの・いま」の色で、
-     「いま」のカード（D-117）とぶつかる。マヅメは時刻そのものの話なので、
-     情報の色である青（--blue）に寄せる */
-  background: var(--blue-bg);
-  border: 1px solid var(--blue-deep);
-  color: var(--blue);
+  /* **カラシを使う**（本人の指摘）。このテーマをカラシ×ネイビーにした理由の
+     1 つが日の出・日没のイメージに合うこと。実際 D-029 では、潮汐グラフの
+     カラシ色の破線が「日の出」と読み違えられている。**カラシは日の出として
+     読まれる**という実例があるので、マヅメに使うのが素直。
+
+     「いま」のカード（D-117）もカラシだが、ぶつからない:
+       - 置き場所が違う（帯はカードの上、いまはカードそのもの）
+       - 帯には日の出・日没のアイコンと文字が入っていて、何の印か自分で名乗る
+     一段淡くして、カードの「いま」のほうが強く見えるようにする */
+  background: var(--mustard-bg);
+  border: 1px solid var(--mustard-dk);
+  color: var(--mustard-lt);
 }
 /* **朝と夕は色で分けない。** 色を変えると「どちらかが良い」に読める。
    どちらが良いかはアプリが決めないと決めてある（D-139）ので、
-   区別は帯の中の文字（朝マヅメ / 夕マヅメ）だけで付ける。
-   カラシで分ける案もあったが、カラシは「いま」の色なので使えない（D-117）。 */
+   区別は日の出・日没のアイコンと文字（朝マヅメ / 夕マヅメ）で付ける。 */
 /* 窓の端では帯が 1 枚ぶん（54px）に切れることがある。そのときは文字のほうを
    詰めて、**日の出・日没のアイコンは必ず残す**（何の印かはアイコンで分かる） */
 .mazume-seg { overflow: hidden; }
