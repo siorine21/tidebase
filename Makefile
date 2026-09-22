@@ -40,6 +40,7 @@ test-frontend:
 	node frontend/tests/tide_influence.test.mjs
 	node frontend/tests/score_factors.test.mjs
 	node frontend/tests/tide_phase.test.mjs
+	node frontend/tests/capture_tide_phase.test.mjs
 	node frontend/tests/request_cache.test.mjs
 	node frontend/tests/waves.test.mjs
 	node frontend/tests/youtube.test.mjs

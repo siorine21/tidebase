@@ -5128,6 +5128,48 @@ export async function captureWeatherSnapshot({ lat, lng, date, time }) {
   };
 }
 
+/* ================================================================
+   釣行時の潮位置（上げ7分・下げ3分…）を残す（D-159）
+
+   **潮回り（大潮・中潮）とは別の軸。** 大潮かどうかは日付だけで決まるので
+   DB のトリガーが入れているが、その日のどこにいたか（上げ始めか、
+   満潮前か）は**毎時潮位が要る**ので DB では出せない。天気と同じく、
+   記録した時点でクライアントが入れる。
+
+   天気と違って**あとからでも取り直せる**（JMA の年間推算は過去も引ける）。
+   それでも保存時に入れるのは、読むたびに 3 往復するのを避けるため。
+   ================================================================ */
+
+/**
+ * その釣行の時刻の潮位置を返す。出せなければ null。
+ * 返すのは DB の列に合わせた形（tenth / rising）。
+ *
+ * 潮位置は**前後の日**をつないで出す（満干の区間は 6 時間あり、日をまたぐ）。
+ * 前後が取れなければ tidePhaseAt が null を返すので、そのまま返らない。
+ *
+ * @param {object} spot   スポット（潮汐地点を持っているもの）
+ * @param {{date:string, time:string|null, points?:Array}} at
+ */
+export async function captureTidePhase(spot, { date, time, points = null } = {}) {
+  // 時刻が無ければ出せない。潮位置は「その時刻の」値そのもの
+  if (!spot || !date || !time) return null;
+  const list = points ?? await listTidePoints().catch(() => null);
+  const point = spotTidePoint(spot, list ?? []);
+  if (!point) return null;              // 潮汐の効かない場所。淡水の池など
+
+  const [tide, previous, next] = await Promise.all([
+    fetchTideForPoint(point, date).catch(() => null),
+    fetchTideForPoint(point, addDays(date, -1)).catch(() => null),
+    fetchTideForPoint(point, addDays(date, 1)).catch(() => null),
+  ]);
+  if (!tide) return null;
+
+  const phase = tidePhaseAt(tide, String(time).slice(0, 5), { previous, next });
+  /* **片方だけ返さない。** DB 側も CHECK で弾くが、ここで形を崩すと
+     呼ぶ側が「向きの無い 7 分」を組み立ててしまう（050） */
+  return phase ? { tenth: phase.tenth, rising: phase.rising } : null;
+}
+
 /**
  * 天気がどこから来たかの一言（D-153）。**予報のときは何も言わない。**
  * ふだんはそちらなので、毎回書くと意味を持たなくなる。

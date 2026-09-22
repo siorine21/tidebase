@@ -248,6 +248,7 @@
     listTackle, TACKLE_KINDS,
     listRecordPhotos, preparePhoto, uploadPreparedPhoto, looksLikeImage,
     captureWeatherSnapshot,
+    captureTidePhase,
     OUTCOMES, recordOutcome, renderIcons,
     deleteRecordPhotos, signedPhotoUrls, PHOTO_MAX_COUNT,
     navigate,
@@ -1135,11 +1136,27 @@
     /* その時刻の天気を一緒に残す（D-103）。**あとから取り直せない。**
        取れなくても記録の保存は止めない（圏外でも残るのが先・D-096）。 */
     const spot = knownSpots.find((s) => s.id === state.spotId) ?? null;
-    const snapshot = spot ? await captureWeatherSnapshot({
-      lat: spot.latitude, lng: spot.longitude,
-      date: payload.fished_at, time: payload.fished_time,
-    }).catch(() => null) : null;
+    /* 潮位置（上げ7分…）も一緒に残す（D-159）。天気と**同時に**投げる。
+       1 本ずつ待つと保存ボタンを押してからの待ちがそのぶん伸びる。
+       こちらは取れなくてもあとから埋め直せるので、失敗は黙って諦める。 */
+    const [snapshot, phase] = await Promise.all([
+      spot ? captureWeatherSnapshot({
+        lat: spot.latitude, lng: spot.longitude,
+        date: payload.fished_at, time: payload.fished_time,
+      }).catch(() => null) : null,
+      spot ? captureTidePhase(spot, {
+        date: payload.fished_at, time: payload.fished_time,
+      }).catch(() => null) : null,
+    ]);
     if (snapshot) payload.weather_snapshot = snapshot;
+    /* **取れたときだけ送る。** null を送ると、圏外や JMA が落ちていただけの
+       編集で、すでに入っている正しい潮位置まで消してしまう。
+       日時を変えたのに取れなかった場合は、050 のトリガーが落とす
+       （こちらが何も送らなければ「据え置き」とみなして消す側に回る）。 */
+    if (phase) {
+      payload.tide_phase_tenth = phase.tenth;
+      payload.tide_phase_rising = phase.rising;
+    }
 
     const { data: saved, error } = recordId
       ? await client.from("fishing_records").update(payload).eq("id", recordId).select().single()
