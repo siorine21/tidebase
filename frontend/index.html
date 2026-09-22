@@ -68,12 +68,6 @@
          「いま上げているのか、次の満潮はいつか、暗くなるまでどれだけか」を
          数字で出す。1 分ごとに書き直す（「いま」なので） -->
     <div class="hero-now" id="hero-now" hidden></div>
-    <!-- ライブカメラ（D-143 / 043）。**スポットには依らない。**
-         「釣りに行くとき、まずは海の様子をチェックする」（本人）ので、
-         行き先を決める前に見るもの。河川のスポットを選んでいても出す。
-         **押されるまで読み込まない。** 潮を見に来ただけの人に
-         生配信を流し始めるのは、通信も電池も持っていかれる -->
-    <div class="live-cam" id="live-cam" hidden></div>
     <div class="tags" id="hero-tags"></div>
     <!-- 時間別天気は TODAY の中に入れる（D-114）。
          スコアも時間帯ごとの点も、この 1 時間ごとの予報から出している。
@@ -90,6 +84,21 @@
       <div class="list-sub" id="weather-source"></div>
     </div>
   </section>
+
+  <!-- ライブカメラ（D-143 / 043 / D-165）。**スポットには依らない。**
+       「釣りに行くとき、まずは海の様子をチェックする」（本人）ので、
+       行き先を決める前に見るもの。河川のスポットを選んでいても出す。
+
+       **ヒーローの中から出して独立した節にした**（D-165）。中に置いていたときは
+       幅が足りず、カメラの名前を「…」で詰めていた（D-158）。
+       詰めるより枠を用意するほうが筋が通る、という本人の指摘。
+
+       **押されるまで読み込まない。** 潮を見に来ただけの人に
+       生配信を流し始めるのは、通信も電池も持っていかれる -->
+  <div id="live-cam-block" hidden>
+    <div class="section-label"><span>LIVE CAMERA</span></div>
+    <div class="live-cam" id="live-cam"></div>
+  </div>
 
   <!-- 潮汐のある場所だけ。淡水スポットではこの節ごと隠す（D-105） -->
   <div id="tide-block">
@@ -381,9 +390,25 @@
        数十分しか違わないので、帯（始め・中盤・終わり）は変わらない。
        基準の潮汐が無ければ潮位置の行は出さない（推測で書かない） */
     const now = nowInJst();
+    /* **前後の日は手元にあるとは限らない。** 満干の区間は 6 時間あり、
+       夜に開くと次の満干は翌日にある。tideCache は loadNeighbours が
+       あとから埋めるので、ここで参照するだけだと**夜だけ潮位置が出ない**
+       （実際そうなっていた。23 時台に出なくなる）。
+       無ければ取りに行く。Service Worker が持っているし、
+       warmTideCache が 1 週間ぶん温めてあるので、ふつうは通信も起きない */
+    const dayTide = async (date) => {
+      const known = tideCache.get(date);
+      if (known) return known;
+      if (!basePoint) return null;
+      const got = await fetchTideForPoint(basePoint, date).catch(() => null);
+      if (got) tideCache.set(date, got);
+      return got;
+    };
+    const [prevTide, nextTide] = await Promise.all([
+      dayTide(addJstDays(today, -1)), dayTide(addJstDays(today, 1)),
+    ]);
     const phase = !baseTide ? null : tidePhaseAt(baseTide, now.hhmm, {
-      previous: tideCache.get(addJstDays(today, -1)) ?? null,
-      next: tideCache.get(addJstDays(today, 1)) ?? null,
+      previous: prevTide, next: nextTide,
     });
 
     /* 候補ぶんの潮汐を、**地点ごとに 1 回だけ**取る */
@@ -669,17 +694,22 @@
 
   function renderLiveCams(cameras) {
     const box = document.getElementById("live-cam");
+    /* 見出しごと出し入れする（D-165）。中身だけ隠すと
+       「LIVE CAMERA」の見出しが空のまま残る */
+    const block = document.getElementById("live-cam-block");
     const usable = (cameras ?? [])
       .map((c) => ({ ...c, url: liveCameraEmbedUrl(c) }))
       .filter((c) => c.url);
     liveCams = usable;
-    if (!usable.length) { box.hidden = true; box.innerHTML = ""; return; }
+    if (!usable.length) { block.hidden = true; box.innerHTML = ""; return; }
 
-    box.hidden = false;
+    block.hidden = false;
     box.innerHTML = usable.map((c, i) => `<div class="live-cam-item" data-i="${i}">`
       + `<button type="button" class="live-cam-open" aria-expanded="false">`
       + `${icon("camera", { size: 15 })}`
-      + `<span class="nm">${escapeHtml(c.name)}のライブ映像</span>`
+      /* **「のライブ映像」は付けない**（D-165）。見出しが LIVE CAMERA なので、
+         1 行ごとに繰り返すと、そのぶん名前が入らなくなる */
+      + `<span class="nm">${escapeHtml(c.name)}</span>`
       + `<span class="head-live"></span>`
       + `<span class="head-wave"></span>`
       + `<span class="caret">${icon("chevron-down", { size: 14 })}</span>`
