@@ -515,6 +515,8 @@
         contextOf: (date) => ({ tide: tideOf(date), sun: sunOf(date) }),
         tideMatters: Boolean(state.point), point: state.point,
       }),
+      // マヅメの帯（D-163）。ホームと同じ部品なので同じ帯が出る
+      sunOf,
     });
   }
 
