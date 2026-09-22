@@ -533,7 +533,11 @@
   function renderPointNote(point) {
     const box = document.getElementById("tide-point-note");
     if (!point?.area) {
-      box.textContent = "気象庁の潮位表推算値をそのまま表示しています。";
+      /* **素の観測所なら行を作らない**（D-167）。「気象庁の潮位表推算値を
+         そのまま表示しています」は、観測所名の隣の 1 語で足りる。
+         **消したのではなく、凡例の行へ移した**（下の tide-legend-note）。
+         ずらした推定値のとき（area）は、根拠を省けないので行を残す */
+      box.textContent = "";
       return;
     }
     // 推算値であること・根拠を必ず明示する（公的な潮位表ではない）
@@ -991,14 +995,20 @@
     /* いまの潮位はヒーローの「いまの潮」に大きく出したので、凡例からは落とす（D-129）。
        **同じ数字を 2 か所に置かない。** ここは縦の目盛りの範囲だけを言う */
     const now = nowInJst();
+    /* **観測所も同じ行に入れる**（D-167）。前は「現在/潮位」「観測所」「注記」で
+       3 行に分かれていて、グラフの下だけで 69px 使っていた。
+       言っている事実は変えず、行だけを 1 本にする */
+    const tide = tideCache.get(now.date) ?? tides.find(Boolean);
+    /* **「推算値である」ことを落とさない。** 気象庁の潮位表は観測値ではなく
+       推算値で、それは前から画面に書いてあった（別の行に）。行をまとめても
+       事実は残す。ずらした推定値（area）のときは、根拠の行が別に出る */
+    const place = `${tide?.point?.name ?? tide?.station ?? ""}`;
+    const station = !place ? "" : `${place}${tide?.corrected ? " 推算" : "（気象庁 推算）"}`;
     document.getElementById("tide-legend").innerHTML =
       `<span class="lg lg-now">${icon("clock", { size: 13 })} 現在 ${now.hhmm}</span>`
-      + `<span class="lg">潮位 ${result.min}〜${result.max}cm</span>`;
-
-    // 地点名は「推算」かどうかも含めてグラフの下に出す
-    const tide = tideCache.get(now.date) ?? tides.find(Boolean);
-    document.getElementById("tide-station").textContent =
-      `${tide?.point?.name ?? tide?.station ?? ""}${tide?.corrected ? " 推算" : ""}`;
+      + `<span class="lg">潮位 ${result.min}〜${result.max}cm</span>`
+      + (station ? `<span class="lg">${escapeHtml(station)}</span>` : "");
+    document.getElementById("tide-station").textContent = "";
   }
 
   /** 現在時刻が画面中央に来るようにスクロールする。 */

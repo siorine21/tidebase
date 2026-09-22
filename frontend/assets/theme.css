@@ -2175,3 +2175,42 @@ label.check input { width: auto; }
 .mazume-seg { overflow: hidden; }
 .mazume-seg .icon { flex: 0 0 auto; }
 .mazume-seg .mz-t { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+
+/* ---------- ホームのヒーローは 1 枚の紙にする（D-167） ----------
+   「ホームはできるだけスクロールしたくないため、カードを区切らず、
+   できるだけまとめてはどうか」（本人）。
+
+   実測（390px・スポット 1 件）でホーム全体 1560px＝1.8 画面ぶん、
+   うちヒーローが 945px を占めていた。中身より**入れ子のカードの枠と余白**が
+   効いていて、ブロック間の余白だけで約 118px あった。
+
+   **中身は減らさない。** 出典（D-076）も観測所（D-105）も残す。
+   外すのは枠・背景・内側の余白だけ。ヒーロー自身が紙なので、
+   その中でもう一度カードを描く必要が無い。
+   区切りが要るところは、細い線 1 本で足りる。 */
+
+/* いまの潮: 枠と背景をやめる。上の見出しからは細い線で区切る */
+.hero .hero-now {
+  margin-top: 10px; padding: 10px 0 0;
+  background: none; border: none; border-top: 1px solid var(--border); border-radius: 0;
+}
+/* 潮位グラフ: ヒーローの中では、カードの枠も背景も余白も要らない */
+.hero #tide-block .card {
+  background: none; border: none; border-radius: 0;
+  padding: 0; margin-bottom: 0;
+}
+.hero #tide-block .section-label { margin: 12px 0 4px; }
+/* グラフの下は**1 行にまとめる**。前は「現在/潮位」「観測所」「注記」で
+   3 行あり、ここだけで 69px 使っていた。言っている事実は減らさず、
+   観測所を凡例の行へ入れ、素の観測所のときの注記は出さない（D-167）。
+   ずらした推定値（area）のときは根拠を省けないので、注記の行が戻る */
+.hero #tide-legend { margin-top: 6px; }
+.hero #tide-station:empty, .hero #tide-point-note:empty { display: none; }
+.hero #tide-point-note { margin-top: 2px; }
+/* 潮回りの札 */
+.hero .tags { margin-top: 10px; }
+/* 時間別天気: 区切りは線だけ。上下の余白を詰める */
+.hero .hero-hourly { margin-top: 10px; padding-top: 10px; }
+.hero .hero-hourly-head { margin-bottom: 6px; }
+.hero .hourly-lead { margin: 6px 0; }
+.hero .hero-hourly .list-sub { margin-top: 6px; }
