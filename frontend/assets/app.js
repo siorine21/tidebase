@@ -5903,12 +5903,18 @@ export function renderHourlyStrip(box, {
      幅は MAZUME_WINDOW_MINUTES（前後 60 分）。判定は timeBandOf に任せる
      （D-102 の「同じ区切りを使う」を守る。ここで別に測ると、
      釣果の「夕マヅメ」と帯の「夕マヅメ」がずれる）。 */
+  /* **1 行ごとの判定はここで 1 回だけ。** 帯とカードの背景の両方が読む。
+     別々に測ると、帯は付いているのにカードは白い（またはその逆）が起きる */
+  const mazumeKinds = rows.map((w) => {
+    if (!sunOf) return null;
+    const band = timeBandOf(sunOf(String(w.time).slice(0, 10)),
+      `${String(w.hour).padStart(2, "0")}:00`);
+    return band === "morning" || band === "evening" ? band : null;
+  });
+
   const mazumeRuler = !sunOf ? "" : (() => {
     const runs = [];
-    for (const w of rows) {
-      const day = String(w.time).slice(0, 10);
-      const band = timeBandOf(sunOf(day), `${String(w.hour).padStart(2, "0")}:00`);
-      const kind = band === "morning" || band === "evening" ? band : null;
+    for (const kind of mazumeKinds) {
       if (runs.at(-1)?.kind === kind) runs.at(-1).count += 1;
       else runs.push({ kind, count: 1 });
     }
@@ -5941,8 +5947,12 @@ export function renderHourlyStrip(box, {
        横に流しながら「何時が良いか」を読むので、時刻と点が離れていると
        目を上下に往復させることになる。色は週間カレンダーの★と同じ規則。 */
     const score = scoreOf ? scoreOf(w) : null;
+    /* マヅメの時間はカードごと薄く塗る（本人の指摘）。**上の帯と同じ判定**を使う。
+       「いま」のカードは枠がカラシなので、塗りが重なっても見分けが付く */
+    const mz = mazumeKinds[i];
     return `
-      <div class="hour-card${isNow ? " now" : ""}${newDay ? " newday" : ""}">
+      <div class="hour-card${isNow ? " now" : ""}${newDay ? " newday" : ""}${
+        mz ? " mazume" : ""}">
         <div class="h">${w.hour}時</div>
         ${score ? `<div class="sc sc-${score}">${stars(score, { html: true })}</div>` : ""}
         <div class="icon-wrap">${weatherIcon}</div>
