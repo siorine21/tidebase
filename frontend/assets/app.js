@@ -5900,8 +5900,16 @@ export function renderHourlyStrip(box, {
     return `<div class="mazume-strip">${runs.map(({ kind, count }) => {
       const width = count * HOUR_CARD_W + (count - 1) * HOUR_CARD_GAP;
       if (!kind) return `<span class="mazume-gap" style="width:${width}px"></span>`;
+      /* **日の出・日没のアイコンを添える**（本人の要望）。朝と夕を色では
+         分けない（どちらが良いとも言っていない・D-139）ので、
+         見分けは文字とこのアイコンで付ける。潮汐グラフの日の出・日没と
+         同じ絵柄なので、初めて見ても何の印か分かる。
+         アイコンを先に置くのは、窓の端で帯が 1 枚ぶんに切れたときでも
+         **絵柄だけは残る**ようにするため */
+      const mark = icon(kind === "morning" ? "sunrise" : "sunset", { size: 11 });
       return `<span class="mazume-seg ${kind}" style="width:${width}px"
-                   >${kind === "morning" ? "朝マヅメ" : "夕マヅメ"}</span>`;
+                   >${mark}<span class="mz-t">${
+                     kind === "morning" ? "朝マヅメ" : "夕マヅメ"}</span></span>`;
     }).join("")}</div>`;
   })();
 

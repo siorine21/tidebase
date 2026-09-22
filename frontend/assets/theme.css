@@ -2127,9 +2127,9 @@ label.check input { width: auto; }
    幅は app.js の HOUR_CARD_W / HOUR_CARD_GAP から計算している。
    **片方だけ変えると帯とカードがずれる**ので、54px / 8px は両方で揃えること。 */
 .mazume-strip { display: flex; gap: 8px; margin-top: 3px; }
-.mazume-seg, .mazume-gap { flex: 0 0 auto; box-sizing: border-box; height: 15px; }
+.mazume-seg, .mazume-gap { flex: 0 0 auto; box-sizing: border-box; height: 17px; }
 .mazume-seg {
-  display: flex; align-items: center; justify-content: center;
+  display: flex; align-items: center; justify-content: center; gap: 3px;
   font-size: 9px; letter-spacing: 0.02em; white-space: nowrap;
   border-radius: 3px;
   /* **カラシは使わない。** このアプリでカラシは「自分のもの・いま」の色で、
@@ -2143,6 +2143,8 @@ label.check input { width: auto; }
    どちらが良いかはアプリが決めないと決めてある（D-139）ので、
    区別は帯の中の文字（朝マヅメ / 夕マヅメ）だけで付ける。
    カラシで分ける案もあったが、カラシは「いま」の色なので使えない（D-117）。 */
-/* 幅が狭いと文字が入らない。1 枚（54px）でも「朝マヅメ」は入るが、
-   はみ出す端末があるので、あふれたら隠す */
+/* 窓の端では帯が 1 枚ぶん（54px）に切れることがある。そのときは文字のほうを
+   詰めて、**日の出・日没のアイコンは必ず残す**（何の印かはアイコンで分かる） */
 .mazume-seg { overflow: hidden; }
+.mazume-seg .icon { flex: 0 0 auto; }
+.mazume-seg .mz-t { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
