@@ -68,13 +68,43 @@
          「いま上げているのか、次の満潮はいつか、暗くなるまでどれだけか」を
          数字で出す。1 分ごとに書き直す（「いま」なので） -->
     <div class="hero-now" id="hero-now" hidden></div>
+    <!-- 潮位グラフは「いま何 cm か」のすぐ下に置く（D-166・本人の指摘）。
+         前は時間別天気やライブカメラより下にあり、**同じ潮の話が離れていた**。
+         数字（いま・次の満潮・日の出）→ 曲線 → 潮回りの札、の順に読める -->
+    <!-- 潮汐のある場所だけ。淡水スポットではこの節ごと隠す（D-105） -->
+    <div id="tide-block">
+      <!-- 名前は潮汐画面と同じ「TIDE CHART」（D-119）。**同じ部品**を
+           日数だけ変えて出しているのに、名前が 2 つあった（TIDE GRAPH / TIDE CHART）。
+           カードのクラスも tide-chart-card なので、そちらに寄せる -->
+      <div class="section-label">
+        <span>TIDE CHART</span>
+        <a class="note" id="tide-detail-link" href="tide.html">詳細 →</a>
+      </div>
+      <div class="card tide-chart-card">
+        <!-- 潮位の目盛りは横スクロールしても残ってほしいので、スクローラの外に重ねる -->
+        <div class="tide-plot">
+          <div class="tide-scroller" id="tide-scroller" tabindex="0"
+               aria-label="潮位グラフ。左右にスクロールすると前後の時間を表示します">
+            <div class="tide-track tide-track-3" id="tide-track"></div>
+          </div>
+          <div class="level-axis" id="level-axis" aria-hidden="true"></div>
+        </div>
+        <div class="tide-legend" id="tide-legend"></div>
+        <!-- どの観測所の値かは、グラフと同じカードの中に置く（D-105）。
+             前は下の「潮汐地点」の欄に出ていて、グラフから離れていた -->
+        <div class="page-sub" id="tide-station" style="margin-top:8px"></div>
+        <div class="page-sub" id="tide-point-note"></div>
+      </div>
+    </div>
+    <!-- 淡水スポットのとき。空のグラフを出さない -->
+    <div class="card no-tide" id="no-tide" hidden></div>
     <div class="tags" id="hero-tags"></div>
     <!-- 時間別天気は TODAY の中に入れる（D-114）。
          スコアも時間帯ごとの点も、この 1 時間ごとの予報から出している。
          別の節に置くと、点の根拠を見るのに節をまたぐことになる。 -->
     <div class="hero-hourly">
       <div class="hero-hourly-head">
-        <span>HOURLY WEATHER</span><span class="note">← スクロール →</span>
+        <span>HOURLY WEATHER</span>
       </div>
       <!-- いつ雨か、を先に 1 行で（D-104）。数字を並べる前に結論を出す -->
       <div class="hourly-lead" id="hourly-lead" hidden></div>
@@ -99,37 +129,6 @@
     <div class="section-label"><span>LIVE CAMERA</span></div>
     <div class="live-cam" id="live-cam"></div>
   </div>
-
-  <!-- 潮汐のある場所だけ。淡水スポットではこの節ごと隠す（D-105） -->
-  <div id="tide-block">
-    <!-- 名前は潮汐画面と同じ「TIDE CHART」（D-119）。**同じ部品**を
-         日数だけ変えて出しているのに、名前が 2 つあった（TIDE GRAPH / TIDE CHART）。
-         カードのクラスも tide-chart-card なので、そちらに寄せる -->
-    <div class="section-label">
-      <span>TIDE CHART</span>
-      <a class="note" id="tide-detail-link" href="tide.html">詳細 →</a>
-    </div>
-    <div class="card tide-chart-card">
-      <!-- 潮位の目盛りは横スクロールしても残ってほしいので、スクローラの外に重ねる -->
-      <div class="tide-plot">
-        <div class="tide-scroller" id="tide-scroller" tabindex="0"
-             aria-label="潮位グラフ。左右にスクロールすると前後の時間を表示します">
-          <div class="tide-track tide-track-3" id="tide-track"></div>
-        </div>
-        <div class="level-axis" id="level-axis" aria-hidden="true"></div>
-      </div>
-      <div class="tide-legend" id="tide-legend"></div>
-      <!-- どの観測所の値かは、グラフと同じカードの中に置く（D-105）。
-           前は下の「潮汐地点」の欄に出ていて、グラフから離れていた -->
-      <div class="page-sub" id="tide-station" style="margin-top:8px"></div>
-      <div class="page-sub" id="tide-point-note"></div>
-    </div>
-    <div class="scroll-hint">
-      <span data-icon="back"></span>横にスクロールで前後の時間へ（日をまたいで連続）<span data-icon="chevron-right"></span>
-    </div>
-  </div>
-  <!-- 淡水スポットのとき。空のグラフを出さない -->
-  <div class="card no-tide" id="no-tide" hidden></div>
 
   <!-- 今日のおすすめスポット（D-160）。**★は条件だけ、実績は添えるだけ**。
        材料（天気・潮汐・過去の釣果）が要るので、ヒーローの描画は待たせない。
