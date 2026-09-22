@@ -5802,7 +5802,7 @@ export function hoursFromNow(hours, nowIso, count = 24) {
  */
 export function renderHourlyStrip(box, {
   hours, date = null, leadBox = null, count = 24,
-  emptyText = "予報がありません", scoreOf = null,
+  emptyText = "予報がありません", scoreOf = null, sunOf = null,
 } = {}) {
   const hide = (text) => {
     box.innerHTML = `<div class="empty">${escapeHtml(text)}</div>`;
@@ -5872,6 +5872,39 @@ export function renderHourlyStrip(box, {
                  ><span class="day-name">${escapeHtml(formatJstDate(date, { weekday: true }))}</span></span>`;
   }).join("");
 
+  /* マヅメの帯（D-163）。**日付の帯と同じ仕組み**でカードの上を走らせる。
+
+     **「いま」の色とは別の軸にする。** D-117 でマヅメの枠をやめたのは
+     「24 枚が流れる中で、いまどこを見ているのか分からないほうが困る」から。
+     その指摘はいまも正しいので、カードの色は「いま」のまま触らない。
+
+     D-117 にはもう 1 つ「★が言うから印は要らない」と書いてあったが、
+     **その前提は D-139 で壊れている**（狙う魚と釣り方で良し悪しが逆になるので、
+     マヅメは点に渡さないと決めた）。**以来マヅメは画面のどこにも出ていない。**
+     点には混ぜないまま、印だけ戻す。
+
+     幅は MAZUME_WINDOW_MINUTES（前後 60 分）。判定は timeBandOf に任せる
+     （D-102 の「同じ区切りを使う」を守る。ここで別に測ると、
+     釣果の「夕マヅメ」と帯の「夕マヅメ」がずれる）。 */
+  const mazumeRuler = !sunOf ? "" : (() => {
+    const runs = [];
+    for (const w of rows) {
+      const day = String(w.time).slice(0, 10);
+      const band = timeBandOf(sunOf(day), `${String(w.hour).padStart(2, "0")}:00`);
+      const kind = band === "morning" || band === "evening" ? band : null;
+      if (runs.at(-1)?.kind === kind) runs.at(-1).count += 1;
+      else runs.push({ kind, count: 1 });
+    }
+    // 1 つも当たらない日（先の日を朝だけ見ているなど）は帯ごと出さない
+    if (!runs.some((r) => r.kind)) return "";
+    return `<div class="mazume-strip">${runs.map(({ kind, count }) => {
+      const width = count * HOUR_CARD_W + (count - 1) * HOUR_CARD_GAP;
+      if (!kind) return `<span class="mazume-gap" style="width:${width}px"></span>`;
+      return `<span class="mazume-seg ${kind}" style="width:${width}px"
+                   >${kind === "morning" ? "朝マヅメ" : "夕マヅメ"}</span>`;
+    }).join("")}</div>`;
+  })();
+
   const cards = rows.map((w, i) => {
     const { icon: weatherIcon } = describeWeather(w.weather_code);
     const rain = rainLevel(w.precip_mm);
@@ -5915,6 +5948,7 @@ export function renderHourlyStrip(box, {
 
   box.innerHTML = `<div class="hourly-inner">`
     + `<div class="hourly-days">${ruler}</div>`
+    + mazumeRuler
     + `<div class="hourly-row">${cards}</div>`
     + `</div>`;
 }
