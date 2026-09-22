@@ -525,10 +525,27 @@ export function tideTimelineSvg({
     sunMarks.push(
       { kind: "rise", hhmm: sun.rise, left: ((d * 24 + rise) / totalHours) * 100 },
       { kind: "set", hhmm: sun.set, left: ((d * 24 + set) / totalHours) * 100 });
-    const band = (from, to) => `<rect class="night" x="${x(d * 24 + from)}" y="${padTop - 8}"
-      width="${Math.max(0, x(d * 24 + to) - x(d * 24 + from))}"
-      height="${height - padBottom - padTop + 8}"/>`;
-    return band(0, rise) + band(set, 24);
+    const band = (cls, from, to) => {
+      /* 図の外へはみ出さないよう、時間の範囲を図の中へ丸める。
+         マヅメは前後 1 時間なので、初日の朝と最終日の夜で端をまたぐ */
+      const a = Math.max(0, Math.min(totalHours, d * 24 + from));
+      const b = Math.max(0, Math.min(totalHours, d * 24 + to));
+      if (b <= a) return "";
+      return `<rect class="${cls}" x="${x(a)}" y="${padTop - 8}"
+        width="${Math.max(0, x(b) - x(a))}"
+        height="${height - padBottom - padTop + 8}"/>`;
+    };
+    /* **マヅメは夜の帯より後ろに書く**（D-163）。前に書くと夜の塗りに覆われ、
+       日の出前・日没後の半分が消える。マヅメは日をまたいで昼と夜の**両側**に
+       またがるので、上に重ねないと帯として読めない。
+       幅は時間別天気と同じ MAZUME_WINDOW_MINUTES（前後 60 分）。
+       **宣言はこの下のほう**（時間帯の節）にあるが、ここは関数の中なので
+       呼ばれるのはモジュールを読み終えたあと。const でも届く。
+       同じ幅を 2 か所に書くと、片方だけ直したときに釣果の「夕マヅメ」と
+       グラフの帯がずれる（D-102 の「同じ区切りを使う」） */
+    const w = MAZUME_WINDOW_MINUTES / 60;
+    return band("night", 0, rise) + band("night", set, 24)
+      + band("mazume", rise - w, rise + w) + band("mazume", set - w, set + w);
   }).join("");
 
   // 日の出・日没の縦線。夜の帯の境目そのものだが、線があると時刻を読み取りやすい
