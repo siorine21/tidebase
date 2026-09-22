@@ -2932,6 +2932,203 @@ export function recordOutcome(record) {
    **列を減らすと、使っている画面が黙って壊れる。**
    どの画面がどの列を読んでいるかは frontend/tests/record_columns.test.mjs が
    走査して見張っている。列を足す・消すときは、まずそのテストを通すこと。 */
+/* ================================================================
+   釣行（回）にまとめて数える（D-160）
+
+   **記録の件数は匹数を測っていない。** 実測（2026-09-21 時点・66 件）で、
+   同じ人が同じスポットで両方の書き方をしていた:
+     豊浜橋 2026-09-01   記録 1 件 →  8 匹（メモ「メッキ8匹。アタリ多数、バラシ３」）
+     国安橋 2026-08-10   記録 4 件 →  2 匹（残り 2 件はバラシ）
+   件数で数えると 4 対 1 で国安橋の勝ち、匹数で数えると 2 対 8 で逆転する。
+   件数が測っているのは**その日どう書く気分だったか**だけ。
+
+   だから「回」にまとめ、回の中の匹数は `catch_count` を足す。
+   1 投稿に 8 匹でも、短時間に 2 投稿でも、同じ「1 回で複数匹」になる
+   （本人の指摘。書き方で答えが変わってはいけない）。
+
+   **まとめる窓は 4 時間。** 実測した記録の時刻の幅は
+   0.13 / 0.25 / 0.48 / 0.50 / 0.65 / 2.08 時間のあと、次は 12.00 時間
+   （二瀬橋 8/30 の朝と夜＝別の回）。**2.08 と 12.00 の間が空いている**ので、
+   3〜6 時間のどこで切っても同じ答えになる。
+
+   **人もまとめの鍵に入れる。** いまは同じスポット・同じ日に 2 人以上が
+   記録した回が 0 件なので結果は変わらないが、グループ全員の実績を出す以上
+   いつか必ず起きる。あとから足すと数字が動くので、先に入れておく。
+
+   **率は出さない。** 釣行 57 回のうち 0 匹が 11 回あるが、
+   バイトすら無かった回は記録自体が作られていない。分母がまだ本物ではない。
+   ================================================================ */
+
+/** 同じ回とみなす時刻の幅。上の実測の「空き」の中から取った */
+export const OUTING_GAP_HOURS = 4;
+
+/**
+ * 記録を釣行（回）にまとめる。
+ * 同じ人・同じスポット・{@link OUTING_GAP_HOURS} 以内 → ひとつの回。
+ *
+ * 時刻の無い記録は、その日のその人・そのスポットの回に**1 つだけ**まとめる
+ * （時刻が無いと幅で切れないので、分けようが無い）。
+ *
+ * @param {Array<object>} records record_feed の行
+ * @returns {Array<object>} 新しい順
+ */
+export function groupOutings(records, { gapHours = OUTING_GAP_HOURS } = {}) {
+  const rows = (records ?? []).filter((r) => r?.spot_id && r?.fished_at);
+  /* **人・スポット・日でまず束ねてから、時刻の幅で切る。**
+     いきなり時刻で切ると、別の人の記録が間に挟まったときに繋がってしまう */
+  const buckets = new Map();
+  for (const r of rows) {
+    const key = `${r.user_id ?? r.owner_name ?? ""}|${r.spot_id}|${r.fished_at}`;
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key).push(r);
+  }
+
+  const outings = [];
+  for (const group of buckets.values()) {
+    const sorted = group.slice().sort(
+      (a, b) => (hoursFromHhmm(a.fished_time) ?? -1) - (hoursFromHhmm(b.fished_time) ?? -1));
+    let current = null;
+    let lastAt = null;
+    for (const r of sorted) {
+      const at = hoursFromHhmm(r.fished_time);
+      const apart = current !== null && at != null && lastAt != null && (at - lastAt) >= gapHours;
+      if (current === null || apart) {
+        current = [];
+        outings.push(current);
+      }
+      current.push(r);
+      if (at != null) lastAt = at;
+    }
+  }
+  return outings.map(summariseOuting).sort(compareOutings);
+}
+
+/** 新しい順。同じ日なら遅い時刻から */
+function compareOutings(a, b) {
+  if (a.date !== b.date) return a.date < b.date ? 1 : -1;
+  return (hoursFromHhmm(b.time) ?? -1) - (hoursFromHhmm(a.time) ?? -1);
+}
+
+/** 1 回ぶんの記録の束を、数えられる形にする */
+function summariseOuting(rows) {
+  const head = rows[0];
+  /* **獲れたものだけ足す。** bite（アタリ）・lost（バラシ）にも
+     catch_count が 1 で入っているので、そのまま足すと
+     「バラシ 4 回」が「4 匹」になる（国安橋 8/10 が実際その形） */
+  const landed = rows.filter((r) => r.outcome === "landed");
+  const fish = landed.reduce((sum, r) => sum + (Number(r.catch_count) || 0), 0);
+  const lengths = landed.map((r) => Number(r.length_cm)).filter((v) => Number.isFinite(v));
+
+  /* 魚種は**大きい順**。1 行に 1〜2 種しか出せないので、
+     代表になるのは「その回でいちばん大きかった魚」 */
+  const species = [...new Map(landed
+    .filter((r) => r.fish_label || r.species_name)
+    .sort((a, b) => (Number(b.length_cm) || 0) - (Number(a.length_cm) || 0))
+    .map((r) => [r.fish_label ?? r.species_name, r.fish_label ?? r.species_name])).values()];
+
+  const phases = rows
+    .filter((r) => r.tide_phase_tenth != null && r.tide_phase_rising != null)
+    .map((r) => ({ tenth: Number(r.tide_phase_tenth), rising: Boolean(r.tide_phase_rising) }));
+
+  return {
+    spotId: head.spot_id,
+    spotName: head.spot_name ?? null,
+    userId: head.user_id ?? null,
+    ownerName: head.owner_name ?? null,
+    isMine: Boolean(head.is_mine),
+    date: head.fished_at,
+    time: head.fished_time ? String(head.fished_time).slice(0, 5) : null,
+    fish,
+    maxLengthCm: lengths.length ? Math.max(...lengths) : null,
+    species,
+    phases,
+    records: rows.length,
+  };
+}
+
+/* ---------------- 潮位置の粗さ（D-160） ----------------
+   上げ／下げ × 0〜10 分の 22 区分では、実測 62 件で最大 8 件・多くは 1〜2 件。
+   細かすぎて「この潮位置で釣れる」が言えない。
+   始め(0〜3) / 中盤(4〜6) / 終わり(7〜10) の 6 区分にすると 4〜17 件になる。
+   **ここが限界**で、これ以上細かくしても数えられないし、
+   これ以上粗くすると（上げ／下げだけにすると）言っていることが薄くなる。 */
+
+/** 潮位置の帯。tenth が無ければ null */
+export function phaseBand(tenth, rising) {
+  if (tenth == null || rising == null) return null;
+  const n = Number(tenth);
+  if (!Number.isFinite(n)) return null;
+  const part = n <= 3 ? "始め" : n <= 6 ? "中盤" : "終わり";
+  return `${rising ? "上げ" : "下げ"}${part}`;
+}
+
+/** {tenth, rising} からそのまま帯を出す */
+export function phaseBandOf(phase) {
+  return phase ? phaseBand(phase.tenth, phase.rising) : null;
+}
+
+/* ---------------- 時期の窓（D-160） ----------------
+   ±1 か月。年をまたぐので、日付ではなく**その年の何日目か**で測る。
+   2 月 29 日のぶんは無視してよい（1 日ずれても時期の判断は変わらない）。 */
+
+/** その年の何日目か（1〜366） */
+function dayOfYear(date) {
+  const t = Date.parse(`${date}T00:00:00Z`);
+  if (!Number.isFinite(t)) return null;
+  const year = new Date(t).getUTCFullYear();
+  return Math.round((t - Date.UTC(year, 0, 1)) / 86400000) + 1;
+}
+
+/** 2 つの日付が、暦の上でどれだけ離れているか（0〜182 日）。年は見ない */
+export function seasonDistance(a, b) {
+  const x = dayOfYear(a), y = dayOfYear(b);
+  if (x == null || y == null) return null;
+  const gap = Math.abs(x - y);
+  return Math.min(gap, 365 - gap);
+}
+
+/** この時期（±windowDays）の回か */
+export function inSeasonWindow(date, today, windowDays = 31) {
+  const d = seasonDistance(date, today);
+  return d != null && d <= windowDays;
+}
+
+/**
+ * 1 スポットの実績をまとめる。**率は出さない**（分母が本物ではない）。
+ *
+ * @param {Array<object>} outings groupOutings の結果
+ * @param {{spotId:string, today:string, windowDays?:number, phase?:object|null}} opts
+ */
+export function spotHistory(outings, { spotId, today, windowDays = 31, phase = null } = {}) {
+  const mine = (outings ?? []).filter((o) => o.spotId === spotId);
+  const season = mine.filter((o) => inSeasonWindow(o.date, today, windowDays));
+  const caught = season.filter((o) => o.fish > 0);
+  const best = caught.reduce((a, b) => (a && a.fish >= b.fish ? a : b), null);
+  const longest = caught.reduce(
+    (a, b) => ((a?.maxLengthCm ?? -1) >= (b.maxLengthCm ?? -1) ? a : b), null);
+
+  /* 潮位置は**帯で数える**。いまの潮位置が分からなければ数えない
+     （0 と出すと「この潮では釣れない」に読めてしまう） */
+  const band = phaseBandOf(phase);
+  const samePhase = !band ? null : mine.filter(
+    (o) => o.fish > 0 && o.phases.some((p) => phaseBandOf(p) === band)).length;
+
+  return {
+    band,
+    samePhase,
+    /* この時期の回数。**獲れた回**を数える（0 匹の回は「行った」の証拠だが、
+       「釣れた」の証拠ではない。率にしないので、混ぜずに分けて持つ） */
+    seasonCaught: caught.length,
+    seasonOutings: season.length,
+    totalCaught: mine.filter((o) => o.fish > 0).length,
+    /* 「単発か連発か」。いちばん濃かった回の匹数（本人の指摘） */
+    bestFish: best?.fish ?? 0,
+    bestLengthCm: longest?.maxLengthCm ?? null,
+    bestSpecies: longest?.species?.[0] ?? best?.species?.[0] ?? null,
+    last: caught[0] ?? season[0] ?? mine[0] ?? null,
+  };
+}
+
 export const RECORD_LIST_COLUMNS = [
   "id", "is_mine", "owner_name", "fished_at", "fished_time",
   "outcome", "is_skunked",
