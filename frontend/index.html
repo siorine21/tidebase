@@ -190,6 +190,11 @@
   let tideCache = new Map();          // 日付 → 潮汐
   const sunCache = new Map();         // 日付 → 日の出・日没
   let todayHours = null;              // 今日の時間別予報（波の行が読む・D-142）
+  /* 日付 → 時間別予報（D-169）。潮位グラフの★の帯に使う。
+     loadNeighbours が翌日ぶんを取りに行っていたのに、いままで捨てていた
+     （tideCache には積んでいたが weather のほうは変数に代入していなかった）。
+     そのぶんを拾って積む。**新しく取りに行くものは増えない。** */
+  const weatherCache = new Map();
   let myId = null;                    // 自分の順位を見つけるのに使う（D-147）
   /* **モジュール直下で宣言する。** ボウズを残す帯（D-150）はセッション処理の
      外に配線してあるので、ブロックの中の const だと見えない */
@@ -324,6 +329,7 @@
     rememberView(savedSpotId, point, weatherAt, wantWaves);
     const weather = forecast?.hours ?? null;
     todayHours = weather;
+    if (weather) weatherCache.set(today, weather);
     tideCache.set(today, tide);
     // 日の出・日没は計算で出す（D-056）。天気の通信を待たずに夜の帯と印が描ける
     if (weatherAt) {
@@ -350,6 +356,7 @@
         + ` · 出典: ${WEATHER_SOURCE}`
       : `出典: ${WEATHER_SOURCE}`;
     scrollToNow("auto");
+    wireScrollSync();
 
     // 前後の日をあとから読み足す。明日ぶんが届いたらスコアを描き直す（D-115）
     loadNeighbours(point, weatherAt,
@@ -978,6 +985,8 @@
       /* 日付は SVG の外の帯に出るので、上の余白は元どおり。
          下は時刻だけになったぶん薄くしてある（D-120 / D-121） */
       dayUnits: 320, height: CHART_H, padTop: 28, padBottom: 20,
+      // ★の帯（D-169）。scoreOf は renderHero が先に決めている（呼び出し順は固定）
+      scoreOf, weatherHours: weatherCache,
     });
     if (!result) {
       track.innerHTML = `<div class="empty">潮汐データを取得できませんでした</div>`;
@@ -1023,6 +1032,89 @@
     });
   }
 
+  /* ---------- 潮位グラフと時間別天気を、同じ時刻でつなぐ（D-169） ----------
+
+     「潮位グラフと HOURLY WEATHER を合体できないか」という相談から。
+     目盛りの細かさが違いすぎて（潮位グラフ 13px/h・時間別天気 62px/h）、
+     絵としては 1 つにできない。代わりに、**片方を動かすともう片方も
+     同じ時刻へついてくる**ようにする。合体はしていないが、見比べる用途は
+     これで足りると考えた。
+
+     **左端の時刻をそろえる。** 潮位グラフは「いま」を画面の真ん中に
+     置く（scrollToNow）が、時間別天気は「いま」を先頭に置く（D-104）。
+     この 2 つはもともと基準が違うので、真ん中どうしをそろえる意味が無い。
+     左端どうしをそろえれば、どちらから動かしても迷わない。 */
+  function wireScrollSync() {
+    const tide = document.getElementById("tide-scroller");
+    const hourly = document.getElementById("hourly");
+    /* **ピンポンを止める。** 片方を動かすと scroll イベントが飛び、
+       それでもう片方を動かすと……を繰り返すと無限ループになる。
+       「いま自分が動かした直後か」を時刻で持っておき、その間に来た
+       scroll イベントは「自分の echo」とみなして無視する。
+       動かした側で判定すると、体感の追いつき方が良い（後追いにならない）。 */
+    let guardUntil = 0;
+    const guard = () => { guardUntil = performance.now() + 150; };
+    const guarded = () => performance.now() < guardUntil;
+
+    /** tide-scroller の scrollLeft → その位置の日付・時刻 */
+    const tideTimeAt = (scrollLeft) => {
+      const width = tide.clientWidth;
+      if (!width || !chartDays.length) return null;
+      const pos = scrollLeft / width;
+      const dayIndex = Math.max(0, Math.min(chartDays.length - 1, Math.floor(pos)));
+      const hours = Math.max(0, Math.min(23.99, (pos - dayIndex) * 24));
+      return { date: chartDays[dayIndex], hours };
+    };
+    /** 日付・時刻 → tide-scroller の scrollLeft */
+    const tideScrollFor = (date, hours) => {
+      const width = tide.clientWidth;
+      const index = chartDays.indexOf(date);
+      if (index < 0 || !width) return null;
+      return (index + hours / 24) * width;
+    };
+    /* hourly のカードは時刻がとびとびで連続していないことがある
+       （マヅメ帯と違い、カードは 1 時間ごとに必ずある想定だが念のため）。
+       **いちばん近いカードを探す。** ちょうどの時刻が無くても止まらない */
+    const hourlyCardAt = (date, hours) => {
+      const cards = hourly.querySelectorAll(".hour-card[data-t]");
+      let best = null, bestDiff = Infinity;
+      for (const c of cards) {
+        const t = c.dataset.t;                    // "YYYY-MM-DDTHH"
+        const diffDays = (Date.parse(`${t.slice(0, 10)}T00:00:00+09:00`)
+          - Date.parse(`${date}T00:00:00+09:00`)) / 86400000;
+        const diff = diffDays * 24 + Number(t.slice(11, 13)) - hours;
+        if (Math.abs(diff) < Math.abs(bestDiff)) { bestDiff = diff; best = c; }
+      }
+      return best;
+    };
+
+    tide.addEventListener("scroll", () => {
+      if (guarded()) return;
+      const at = tideTimeAt(tide.scrollLeft);
+      const card = at && hourlyCardAt(at.date, at.hours);
+      if (!card) return;
+      guard();
+      hourly.scrollLeft = card.offsetLeft;
+    });
+
+    hourly.addEventListener("scroll", () => {
+      if (guarded()) return;
+      const cards = [...hourly.querySelectorAll(".hour-card[data-t]")];
+      // 左端に少しでもかかっているカードを「いま見えている先頭」とする
+      const first = cards.find((c) => c.offsetLeft + c.offsetWidth > hourly.scrollLeft);
+      if (!first) return;
+      const t = first.dataset.t;
+      const width = first.offsetWidth || 1;
+      // カードの途中までスクロールしていれば、そのぶん時刻を進める
+      const within = Math.max(0, Math.min(1,
+        (hourly.scrollLeft - first.offsetLeft) / width));
+      const left = tideScrollFor(t.slice(0, 10), Number(t.slice(11, 13)) + within);
+      if (left == null) return;
+      guard();
+      tide.scrollLeft = left;
+    });
+  }
+
   /** 前後の日を読み足してグラフを伸ばす。 */
   async function loadNeighbours(point, weatherAt, hero, waves = false) {
     const others = chartDays.filter((date) => !tideCache.has(date));
@@ -1034,6 +1126,8 @@
           : null,
       ]);
       tideCache.set(date, tide);
+      /* **前から取りに行っていたのに、捨てていた。** ★の帯（D-169）に使う */
+      if (forecast?.hours) weatherCache.set(date, forecast.hours);
       renderChart();
       renderNow();          // 翌日ぶんが届くと、夜の「次の満潮」が出せるようになる
       /* **スコアを出し直す**（D-115）。窓が「これから 24 時間」になったので、

@@ -521,6 +521,10 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
    D-029 で「カラシの破線が日の出と誤解された」経緯があるが、
    いまはカラシが日の出側にも付くので、むしろ意味が揃う。 */
 .tide-graph .mazume   { fill: rgba(201,168,76,0.28); }
+/* 釣行スコアの帯（D-169）。「点 → 色」を決めている 1 か所（.sc-1〜.sc-5・D-122）を
+   そのまま使う。ここで色を作り直すと、時間別天気のカードの★と食い違いかねない。
+   帯は 6px の細いリボンで、曲線・満干・現在時刻の邪魔をしない高さに置く（グラフの上端）。 */
+.tide-graph .score-seg { fill: var(--sc); }
 .tide-graph text { font-family: 'JetBrains Mono', monospace; font-size: 9px; fill: var(--text-muted); }
 .tide-graph text.peak { fill: var(--text-secondary); }
 .tide-graph text.sun-time { font-size: 8px; fill: var(--text-muted); }

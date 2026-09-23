@@ -463,6 +463,7 @@ export function smoothPath(points) {
 export function tideTimelineSvg({
   days, tides, suns = new Map(), today = null, marker = null,
   dayUnits = 320, height = 176, padTop = 30, padBottom = 30,
+  scoreOf = null, weatherHours = null,
 }) {
   const width = dayUnits * days.length;
   const totalHours = days.length * 24;
@@ -546,6 +547,38 @@ export function tideTimelineSvg({
     const w = MAZUME_WINDOW_MINUTES / 60;
     return band("night", 0, rise) + band("night", set, 24)
       + band("mazume", rise - w, rise + w) + band("mazume", set - w, set + w);
+  }).join("");
+
+  /* 釣行スコアの帯（D-169）。**潮位グラフと HOURLY WEATHER を合体できないか**
+     という相談から。目盛りの細かさが 13px/h（潮位グラフ）対 62px/h
+     （時間別天気のカード）で 4.6 倍違うので、絵として 1 つにはできない
+     （天気のカードは 1 枚に 7 行入っていて、13px/h では時刻の文字すら入らない）。
+     代わりに、**時間別天気のカードにも出ている★の色**を、潮位グラフの上に
+     細い帯として敷く。色は「点 → 色」を決めている 1 か所（sc-N・D-122）を
+     そのまま使う。ここで色を作り直すと、カードの★と帯とで食い違いかねない。
+
+     **weatherHours は days と同じ日付ぶん持っているとは限らない。**
+     時間別天気はもともと「今日から先」の窓しか持たず、過去の日や
+     まだ届いていない日はここで穴になる（他の帯と同じで、材料が無ければ
+     その区間だけ出さない）。 */
+  const scoreBand = (!scoreOf || !weatherHours) ? "" : days.map((date, d) => {
+    const hours = (weatherHours.get?.(date) ?? weatherHours[date] ?? [])
+      // 前日・翌日の 1 行が混ざっていることがある（D-104）。その日のぶんだけ使う
+      .filter((row) => String(row.time).slice(0, 10) === date);
+    return hours.map((row) => {
+      const score = scoreOf(row);
+      if (score == null) return "";
+      const a = x(d * 24 + row.hour), b = x(d * 24 + row.hour + 1);
+      if (b <= a) return "";
+      /* **どの時刻の点かを、時間別天気のカードと同じ形で持たせる**
+         （`.hour-card` の `data-t` と同じ "YYYY-MM-DDTHH"）。
+         横スクロールで動く画面なので、位置だけでは「同じ時刻か」を
+         あとから確かめられない。文字で持たせておけば、
+         帯とカードが本当に同じ時刻・同じ点を指しているかを付き合わせられる。 */
+      return `<rect class="score-seg sc-${score}" data-t="${date}T${
+        String(row.hour).padStart(2, "0")}" x="${a.toFixed(2)}" y="4"
+        width="${(b - a).toFixed(2)}" height="6"/>`;
+    }).join("");
   }).join("");
 
   // 日の出・日没の縦線。夜の帯の境目そのものだが、線があると時刻を読み取りやすい
@@ -654,6 +687,7 @@ export function tideTimelineSvg({
          preserveAspectRatio="none" role="img"
          aria-label="${days[0]} から ${days[days.length - 1]} までの潮位グラフ">
       ${nights}
+      ${scoreBand}
       ${grid}
       ${levelLines}
       ${sunLines}
@@ -5950,9 +5984,12 @@ export function renderHourlyStrip(box, {
     /* マヅメの時間はカードごと薄く塗る（本人の指摘）。**上の帯と同じ判定**を使う。
        「いま」のカードは枠がカラシなので、塗りが重なっても見分けが付く */
     const mz = mazumeKinds[i];
+    /* **時刻をそのまま持たせる**（D-169）。「潮位グラフと同じ時刻を見せる」
+       スクロール連動に使う。表示の「${w.hour}時」は日をまたぐと消えるが、
+       こちらは "YYYY-MM-DDTHH" のまま持てるので、日付をまたいだ計算に使える */
     return `
       <div class="hour-card${isNow ? " now" : ""}${newDay ? " newday" : ""}${
-        mz ? " mazume" : ""}">
+        mz ? " mazume" : ""}" data-t="${escapeHtml(String(w.time).slice(0, 13))}">
         <div class="h">${w.hour}時</div>
         ${score ? `<div class="sc sc-${score}">${stars(score, { html: true })}</div>` : ""}
         <div class="icon-wrap">${weatherIcon}</div>
