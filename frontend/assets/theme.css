@@ -2214,3 +2214,54 @@ label.check input { width: auto; }
 .hero .hero-hourly-head { margin-bottom: 6px; }
 .hero .hourly-lead { margin: 6px 0; }
 .hero .hero-hourly .list-sub { margin-top: 6px; }
+
+/* ---------- 横に動くところは囲う（D-168） ----------
+   「横にスクロールできるエリアだけ囲える？　横に動くのか分かりづらい」（本人）。
+
+   D-166 で「← スクロール →」の案内を消したが、**案内を消すなら、
+   代わりに形で分かるようにしないといけない。** 消しただけで終わっていた。
+
+   **枠は「動く領域そのもの」に付ける。** 外側の余白まで囲うと、
+   どこまでが動くのか分からないまま枠だけが増える。
+   中身が枠の右端で切れて見えることが、横に続く合図になる。 */
+.hero .tide-plot,
+.hero .hourly {
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg-deep);
+}
+/* 枠の内側に少し余白を置く。曲線やカードが枠に貼り付くと、
+   切れているのか詰まっているのか読み取りにくい */
+.hero .tide-plot { padding: 4px 0; overflow: hidden; }
+.hero .hourly { padding: 6px 6px 4px; }
+/* 目盛りは枠の内側に収める（枠を付けたぶん左端がずれる） */
+.hero .tide-plot .level-axis { left: 0; right: 0; }
+
+/* 横に動く合図は**枠だけでは足りない**（D-168）。バーも出す。
+
+   **潮位グラフだけバーが消されていた**（`.tide-scroller` に
+   `scrollbar-width: none` と `::-webkit-scrollbar { display: none }`）。
+   時間別天気のほうは前から 4px のバーが出ていて、本人の画面でも
+   カードの下に細い線が写っていた。**出ているほうに合わせる。**
+
+   指定は `.hourly`（実機で出ているのが確認できているもの）と同じにする。
+   太さも色も揃える。片方だけ違うと「こちらだけ動く」に見える。
+
+   **この環境ではバーが描かれない**（scrollbar-width を何にしても
+   場所を取らず、画面にも出ない）。だから見た目はここでは確かめられない。
+   確かめたのは「消す指定が外れていること」まで。 */
+/* **バーの居場所を空ける。** ここが出なかった原因（実測で分かった）。
+   時間別天気は `.hourly { padding-bottom: 4px }` で隙間があるのに、
+   こちらは 0 で、中のグラフが箱いっぱい（195px 中 195px）まであった。
+   指定を直しても**置く場所が無ければ出ない。** 同じ 4px を空ける */
+.hero #tide-scroller { scrollbar-width: auto; padding-bottom: 4px; }
+.hero #tide-scroller::-webkit-scrollbar { display: block; height: 4px; }
+/* **つまみは濃いほうを使う。** つまみの既定色はカラシ 18%（--border）で、
+   枠を付けたときに敷いた背景（--bg-deep #0A1520）の上だと沈んで見えなくなる。
+   本人から「もともと出ていたが並び替えで消えた」と指摘があったのは、
+   おそらくこれ。枠と背景を足した副作用なので、そこだけ濃くする（45%） */
+.hero #tide-scroller::-webkit-scrollbar-thumb,
+.hero .hourly::-webkit-scrollbar-thumb {
+  background: var(--border-strong); border-radius: 2px;
+}
+.hero #tide-scroller, .hero .hourly { scrollbar-color: var(--border-strong) transparent; }
+
