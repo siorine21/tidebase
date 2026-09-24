@@ -5630,9 +5630,10 @@ export function rainLevel(mm) {
 const HOUR_CARD_W = 44;
 const HOUR_CARD_GAP = 6;
 /** 潮位グラフの中に入れる天気カードの幅と間隔（px・D-170 / D-171）。
-    時間別天気の帯（44px）より細い**数字だけの版**を使う（単位と「最大」はグラフの下に
-    1 回だけ書く）。「いい感じだが、この半分くらいにできる？」（本人）で 50px → 25px。 */
-const CHART_CARD_W = 22;
+    時間別天気の帯（44px）より細い版を使う。「この半分くらいにできる？難しければ 2/3」
+    （本人）で半分（22px）と 2/3（30px）を並べて見てもらい、**2/3 に決まった**（50px → 33px）。
+    30px あると、風速に単位（m/s）を付けて 1 行に入る（「せめて単位がほしい」・本人）。 */
+const CHART_CARD_W = 30;
 const CHART_CARD_GAP = 3;
 /** 潮位グラフの 1 時間ぶんの横幅。グラフの 1 日はこの 24 倍になる。
     **CHART_CARD_W / CHART_CARD_GAP のすぐ下に置く。** テストは app.js を目印で切り出して
@@ -5987,15 +5988,16 @@ function hourCardHtml(w, {
     mazume && "mazume", past && "past", score != null && `scored sc-${score}`]
     .filter(Boolean).join(" ");
   if (compact) {
-    /* **22px に入る字数に落とす**（D-171）。1 文字 6px（10px の等幅）なので中身は 3 文字まで。
-       雨量は 10mm 未満を小数 1 桁（「3.4」）、それ以上は整数。風は整数にし、
-       矢印は数字の上の段に分ける（横に並べると 4 文字ぶんになる）。
-       **意味を落とさない。** 単位（mm・m/s）と「下の小さい数字は最大風速」は
-       グラフの下の凡例に書く（前に「単位が無いと分からない」「『突』では伝わらない」
-       と言われている・D-104 / D-111） */
+    /* **30px に入る形にする**（D-171）。中身は 28px（日の変わり目のカードは左の線が 2px で 27px）。
+       数字は 10px の等幅（1 文字 6px）、単位は 7px で添える。
+       - 雨量は 10mm 未満を小数 1 桁（「3.4mm」）、それ以上は整数。
+       - 風は整数に単位（「19m/s」）。矢印は数字の上の段へ分ける（横に並べると入らない）。
+       - **突風は「突風」と書く**（「風速の数字は何の数字か分かりづらい。突風と分かるように」・本人）。
+         「突風」と「23m/s」を 2 段にする。1 段では 30px に入らない。
+       44px の版は「最大」と書いているが、ここは本人の言葉（突風）に合わせた */
     const mm = w.precip_mm;
-    const rainText = mm == null ? "—" : mm < 0.1 ? "0"
-      : mm < 10 ? Number(mm).toFixed(1) : String(Math.round(mm));
+    const rainText = mm == null ? "—"
+      : `${mm < 0.1 ? "0" : mm < 10 ? Number(mm).toFixed(1) : Math.round(mm)}<small>mm</small>`;
     return `
       <div class="${cls}" data-t="${escapeHtml(String(w.time).slice(0, 13))}"${
         style ? ` style="${style}"` : ""}>
@@ -6008,8 +6010,11 @@ function hourCardHtml(w, {
                    title="${escapeHtml(windDirection(w.wind_dir_deg))}の風">${
                icon("wind-arrow", { size: 10 })}</span>`
           : ""}<span class="ms">${w.wind_speed_ms != null
-            ? Math.round(w.wind_speed_ms) : "—"}</span></div>
-        <div class="gust">${w.wind_gust_ms != null ? Math.round(w.wind_gust_ms) : "&nbsp;"}</div>
+            ? `${Math.round(w.wind_speed_ms)}<small>m/s</small>` : "—"}</span></div>
+        <div class="gust">${w.wind_gust_ms != null
+          ? `<span class="gust-l">突風</span><span class="gust-v">${
+              Math.round(w.wind_gust_ms)}<small>m/s</small></span>`
+          : "&nbsp;"}</div>
       </div>`;
   }
   /* **時刻をそのまま持たせる**（D-169）。表示の「${w.hour}」は日をまたぐと

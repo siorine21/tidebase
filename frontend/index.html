@@ -92,11 +92,10 @@
           </div>
           <div class="level-axis" id="level-axis" aria-hidden="true"></div>
         </div>
-        <!-- グラフの中の天気カードは数字だけ（D-171）。単位と、下の小さい数字が何かを
-             ここで 1 回だけ言う。前に「単位が無いと分からない」「『突』では伝わらない」と
-             言われている（D-104 / D-111）ので、カードから消したぶんをここに置く -->
+        <!-- グラフの中の天気カード（D-171）。単位と「突風」はカードに書いたので、
+             ここは矢印の向きだけ言う（向きは字で書く場所がカードに無い） -->
         <div class="chart-units" id="chart-units" hidden>
-          天気カード: 雨量 mm ／ 気温 ／ 風速 m/s（矢印は吹いていく向き）／ 下の小さい数字は最大風速 m/s
+          天気カードの矢印は、風が吹いていく向きです
         </div>
         <div class="tide-legend" id="tide-legend"></div>
         <!-- どの観測所の値かは、グラフと同じカードの中に置く（D-105）。
@@ -991,9 +990,9 @@
     const axis = document.getElementById("level-axis");
     // 器の幅は日数から決める。CSS 側に日数を書かない（D-128）
     track.style.setProperty("--chart-days", chartDays.length);
-    /* **1 時間 CHART_SLOT_PX（25px）に伸ばす**（D-170 / D-171）。天気のカードを
+    /* **1 時間 CHART_SLOT_PX（33px）に伸ばす**（D-170 / D-171）。天気のカードを
        グラフの中に 1 時間 1 枚で並べるため。前は「画面 1 枚 = 1 日」（1 時間 13px）で、
-       カードが入らなかった。D-170 では 50px だったのを、数字だけの細いカードにして半分にした。
+       カードが入らなかった。D-170 では 50px だったのを、細いカードにして 2/3 にした。
        **dayUnits も同じ px にする。** SVG は preserveAspectRatio="none" で器いっぱいに
        引き伸ばすので、座標と実際の px がずれると時刻や「満 08:00」の字が横に伸びる */
     const dayPx = CHART_SLOT_PX * 24;
