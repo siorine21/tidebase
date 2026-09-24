@@ -463,6 +463,7 @@ export function smoothPath(points) {
 export function tideTimelineSvg({
   days, tides, suns = new Map(), today = null, marker = null,
   dayUnits = 320, height = 176, padTop = 30, padBottom = 30,
+  scoreOf = null, weatherHours = null,
 }) {
   const width = dayUnits * days.length;
   const totalHours = days.length * 24;
@@ -546,6 +547,37 @@ export function tideTimelineSvg({
     const w = MAZUME_WINDOW_MINUTES / 60;
     return band("night", 0, rise) + band("night", set, 24)
       + band("mazume", rise - w, rise + w) + band("mazume", set - w, set + w);
+  }).join("");
+
+  /* 釣行スコアの帯（D-169）。**潮位グラフと HOURLY WEATHER を合体できないか**
+     という相談から。このグラフは 13px/h と詰まっていて、天気のカードは
+     重ねられない（合体は時間別天気の側でやった・hourlySparklineSvg）。
+     ここには、時間別天気の曲線の下に敷いているのと**同じ色の帯**を敷く。
+     色は「点 → 色」を決めている 1 か所（sc-N・D-122）をそのまま使う。
+     ここで色を作り直すと、2 つの帯が食い違いかねない。
+
+     **weatherHours は days と同じ日付ぶん持っているとは限らない。**
+     時間別天気はもともと「今日から先」の窓しか持たず、過去の日や
+     まだ届いていない日はここで穴になる（他の帯と同じで、材料が無ければ
+     その区間だけ出さない）。 */
+  const scoreBand = (!scoreOf || !weatherHours) ? "" : days.map((date, d) => {
+    const hours = (weatherHours.get?.(date) ?? weatherHours[date] ?? [])
+      // 前日・翌日の 1 行が混ざっていることがある（D-104）。その日のぶんだけ使う
+      .filter((row) => String(row.time).slice(0, 10) === date);
+    return hours.map((row) => {
+      const score = scoreOf(row);
+      if (score == null) return "";
+      const a = x(d * 24 + row.hour), b = x(d * 24 + row.hour + 1);
+      if (b <= a) return "";
+      /* **どの時刻の点かを、時間別天気のカードと同じ形で持たせる**
+         （`.hour-card` の `data-t` と同じ "YYYY-MM-DDTHH"）。
+         横スクロールで動く画面なので、位置だけでは「同じ時刻か」を
+         あとから確かめられない。文字で持たせておけば、
+         帯とカードが本当に同じ時刻・同じ点を指しているかを付き合わせられる。 */
+      return `<rect class="score-seg sc-${score}" data-t="${date}T${
+        String(row.hour).padStart(2, "0")}" x="${a.toFixed(2)}" y="4"
+        width="${(b - a).toFixed(2)}" height="6"/>`;
+    }).join("");
   }).join("");
 
   // 日の出・日没の縦線。夜の帯の境目そのものだが、線があると時刻を読み取りやすい
@@ -654,6 +686,7 @@ export function tideTimelineSvg({
          preserveAspectRatio="none" role="img"
          aria-label="${days[0]} から ${days[days.length - 1]} までの潮位グラフ">
       ${nights}
+      ${scoreBand}
       ${grid}
       ${levelLines}
       ${sunLines}
@@ -5589,9 +5622,15 @@ export function rainLevel(mm) {
 }
 
 /** 時間別天気のカード 1 枚の幅と間隔（px）。**theme.css の .hour-card / .hourly と揃える。**
-    日付の帯の幅をここから計算するので、片方だけ変えると帯とカードがずれる（D-112）。 */
-const HOUR_CARD_W = 54;
-const HOUR_CARD_GAP = 8;
+    日付の帯の幅をここから計算するので、片方だけ変えると帯とカードがずれる（D-112）。
+
+    54+8 → 44+6（D-169 試作）。★の段をやめて潮位の曲線を上に乗せた（合体できないか、
+    という相談から）ので、幅を決めていた「★5つが48pxに収まる」制約が消えた。
+    風速・突風の数字（台風並みで2桁になる）がいまの幅制約。 */
+const HOUR_CARD_W = 44;
+const HOUR_CARD_GAP = 6;
+/** カードの上に重ねる潮位の曲線の高さ（D-169 試作）。細いスパークライン。 */
+const HOURLY_CURVE_H = 40;
 
 /** 雨が「降っている」と言える降水量（mm/h）。これ未満は量として意味がない。 */
 const RAIN_MM = 0.1;
@@ -5812,14 +5851,66 @@ export function hoursFromNow(hours, nowIso, count = 24) {
  * @param {HTMLElement|null} opt.leadBox 雨の要約を出す箱。省くと出さない
  * @param {string}  opt.emptyText 予報が無いときの文言
  * @param {((row:object)=>number|null)|null} opt.scoreOf
- *   1 時間ごとの釣行スコア（D-116）。渡すとカードに★を出す。
+ *   1 時間ごとの釣行スコア（D-116）。渡すとカードの上の曲線に色を付ける。
  *   前は時間帯 4 つの並びを別に置いていたが、**同じことを 2 か所で言っていた**うえ、
  *   時間帯の点は「その帯でいちばん良い 1 時間」なので、
  *   **帯の中のどこが良いのかが消えていた**（1 日の中で 2〜5 に散る）。
+/**
+ * 時間別天気のカードの並びに重ねる、潮位の細い曲線（D-169 試作）。
+ *
+ * **カードと同じ横幅・同じ間隔で描く。** 潮位グラフ本体（`tideTimelineSvg`）は
+ * 1 時間 13px と詰まっていて、時間別天気のカード（1 時間 62px）とは
+ * 目盛りの細かさが 4.6 倍違うため、そのままでは重ねられない。
+ * カードの★の段をやめて幅を 54px→44px に詰めた（見合った分をここに回した）ぶん、
+ * **この曲線とカードは 1 つのスクロール領域に同居できる**。連動の仕組みは要らない。
+ *
+ * @param {object[]} rows renderHourlyStrip が組み立てた、実際に表示する行
+ * @param {(date:string)=>object|null} tideOf 日付 → 潮汐
+ * @param {((row:object)=>number|null)|null} scoreOf 1 時間ごとの釣行スコア。
+ *   渡すと曲線の下に、潮位グラフと同じ配色（sc-1〜sc-5・D-122）の帯を敷く。
  */
+function hourlySparklineSvg(rows, tideOf, scoreOf) {
+  const step = HOUR_CARD_W + HOUR_CARD_GAP;
+  const width = rows.length * step - HOUR_CARD_GAP;
+  const points = rows.map((w, i) => {
+    const tide = tideOf(String(w.time).slice(0, 10));
+    const level = tide ? tideLevelAt(tide.hourly_levels_cm, w.hour) : null;
+    return level == null ? null : { x: i * step + HOUR_CARD_W / 2, v: level };
+  }).filter(Boolean);
+  if (points.length < 2) return "";
+
+  const vs = points.map((p) => p.v);
+  const min = Math.min(...vs), max = Math.max(...vs);
+  const padY = 4;
+  const yOf = (v) => HOURLY_CURVE_H - padY
+    - ((v - min) / Math.max(1, max - min)) * (HOURLY_CURVE_H - padY * 2);
+  const pts = points.map((p) => ({ x: p.x, y: yOf(p.v) }));
+  const base = HOURLY_CURVE_H;
+  const line = `<path class="curve-line" d="${smoothPath(pts)}"/>`;
+  const area = `<path class="curve-area" d="${smoothPath(pts)}`
+    + ` L${pts[pts.length - 1].x.toFixed(2)},${base} L${pts[0].x.toFixed(2)},${base} Z"/>`;
+
+  /* 曲線の下に、潮位グラフと同じ帯（D-169）。色を作り直すと、
+     潮位グラフの帯・このカードの並びとで色が食い違いかねないので、
+     「点 → 色」を決めている 1 か所（.sc-1〜.sc-5）をそのまま使う。
+     data-t は .hour-card と同じ形（"YYYY-MM-DDTHH"）で持たせ、
+     座標ではなく文字で「同じ時刻を指しているか」を確かめられるようにする（D-169） */
+  const band = !scoreOf ? "" : rows.map((w, i) => {
+    const score = scoreOf(w);
+    if (score == null) return "";
+    const a = i * step;
+    return `<rect class="score-seg sc-${score}" data-t="${escapeHtml(String(w.time).slice(0, 13))}"
+      x="${a}" y="0" width="${HOUR_CARD_W}" height="4"/>`;
+  }).join("");
+
+  return `<svg class="hourly-curve" viewBox="0 0 ${width} ${HOURLY_CURVE_H}"
+    width="${width}" height="${HOURLY_CURVE_H}" preserveAspectRatio="none"
+    role="img" aria-label="時間ごとの潮位">${band}${area}${line}</svg>`;
+}
+
 export function renderHourlyStrip(box, {
   hours, date = null, leadBox = null, count = 24,
-  emptyText = "予報がありません", scoreOf = null, sunOf = null,
+  emptyText = "予報がありません", scoreOf = null, sunOf = null, tideOf = null,
 } = {}) {
   const hide = (text) => {
     box.innerHTML = `<div class="empty">${escapeHtml(text)}</div>`;
@@ -5872,7 +5963,7 @@ export function renderHourlyStrip(box, {
      前は日付を時刻と同じ行に入れていて（「13日 0時」）、54px に収まらず
      そこだけ 2 行になり、その 1 枚だけ中身が下にずれていた。
 
-     幅はカードの並びから計算する（1 枚 54px・間隔 8px。theme.css と揃えること）。
+     幅はカードの並びから計算する（1 枚 44px・間隔 6px。theme.css と揃えること）。
      帯とカードを同じ横スクロールの中に入れて、ずれないようにする。 */
   const days = [];
   for (const w of rows) {
@@ -5943,18 +6034,17 @@ export function renderHourlyStrip(box, {
     const arrow = windArrowDeg(w.wind_dir_deg);
     const isNow = nowHour != null && String(w.time).slice(0, 13) === nowHour;
     const newDay = i > 0 && String(w.time).slice(0, 10) !== String(rows[i - 1].time).slice(0, 10);
-    /* 釣行スコア（D-116）。**時刻のすぐ下**に置く。
-       横に流しながら「何時が良いか」を読むので、時刻と点が離れていると
-       目を上下に往復させることになる。色は週間カレンダーの★と同じ規則。 */
-    const score = scoreOf ? scoreOf(w) : null;
     /* マヅメの時間はカードごと薄く塗る（本人の指摘）。**上の帯と同じ判定**を使う。
        「いま」のカードは枠がカラシなので、塗りが重なっても見分けが付く */
     const mz = mazumeKinds[i];
+    /* **時刻をそのまま持たせる**（D-169）。上に重ねる潮位の曲線・帯と
+       同じ時刻を指しているかを確かめるのに使う。表示の「${w.hour}時」は
+       日をまたぐと消えるが、こちらは "YYYY-MM-DDTHH" のまま持てる */
     return `
       <div class="hour-card${isNow ? " now" : ""}${newDay ? " newday" : ""}${
-        mz ? " mazume" : ""}">
-        <div class="h">${w.hour}時</div>
-        ${score ? `<div class="sc sc-${score}">${stars(score, { html: true })}</div>` : ""}
+        mz ? " mazume" : ""}" data-t="${escapeHtml(String(w.time).slice(0, 13))}">
+        <!-- ★の段は無くした（D-169 試作）。潮位の曲線に重ねた帯が同じ色を伝える -->
+        <div class="h">${w.hour}</div>
         <div class="icon-wrap">${weatherIcon}</div>
         <!-- 降水確率ではなく**予想雨量**を出す（D-111）。
              確率は気象庁が返さず、出していた値は別モデルのものだった。
@@ -5981,9 +6071,13 @@ export function renderHourlyStrip(box, {
       </div>`;
   }).join("");
 
+  // 潮位の曲線（D-169 試作）。tideOf を渡さない呼び出しは今まで通り曲線なし
+  const curve = tideOf ? hourlySparklineSvg(rows, tideOf, scoreOf) : "";
+
   box.innerHTML = `<div class="hourly-inner">`
     + `<div class="hourly-days">${ruler}</div>`
     + mazumeRuler
+    + curve
     + `<div class="hourly-row">${cards}</div>`
     + `</div>`;
 }

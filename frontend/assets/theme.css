@@ -521,6 +521,10 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
    D-029 で「カラシの破線が日の出と誤解された」経緯があるが、
    いまはカラシが日の出側にも付くので、むしろ意味が揃う。 */
 .tide-graph .mazume   { fill: rgba(201,168,76,0.28); }
+/* 釣行スコアの帯（D-169）。「点 → 色」を決めている 1 か所（.sc-1〜.sc-5・D-122）を
+   そのまま使う。ここで色を作り直すと、時間別天気のカードの★と食い違いかねない。
+   帯は 6px の細いリボンで、曲線・満干・現在時刻の邪魔をしない高さに置く（グラフの上端）。 */
+.tide-graph .score-seg { fill: var(--sc); }
 .tide-graph text { font-family: 'JetBrains Mono', monospace; font-size: 9px; fill: var(--text-muted); }
 .tide-graph text.peak { fill: var(--text-secondary); }
 .tide-graph text.sun-time { font-size: 8px; fill: var(--text-muted); }
@@ -544,11 +548,20 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .hourly::-webkit-scrollbar { height: 4px; }
 .hourly::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 .hourly-inner { display: inline-flex; flex-direction: column; gap: 5px; }
-.hourly-row, .hourly-days { display: flex; gap: 8px; }
+.hourly-row, .hourly-days { display: flex; gap: 6px; }
+
+/* カードの並びに重ねる潮位の曲線（D-169 試作）。「潮位グラフと HOURLY WEATHER は
+   合体できないか」という相談から。カードと同じ横幅・同じ間隔（app.js の
+   HOUR_CARD_W / HOUR_CARD_GAP）で描くので、別に連動させなくても位置が揃う。 */
+.hourly-curve { display: block; }
+.hourly-curve .curve-area { fill: rgba(74,158,204,0.14); stroke: none; }
+.hourly-curve .curve-line { fill: none; stroke: var(--blue); stroke-width: 1.5; }
+/* 色は「点 → 色」を決めている 1 か所（.sc-1〜.sc-5・D-122）をそのまま使う */
+.hourly-curve .score-seg { fill: var(--sc); }
 
 /* 日付の帯（D-112）。その日のカードのぶんだけ幅を持ち、日が変わるところで区切れる。
    幅は app.js の HOUR_CARD_W / HOUR_CARD_GAP から計算している。
-   **片方だけ変えると帯とカードがずれる**ので、54px / 8px は両方で揃えること。 */
+   **片方だけ変えると帯とカードがずれる**ので、44px / 6px は両方で揃えること（D-169）。 */
 .day-seg {
   flex: 0 0 auto; box-sizing: border-box;
   padding: 2px 0 3px; text-align: left; white-space: nowrap;
@@ -568,16 +581,16 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 }
 
 .hour-card {
-  /* ★ を 5 つ入れるため左右の余白を 2px にした（D-118）。
-     幅 54px は変えない。中身は 50px。11px の★に -1.7px の字間で 48px 収まる。
-     **字の大きさ・字間・この余白は 3 つで 1 組。**片方だけ変えるとはみ出す */
-  flex: 0 0 54px; text-align: center; padding: 7px 2px;
+  /* 54px→44px（D-169 試作）。★の段をやめた（上に重ねた潮位の曲線・帯が
+     同じ色を伝える）ので、幅を決めていた「★5つが48pxに収まる」制約が消えた。
+     いまの幅制約は風速・突風の数字（台風並みで2桁になる）。 */
+  flex: 0 0 44px; text-align: center; padding: 7px 2px;
   background: var(--bg-deep); border: 1px solid var(--border); border-radius: 8px;
   /* **flex の子は既定で中身より細くならない**（D-127 で週セルにも出た同じ話）。
      台風並みの風（最大 20m/s 超）で数字の桁が増えると、この幅が動いて
      日付の帯（HOUR_CARD_W を書き写した固定値・D-112）とずれる。
      ここは 24 枚横に並ぶので、1 枚でもずれると帯全体が崩れる。
-     min-width: 0 で本来の 54px に留め、はみ出るぶんはセルの中で隠す。 */
+     min-width: 0 で本来の 44px に留め、はみ出るぶんはセルの中で隠す。 */
   min-width: 0; overflow: hidden;
 }
 /* **いまの時間**だけ枠を立てる（D-117）。前はマヅメに付けていたが、
@@ -593,28 +606,10 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 .hour-card.newday { border-left: 2px solid var(--border-strong); }
 
 .hour-card .h  { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-secondary); }
-/* 1 時間ごとの釣行スコア（D-116 / D-118）。時間帯 4 つの並びをやめて、ここに移した。
-   **色で流し読みできること**が要る。24 枚を 1 つずつ読むのでは
-   「パッと見で分かる」にならない。
-
-   **★☆ を 5 つ並べる**（D-118）。数字より段階が目に入る。
-   幅は 54px のカードに収める（`.hour-card` を広げない）ので、
-   小さめの字に負の字間を掛けている。**片方だけ変えるとはみ出す。**
-
-   色は**テーマの黄色を基点に、良いほど赤へ**寄せる。
-   ★1 灰 → ★2 暗い黄 → ★3 黄 → ★4 橙 → ★5 赤。
-   隣どうしの差は ΔE 34 以上、カードの背景（通常・いまの枠）どちらでも
-   コントラスト 3.3 以上を確かめてある。 */
-.hour-card .sc {
-  font-family: 'JetBrains Mono', monospace; font-size: 11px; line-height: 1.5;
-  letter-spacing: -1.7px; white-space: nowrap;
-}
-/* 消えている分は「そこまで届いていない」ことだけ示せばよいので沈める。
-   ただし**形が見えなくなると 5 段階に見えない**ので、消しすぎない。
-
-   **`.hour-card` の下に置かない**（D-122）。週カレンダーのセルも同じ★を出すので、
-   ここを時間別カードだけの色にすると、同じ★が画面ごとに違う色になる。
-   大きさだけ置き場所ごとに変え、色は 1 か所で決める。 */
+/* 1 時間ごとの釣行スコアの★の段（D-116 / D-118）は、.hour-card からは無くした
+   （D-169 試作）。上に重ねた潮位の曲線の帯が同じ色を伝えるので、
+   カードの中で繰り返す必要が無くなった。週間カレンダーのセルは
+   `.week-grid .sc` として今まで通り★を出す（下の色は共有） */
 /* 「点 → 色」は 1 か所だけで決める（D-122 / D-130）。
    出し方は 2 つある（★☆ 5 つ＝時間別カードと SUMMARY / ★ 1 つ＝週間カレンダー）が、
    **色が違ったら結び付かない。** 点は --sc に写し、描き方のほうがそれを読む。
@@ -656,7 +651,7 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
   color: var(--wind, var(--text-secondary)); white-space: nowrap;
 }
 .hour-card .wind-arrow { display: flex; line-height: 0; }
-/* 単位は数字より小さく添える（.pop .pct と同じ形）。カードが 54px しか無いので、
+/* 単位は数字より小さく添える（.pop .pct と同じ形）。カードが 44px しか無いので、
    本体の文字を大きくしたまま単位だけ乗せるとはみ出す */
 .hour-card .ms small { font-size: 8px; margin-left: 1px; color: var(--text-muted); }
 .hour-card .gust {
@@ -2147,8 +2142,8 @@ label.check input { width: auto; }
    「いま」のまま触らない。** ぶつからない場所に置く。
 
    幅は app.js の HOUR_CARD_W / HOUR_CARD_GAP から計算している。
-   **片方だけ変えると帯とカードがずれる**ので、54px / 8px は両方で揃えること。 */
-.mazume-strip { display: flex; gap: 8px; margin-top: 3px; }
+   **片方だけ変えると帯とカードがずれる**ので、44px / 6px は両方で揃えること（D-169）。 */
+.mazume-strip { display: flex; gap: 6px; margin-top: 3px; }
 .mazume-seg, .mazume-gap { flex: 0 0 auto; box-sizing: border-box; height: 17px; }
 .mazume-seg {
   display: flex; align-items: center; justify-content: center; gap: 3px;
@@ -2170,7 +2165,7 @@ label.check input { width: auto; }
 /* **朝と夕は色で分けない。** 色を変えると「どちらかが良い」に読める。
    どちらが良いかはアプリが決めないと決めてある（D-139）ので、
    区別は日の出・日没のアイコンと文字（朝マヅメ / 夕マヅメ）で付ける。 */
-/* 窓の端では帯が 1 枚ぶん（54px）に切れることがある。そのときは文字のほうを
+/* 窓の端では帯が 1 枚ぶん（44px）に切れることがある。そのときは文字のほうを
    詰めて、**日の出・日没のアイコンは必ず残す**（何の印かはアイコンで分かる） */
 .mazume-seg { overflow: hidden; }
 .mazume-seg .icon { flex: 0 0 auto; }
