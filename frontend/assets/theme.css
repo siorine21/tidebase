@@ -611,7 +611,34 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
    その目盛りに 1 時間 1 枚ずつ置く。列の数と幅は JS が style で渡す。
    **カードの幅 44px は .hour-card と同じ値にする**（ここだけ違うと列の中で片寄る）。 */
 .chart-hours { display: grid; margin: 2px 0 4px; }
-.chart-hours .hour-card { width: 44px; justify-self: center; grid-row: 1; }
+/* 幅は JS が style で渡す（CHART_CARD_W）。ここに書くと 2 か所になる */
+.chart-hours .hour-card { justify-self: center; grid-row: 1; }
+
+/* グラフの中の細いカード（D-171・30px）。中身は 28px。数字は 10px の等幅（1 文字 6px）、
+   単位は 7px で添える。**字の大きさと幅は 1 組**。字を大きくすると 30px からはみ出して隠れる */
+.hour-card.compact { padding: 5px 0 4px; border-radius: 6px; }
+.hour-card.compact .h { font-size: 10px; }
+.hour-card.compact .icon-wrap { margin: 2px 0; }
+/* 天気の絵だけ。風の矢印も同じ .icon なので、.icon-wrap で絞らないと矢印まで 16px になる */
+.hour-card.compact .icon-wrap .icon { width: 16px; height: 16px; margin: 0; }
+.hour-card.compact .pop,
+.hour-card.compact .t { font-size: 10px; line-height: 1.4; font-weight: 400; white-space: nowrap; }
+.hour-card.compact .pop.high { font-weight: 700; }
+.hour-card.compact .wind { flex-direction: column; gap: 0; font-size: 10px; line-height: 1.2; }
+.hour-card.compact small {
+  font-size: 7px; margin-left: 0; letter-spacing: -0.2px; color: var(--text-muted); font-weight: 400;
+}
+/* 突風は「突風」の字と数字の 2 段（1 段では 30px に入らない） */
+.hour-card.compact .gust {
+  display: flex; flex-direction: column; align-items: center; height: auto;
+  margin-top: 1px; font-family: 'JetBrains Mono', monospace; font-size: 9px; line-height: 1.15;
+}
+.hour-card.compact .gust-l { font-family: inherit; font-size: 8px; letter-spacing: 0; }
+/* カードの外に 1 回だけ書く補足（D-171）。単位はカードに付けたので、矢印の向きだけ言う */
+.chart-units {
+  margin-top: 4px; font-size: 10px; line-height: 1.5; color: var(--text-muted);
+}
+.chart-units[hidden] { display: none; }
 /* 釣行スコアはカードの上端の色で出す。もとはグラフの上の細い帯（カラーバー）で、
    カードはその場所に入れた。色は「点 → 色」を決めている 1 か所（.sc-N）を使う */
 .hour-card.scored { box-shadow: inset 0 3px 0 var(--sc); }
