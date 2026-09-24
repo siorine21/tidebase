@@ -658,12 +658,12 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
   margin-top: 1px; font-family: 'JetBrains Mono', monospace; font-size: 9px; line-height: 1.15;
 }
 .hour-card.compact .gust-l { font-family: inherit; font-size: 8px; letter-spacing: 0; }
-/* グラフの下の説明（D-171 / D-175）。帯の色の見本と矢印の向き */
+/* いちばん上の色の帯の見本（D-175）。「期待値：低 ■■■■■ 高」 */
 .chart-units {
   display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px;
   margin-top: 4px; font-size: 10px; line-height: 1.5; color: var(--text-muted);
 }
-.chart-units .sw-scale { display: inline-flex; align-items: center; gap: 2px; margin-left: 4px; }
+.chart-units .sw-scale { display: inline-flex; align-items: center; gap: 2px; }
 /* 見本は帯と同じ形（角の丸い横長）。色は .sc-N の --sc から取る */
 .chart-units .sw { display: inline-block; width: 14px; height: 7px; border-radius: 2px; background: var(--sc); }
 .chart-units .sw-scale .sw:first-child { margin-left: 3px; }

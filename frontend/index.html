@@ -92,16 +92,14 @@
           </div>
           <div class="level-axis" id="level-axis" aria-hidden="true"></div>
         </div>
-        <!-- グラフの下の説明（D-171 / D-175）。カードの中に字で書く場所が無いものだけ。
-             - いちばん上の色の帯が何か（「色の意味が分かりづらい」・本人）。文で段階を並べず、
-               帯と同じ 5 色の見本を「低 → 高」で並べる。色は .sc-N（★と同じ 1 か所）から取る
-             - 矢印の向き（「吹いてくる向き」とも読めるので）
-             気温の色（D-172）は「見ただけで分かる」（本人）ので書かない -->
+        <!-- いちばん上の色の帯の見方（D-175）。「色の意味が分かりづらい」（本人）ので、
+             帯と同じ 5 色の見本を「低 → 高」で並べる。色は .sc-N（★と同じ 1 か所）から取る。
+             文言は本人の指定どおり「期待値：低 ■■■■■ 高」だけ。
+             風の矢印の向き・気温の色は「説明は要らない」（本人）ので書かない -->
         <div class="chart-units" id="chart-units" hidden>
-          <span class="score-legend">上の帯は 1 時間ごとの釣れやすさ
-            <span class="sw-scale">低<span class="sw sc-1"></span><span class="sw sc-2"></span><span
-              class="sw sc-3"></span><span class="sw sc-4"></span><span class="sw sc-5"></span>高</span></span>
-          <span class="arrow-note">矢印は風が吹いていく向き</span>
+          <span class="score-legend">期待値：<span class="sw-scale">低<span class="sw sc-1"></span><span
+            class="sw sc-2"></span><span class="sw sc-3"></span><span class="sw sc-4"></span><span
+            class="sw sc-5"></span>高</span></span>
         </div>
         <div class="tide-legend" id="tide-legend"></div>
         <!-- どの観測所の値かは、グラフと同じカードの中に置く（D-105）。
