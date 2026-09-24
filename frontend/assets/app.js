@@ -581,11 +581,17 @@ export function tideTimelineSvg({
          横スクロールで動く画面なので、位置だけでは「同じ時刻か」を
          あとから確かめられない。文字で持たせておけば、
          帯とカードが本当に同じ時刻・同じ点を指しているかを付き合わせられる。 */
-      /* 上に天気の段があるときは、**いちばん上の細い帯**にする（D-174）。
-         本人の言う「カラーバー」の場所。天気の数字はこの下に並ぶ */
+      /* 上に天気の段があるときは、**列ごとに区切った太めの帯**にする（D-175）。
+         1 本につなげた 4px の帯は、隣どうしの色が混ざって見分けにくかった（本人）。
+         列の幅に合わせて 1 時間ずつ角を丸めて切り、どの列の色かが分かるようにする */
+      if (headH > 0) {
+        return `<rect class="score-seg sc-${score}" data-t="${date}T${
+          String(row.hour).padStart(2, "0")}" x="${(a + 3).toFixed(2)}" y="1"
+          width="${(b - a - 6).toFixed(2)}" height="7" rx="2"/>`;
+      }
       return `<rect class="score-seg sc-${score}" data-t="${date}T${
-        String(row.hour).padStart(2, "0")}" x="${a.toFixed(2)}" y="${headH > 0 ? 0 : 4}"
-        width="${(b - a).toFixed(2)}" height="${headH > 0 ? 4 : 6}"/>`;
+        String(row.hour).padStart(2, "0")}" x="${a.toFixed(2)}" y="4"
+        width="${(b - a).toFixed(2)}" height="6"/>`;
     }).join("");
   }).join("");
 

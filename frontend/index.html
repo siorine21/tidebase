@@ -92,11 +92,16 @@
           </div>
           <div class="level-axis" id="level-axis" aria-hidden="true"></div>
         </div>
-        <!-- グラフの中の天気カード（D-171）。単位と「突風」はカードに書いたので、
-             ここは矢印の向きだけ言う（向きは字で書く場所がカードに無い）。
+        <!-- グラフの下の説明（D-171 / D-175）。カードの中に字で書く場所が無いものだけ。
+             - いちばん上の色の帯が何か（「色の意味が分かりづらい」・本人）。文で段階を並べず、
+               帯と同じ 5 色の見本を「低 → 高」で並べる。色は .sc-N（★と同じ 1 か所）から取る
+             - 矢印の向き（「吹いてくる向き」とも読めるので）
              気温の色（D-172）は「見ただけで分かる」（本人）ので書かない -->
         <div class="chart-units" id="chart-units" hidden>
-          天気カードの矢印は、風が吹いていく向きです
+          <span class="score-legend">上の帯は 1 時間ごとの釣れやすさ
+            <span class="sw-scale">低<span class="sw sc-1"></span><span class="sw sc-2"></span><span
+              class="sw sc-3"></span><span class="sw sc-4"></span><span class="sw sc-5"></span>高</span></span>
+          <span class="arrow-note">矢印は風が吹いていく向き</span>
         </div>
         <div class="tide-legend" id="tide-legend"></div>
         <!-- どの観測所の値かは、グラフと同じカードの中に置く（D-105）。
@@ -219,7 +224,7 @@
   /* 曲線の上に置く天気の段の高さ（D-174）。いちばん上のスコアの帯（4px）と、
      天気の列（時刻・天気・雨量・気温・風・突風）が入る高さ。
      **列の中身の高さと 1 組**。字を大きくしたらここも上げる（chart.mjs が切れを測る） */
-  const CHART_HEAD_H = 122;
+  const CHART_HEAD_H = 126;
 
   // いま何でスコアを判定したか。スコア円を押されたときに説明へ渡す
   let scoreContext = null;

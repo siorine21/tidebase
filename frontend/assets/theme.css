@@ -622,7 +622,7 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 /* 天気の列はグラフの上の段に重ねる（D-174）。背景（夜・マヅメ・線）は下の SVG が描く。
    top はいちばん上のスコアの帯（4px）の下 */
 .chart-body { position: relative; }
-.chart-body .chart-hours { position: absolute; top: 7px; left: 0; display: grid; pointer-events: none; }
+.chart-body .chart-hours { position: absolute; top: 11px; left: 0; display: grid; pointer-events: none; }
 /* 幅は JS が style で渡す（CHART_CARD_W）。ここに書くと 2 か所になる */
 .chart-hours .hour-card { justify-self: center; grid-row: 1; }
 
@@ -658,10 +658,16 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
   margin-top: 1px; font-family: 'JetBrains Mono', monospace; font-size: 9px; line-height: 1.15;
 }
 .hour-card.compact .gust-l { font-family: inherit; font-size: 8px; letter-spacing: 0; }
-/* カードの外に 1 回だけ書く補足（D-171）。単位はカードに付けたので、矢印の向きだけ言う */
+/* グラフの下の説明（D-171 / D-175）。帯の色の見本と矢印の向き */
 .chart-units {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 2px 12px;
   margin-top: 4px; font-size: 10px; line-height: 1.5; color: var(--text-muted);
 }
+.chart-units .sw-scale { display: inline-flex; align-items: center; gap: 2px; margin-left: 4px; }
+/* 見本は帯と同じ形（角の丸い横長）。色は .sc-N の --sc から取る */
+.chart-units .sw { display: inline-block; width: 14px; height: 7px; border-radius: 2px; background: var(--sc); }
+.chart-units .sw-scale .sw:first-child { margin-left: 3px; }
+.chart-units .sw-scale .sw:last-child { margin-right: 3px; }
 .chart-units[hidden] { display: none; }
 /* 釣行スコアはカードの上端の色で出す。もとはグラフの上の細い帯（カラーバー）で、
    カードはその場所に入れた。色は「点 → 色」を決めている 1 か所（.sc-N）を使う */
