@@ -92,6 +92,12 @@
           </div>
           <div class="level-axis" id="level-axis" aria-hidden="true"></div>
         </div>
+        <!-- グラフの中の天気カードは数字だけ（D-171）。単位と、下の小さい数字が何かを
+             ここで 1 回だけ言う。前に「単位が無いと分からない」「『突』では伝わらない」と
+             言われている（D-104 / D-111）ので、カードから消したぶんをここに置く -->
+        <div class="chart-units" id="chart-units" hidden>
+          天気カード: 雨量 mm ／ 気温 ／ 風速 m/s（矢印は吹いていく向き）／ 下の小さい数字は最大風速 m/s
+        </div>
         <div class="tide-legend" id="tide-legend"></div>
         <!-- どの観測所の値かは、グラフと同じカードの中に置く（D-105）。
              前は下の「潮汐地点」の欄に出ていて、グラフから離れていた -->
@@ -166,7 +172,7 @@
     fetchTide, fetchWeather, todayInJst, formatJstDate, relativeDays,
     fishingScoreAhead, hourScorer, watchNow,
     showFishingScoreHelp, tideType, TIDE_TYPE_COLORS,
-    renderHourlyStrip, renderRainLead, chartHourCardsHtml, HOUR_SLOT_PX,
+    renderHourlyStrip, renderRainLead, chartHourCardsHtml, CHART_SLOT_PX,
     listSpots, listRecords, icon, renderIcons,
     recordFishName, ownerBadge, nowInJst, hoursFromHhmm, addJstDays,
     listTidePoints, fetchTideForPoint, savedTidePoint, saveTidePoint, formatLag,
@@ -985,12 +991,12 @@
     const axis = document.getElementById("level-axis");
     // 器の幅は日数から決める。CSS 側に日数を書かない（D-128）
     track.style.setProperty("--chart-days", chartDays.length);
-    /* **1 時間 HOUR_SLOT_PX（50px）に伸ばす**（D-170）。時間別天気のカードを
+    /* **1 時間 CHART_SLOT_PX（25px）に伸ばす**（D-170 / D-171）。天気のカードを
        グラフの中に 1 時間 1 枚で並べるため。前は「画面 1 枚 = 1 日」（1 時間 13px）で、
-       カードが入らなかった。
+       カードが入らなかった。D-170 では 50px だったのを、数字だけの細いカードにして半分にした。
        **dayUnits も同じ px にする。** SVG は preserveAspectRatio="none" で器いっぱいに
        引き伸ばすので、座標と実際の px がずれると時刻や「満 08:00」の字が横に伸びる */
-    const dayPx = HOUR_SLOT_PX * 24;
+    const dayPx = CHART_SLOT_PX * 24;
     track.style.width = `${dayPx * chartDays.length}px`;
     const tides = chartDays.map((date) => tideCache.get(date) ?? null);
     const result = tideTimelineSvg({
@@ -1015,6 +1021,7 @@
       sunOf: (day) => sunCache.get(day) ?? null, scoreOf,
     });
     track.innerHTML = result.ruler + cards + result.svg + sunStripHtml(result.sunMarks);
+    document.getElementById("chart-units").hidden = !cards;
     // 目盛りは SVG と同じ高さの箱に置く（縦は引き伸ばしていないので座標がそのまま px）
     axis.style.height = `${CHART_H}px`;
     /* **目盛りの箱は SVG の上端にそろえる。** 上に日付の帯と天気のカードが入るので、
@@ -1054,7 +1061,7 @@
     const index = chartDays.indexOf(now.date);
     if (index < 0) return;
     scroller.scrollTo({
-      left: Math.max(0, (index * 24 + now.hour - 1) * HOUR_SLOT_PX), behavior,
+      left: Math.max(0, (index * 24 + now.hour - 1) * CHART_SLOT_PX), behavior,
     });
   }
 

@@ -5629,12 +5629,16 @@ export function rainLevel(mm) {
     風速・突風の数字（台風並みで2桁になる）がいまの幅制約。 */
 const HOUR_CARD_W = 44;
 const HOUR_CARD_GAP = 6;
-/** 潮位グラフの中に天気のカードを入れるときの、1 時間ぶんの横幅（px・D-170）。
-    カード 1 枚＋間隔。グラフの 1 日はこの 24 倍になる。
-    **HOUR_CARD_W / HOUR_CARD_GAP のすぐ下に置く。** テストは app.js を目印で切り出して
-    動かしている（D-113）。離れた場所に置くと、切り出した範囲に HOUR_CARD_W が無いまま
-    この行だけが入り、読み込んだ時点で落ちる（実際に落ちた） */
-export const HOUR_SLOT_PX = HOUR_CARD_W + HOUR_CARD_GAP;
+/** 潮位グラフの中に入れる天気カードの幅と間隔（px・D-170 / D-171）。
+    時間別天気の帯（44px）より細い**数字だけの版**を使う（単位と「最大」はグラフの下に
+    1 回だけ書く）。「いい感じだが、この半分くらいにできる？」（本人）で 50px → 25px。 */
+const CHART_CARD_W = 22;
+const CHART_CARD_GAP = 3;
+/** 潮位グラフの 1 時間ぶんの横幅。グラフの 1 日はこの 24 倍になる。
+    **CHART_CARD_W / CHART_CARD_GAP のすぐ下に置く。** テストは app.js を目印で切り出して
+    動かしている（D-113）。離れた場所に置くと、切り出した範囲に幅の定数が無いまま
+    この行だけが入り、読み込んだ時点で落ちる（D-170 で実際に落ちた） */
+export const CHART_SLOT_PX = CHART_CARD_W + CHART_CARD_GAP;
 /** カードの上に重ねる潮位の曲線の高さ（D-169 試作）。細いスパークライン。 */
 const HOURLY_CURVE_H = 40;
 
@@ -5968,16 +5972,46 @@ export function renderRainLead(leadBox, { hours, date = null, count = 24 } = {})
  * @param {number|null} opt.score 釣行スコア。渡すとカードの上端を★と同じ色で塗る（D-170）
  * @param {boolean} opt.past 過ぎた時間か（沈める）
  * @param {string} opt.style 置き場所の指定（グラフの中では何時の列かを渡す）
+ * @param {boolean} opt.compact 潮位グラフの中に入れる細い版（D-171）。数字だけにし、
+ *   単位と「最大」の字はカードの外（グラフの下）に 1 回だけ書く
  */
 function hourCardHtml(w, {
   isNow = false, newDay = false, mazume = null, score = null, past = false, style = "",
+  compact = false,
 } = {}) {
   const { icon: weatherIcon } = describeWeather(w.weather_code);
   const rain = rainLevel(w.precip_mm);
   const wind = windLevel(w.wind_speed_ms);
   const arrow = windArrowDeg(w.wind_dir_deg);
-  const cls = ["hour-card", isNow && "now", newDay && "newday", mazume && "mazume",
-    past && "past", score != null && `scored sc-${score}`].filter(Boolean).join(" ");
+  const cls = ["hour-card", compact && "compact", isNow && "now", newDay && "newday",
+    mazume && "mazume", past && "past", score != null && `scored sc-${score}`]
+    .filter(Boolean).join(" ");
+  if (compact) {
+    /* **22px に入る字数に落とす**（D-171）。1 文字 6px（10px の等幅）なので中身は 3 文字まで。
+       雨量は 10mm 未満を小数 1 桁（「3.4」）、それ以上は整数。風は整数にし、
+       矢印は数字の上の段に分ける（横に並べると 4 文字ぶんになる）。
+       **意味を落とさない。** 単位（mm・m/s）と「下の小さい数字は最大風速」は
+       グラフの下の凡例に書く（前に「単位が無いと分からない」「『突』では伝わらない」
+       と言われている・D-104 / D-111） */
+    const mm = w.precip_mm;
+    const rainText = mm == null ? "—" : mm < 0.1 ? "0"
+      : mm < 10 ? Number(mm).toFixed(1) : String(Math.round(mm));
+    return `
+      <div class="${cls}" data-t="${escapeHtml(String(w.time).slice(0, 13))}"${
+        style ? ` style="${style}"` : ""}>
+        <div class="h">${w.hour}</div>
+        <div class="icon-wrap">${weatherIcon}</div>
+        <div class="pop ${rain?.key ?? "unknown"}">${rainText}</div>
+        <div class="t">${w.temp_c != null ? `${Math.round(w.temp_c)}°` : "—"}</div>
+        <div class="wind wnd-${wind?.key ?? "unknown"}">${arrow != null
+          ? `<span class="wind-arrow" style="transform:rotate(${arrow}deg)"
+                   title="${escapeHtml(windDirection(w.wind_dir_deg))}の風">${
+               icon("wind-arrow", { size: 10 })}</span>`
+          : ""}<span class="ms">${w.wind_speed_ms != null
+            ? Math.round(w.wind_speed_ms) : "—"}</span></div>
+        <div class="gust">${w.wind_gust_ms != null ? Math.round(w.wind_gust_ms) : "&nbsp;"}</div>
+      </div>`;
+  }
   /* **時刻をそのまま持たせる**（D-169）。表示の「${w.hour}」は日をまたぐと
      どの日か分からなくなるが、こちらは "YYYY-MM-DDTHH" のまま持てるので、
      潮位の曲線・帯と同じ時刻を指しているかを確かめるのに使える */
@@ -6015,7 +6049,7 @@ function hourCardHtml(w, {
  * 潮位グラフの中に並べる、時間別天気のカードの列（D-170）。
  *
  * 「タイドグラフのカラーバーの部分に、時間単位の天気情報のカードが入るイメージ」
- * （本人）。グラフのほうを 1 時間 HOUR_SLOT_PX に伸ばし、**その目盛りの上に
+ * （本人）。グラフのほうを 1 時間 CHART_SLOT_PX に伸ばし、**その目盛りの上に
  * 1 時間 1 枚ずつ置く**。グラフと同じ器（`.tide-track`）に入れるので、
  * 横スクロールしてもずれない。
  *
@@ -6054,13 +6088,14 @@ export function chartHourCardsHtml({ days, weatherHours, sunOf = null, scoreOf =
         mazume: band === "morning" || band === "evening" ? band : null,
         score: scoreOf ? scoreOf(w) : null,
         past: key < nowKey,
-        style: `grid-column:${d * 24 + h + 1}`,
+        compact: true,
+        style: `grid-column:${d * 24 + h + 1};width:${CHART_CARD_W}px`,
       }));
     }
   });
   if (!cards.length) return "";
   return `<div class="chart-hours" style="grid-template-columns:repeat(${days.length * 24}, ${
-    HOUR_SLOT_PX}px)">${cards.join("")}</div>`;
+    CHART_SLOT_PX}px)">${cards.join("")}</div>`;
 }
 
 export function renderHourlyStrip(box, {
