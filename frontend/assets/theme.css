@@ -605,6 +605,19 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 /* 日付が変わるところに区切りを入れる。24 時間ぶんは翌日にまたがる（D-104） */
 .hour-card.newday { border-left: 2px solid var(--border-strong); }
 
+/* ---------- 潮位グラフの中の天気カード（D-170） ----------
+   「タイドグラフのカラーバーの部分に、時間単位の天気情報のカードが入る」（本人）。
+   グラフを 1 時間 50px（カード 44px ＋ 間隔 6px・app.js の HOUR_SLOT_PX）に伸ばし、
+   その目盛りに 1 時間 1 枚ずつ置く。列の数と幅は JS が style で渡す。
+   **カードの幅 44px は .hour-card と同じ値にする**（ここだけ違うと列の中で片寄る）。 */
+.chart-hours { display: grid; margin: 2px 0 4px; }
+.chart-hours .hour-card { width: 44px; justify-self: center; grid-row: 1; }
+/* 釣行スコアはカードの上端の色で出す。もとはグラフの上の細い帯（カラーバー）で、
+   カードはその場所に入れた。色は「点 → 色」を決めている 1 か所（.sc-N）を使う */
+.hour-card.scored { box-shadow: inset 0 3px 0 var(--sc); }
+/* 過ぎた時間は沈める。グラフは昨日から出すので、過去のカードも並ぶ */
+.hour-card.past { opacity: 0.5; }
+
 .hour-card .h  { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-secondary); }
 /* 1 時間ごとの釣行スコアの★の段（D-116 / D-118）は、.hour-card からは無くした
    （D-169 試作）。上に重ねた潮位の曲線の帯が同じ色を伝えるので、
@@ -2209,6 +2222,8 @@ label.check input { width: auto; }
 .hero .hero-hourly-head { margin-bottom: 6px; }
 .hero .hourly-lead { margin: 6px 0; }
 .hero .hero-hourly .list-sub { margin-top: 6px; }
+/* 予報の出どころ（D-076）。天気のカードがグラフの中にあるときも出すので、節の外（D-170） */
+.hero .weather-source { margin-top: 6px; }
 
 /* ---------- 横に動くところは囲う（D-168） ----------
    「横にスクロールできるエリアだけ囲える？　横に動くのか分かりづらい」（本人）。
