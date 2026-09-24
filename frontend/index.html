@@ -1004,6 +1004,8 @@
       /* 日付は SVG の外の帯に出るので、上の余白は元どおり。
          下は時刻だけになったぶん薄くしてある（D-120 / D-121） */
       dayUnits: dayPx, height: CHART_H, padTop: 28, padBottom: 20,
+      // 縦の線は 1 時間ごと。上の天気カードの隙間と同じ位置に来る（D-173）
+      gridStepHours: 1,
     });
     if (!result) {
       track.innerHTML = `<div class="empty">潮汐データを取得できませんでした</div>`;

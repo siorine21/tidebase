@@ -463,7 +463,7 @@ export function smoothPath(points) {
 export function tideTimelineSvg({
   days, tides, suns = new Map(), today = null, marker = null,
   dayUnits = 320, height = 176, padTop = 30, padBottom = 30,
-  scoreOf = null, weatherHours = null,
+  scoreOf = null, weatherHours = null, gridStepHours = 2,
 }) {
   const width = dayUnits * days.length;
   const totalHours = days.length * 24;
@@ -592,10 +592,13 @@ export function tideTimelineSvg({
     `<line class="level-line" x1="0" y1="${t.y.toFixed(2)}" x2="${width}" y2="${t.y.toFixed(2)}"/>`
   ).join("");
 
-  // 目盛り: 2 時間ごとに細い線、6 時間ごとに太めの線と時刻ラベル
+  /* 目盛り: gridStepHours ごとに細い線、6 時間ごとに太めの線と時刻ラベル。
+     ホームは上に 1 時間 1 枚の天気カードが並ぶので **1 時間ごと**にする（D-173）。
+     線はちょうどカードとカードの隙間に来て、カードの列がそのままグラフの列になる。
+     潮汐画面（1 日 = 1 画面）は既定の 2 時間ごとのまま。1 時間ごとだと 13px おきで詰まる */
   const grid = days.flatMap((date, d) => {
     const marks = [];
-    for (let h = 0; h < 24; h += 2) {
+    for (let h = 0; h < 24; h += gridStepHours) {
       if (h === 0) continue;                       // 0 時は日境界の線が担う
       const cls = h % 6 === 0 ? "grid" : "grid-minor";
       marks.push(`<line class="${cls}" x1="${x(d * 24 + h)}" y1="${padTop - 8}"
