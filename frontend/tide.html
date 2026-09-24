@@ -48,14 +48,16 @@
        月末の大潮が視界の外にある。潮回りは月齢だけで決まる（tideType）ので、
        何週間先でも通信なしで出せる。見ている週が先なら、その週から数える -->
   <div class="next-spring" id="next-spring" hidden></div>
-  <!-- 時間別天気（D-114）。**週を選んだ直後に読めるよう、カレンダーの真下に置く。**
-       ホームでも同じ帯が見えるようになったので、この画面の役目は
-       「週を送って別の日を見る」ことに寄せる。日を押したらすぐ下に出る、が要る -->
-  <div class="section-label"><span>HOURLY WEATHER</span><span class="note">← スクロール →</span></div>
-  <div class="card">
-    <!-- いつ雨か、を先に 1 行で（D-104）。ホームと同じ（D-105） -->
-    <div class="hourly-lead" id="hourly-lead" hidden></div>
-    <div class="hourly" id="hourly"><div class="empty">読み込み中…</div></div>
+  <!-- 時間別天気（D-114）。**潮汐のある場所では出さない**（D-176）。天気は潮位グラフの
+       上の段に入った（ホームと同じ・D-170〜D-175）。潮汐の無い場所（淡水）はグラフが無く、
+       天気を置く場所が無くなるので、この欄を出す -->
+  <div id="hourly-section" hidden>
+    <div class="section-label"><span>HOURLY WEATHER</span><span class="note">← スクロール →</span></div>
+    <div class="card">
+      <!-- いつ雨か、を先に 1 行で（D-104）。ホームと同じ（D-105） -->
+      <div class="hourly-lead" id="hourly-lead" hidden></div>
+      <div class="hourly" id="hourly"><div class="empty">読み込み中…</div></div>
+    </div>
   </div>
 
   <!-- 選んだ日のサマリ -->
@@ -77,6 +79,8 @@
     <span class="note" id="tide-note"></span>
   </div>
   <div class="card tide-chart-card">
+    <!-- いつ雨か、を先に 1 行で（D-104）。天気がグラフに入ってもここで結論を言う（D-176） -->
+    <div class="hourly-lead" id="chart-lead" hidden></div>
     <!-- 潮位の目盛りは横スクロールしても残ってほしいので、スクローラの外に重ねる -->
     <div class="tide-plot">
       <div class="tide-scroller" id="tide-scroller" tabindex="0"
@@ -85,11 +89,17 @@
       </div>
       <div class="level-axis" id="level-axis" aria-hidden="true"></div>
     </div>
+    <!-- いちばん上の色の帯の見方。ホームと同じ文言（D-175） -->
+    <div class="chart-units" id="chart-units" hidden>
+      <span class="score-legend">期待値：<span class="sw-scale">低<span class="sw sc-1"></span><span
+        class="sw sc-2"></span><span class="sw sc-3"></span><span class="sw sc-4"></span><span
+        class="sw sc-5"></span>高</span></span>
+    </div>
     <div class="tide-legend" id="tide-legend"></div>
     <div class="page-sub" id="tide-correction" hidden></div>
   </div>
   <div class="scroll-hint">
-    <span data-icon="back"></span>横にスクロールで前後の時間へ（1 画面 = 1 日・日をまたいで連続）<span data-icon="chevron-right"></span>
+    <span data-icon="back"></span>横にスクロールで前後の時間へ（日をまたいで連続）<span data-icon="chevron-right"></span>
   </div>
   </div><!-- /tide-block -->
 </main>
@@ -105,8 +115,8 @@
     fishingScoreOfDay, hourScorer, showFishingScoreHelp, stars,
     listSpots, listTidePoints, fetchTideForPoint, tidePointOfSpot,
     formatLag, pickBaseSpot, spotTidePoint, savedBaseSpot, saveBaseSpot, attachSpotPicker,
-    renderHourlyStrip,
-    tideType, TIDE_TYPE_COLORS, isCoordinateInJapan, tideTimelineSvg, sunStripHtml, levelAxisHtml, tideLevelAt, sunTimes,
+    renderHourlyStrip, renderRainLead, renderTideWeatherChart, CHART_SLOT_PX,
+    tideType, TIDE_TYPE_COLORS, isCoordinateInJapan, tideLevelAt, sunTimes,
     nextSpringTide, dayWeatherCode, weatherCategory, windLevel,
   } from "./assets/app.js";
 
@@ -193,14 +203,9 @@
      夜釣りは日付をまたぐ（22 時に入って翌 3 時まで、など）。1 日ずつ切ると
      ちょうど見たいところで途切れるため、週の 7 日ぶんを 1 本の曲線として描き、
      横スクロールで時間軸を移動する。
-     画面 1 枚には 1 日ぶんが見えている（D-063）。 */
-
-  // 画面 1 枚 = 1 日（24 時間）。ホームと揃えてある（D-063）。
-  // 変えるときは theme.css の .tide-track の幅も一緒に直すこと
-  const SCREENS_PER_DAY = 1;
-  // viewBox 幅も同じ倍率にする。ずれると preserveAspectRatio="none" の
-  // 横引き伸ばしが変わり、時刻ラベルが横に潰れて読めなくなる
-  const DAY_UNITS = 320 * SCREENS_PER_DAY;
+     **1 時間 CHART_SLOT_PX（33px）で、上の段に 1 時間ごとの天気が入る**（D-176）。
+     ホームと同じ部品（renderTideWeatherChart）。前は「画面 1 枚 = 1 日」（D-063）で、
+     天気は別の欄だった。 */
   /* グラフが受け持つ範囲（D-128）。**週カレンダーとは別物**。
      前は週カレンダーと同じ日曜〜土曜を描いていたので、**今日が土曜だと
      右に 1 日も無く、過去へしか送れなかった**。
@@ -213,8 +218,8 @@
   const scroller = document.getElementById("tide-scroller");
   const track = document.getElementById("tide-track");
 
-  /** 1 日ぶんの実寸（px）。 */
-  const dayWidth = () => scroller.clientWidth * SCREENS_PER_DAY;
+  /** 1 日ぶんの実寸（px）。画面の幅ではなく、1 時間の幅で決まる（D-176） */
+  const dayWidth = () => CHART_SLOT_PX * 24;
 
   /** グラフが描く日の並び。起点の前日から 1 週間先まで（D-128）。 */
   function chartDays() {
@@ -230,26 +235,20 @@
 
   function renderChart() {
     const days = chartDays();
-    /* 器の幅は日数から決める（D-128）。**CSS 側に日数を書かない。**
-       theme.css と JS の両方に 7 が書いてあり、片方だけ変えるとずれていた */
-    track.style.setProperty("--chart-days", days.length);
-    const result = tideTimelineSvg({
-      days, tides: days.map((date) => tideOf(date)), suns, today,
-      dayUnits: DAY_UNITS, height: CHART_H, padTop: PAD_TOP, padBottom: PAD_BOTTOM,
-      // ★の帯（D-169）。ホームと同じ部品なので同じ帯が出る
-      scoreOf: currentScoreOf(), weatherHours: weatherCache,
-    });
     const axis = document.getElementById("level-axis");
+    /* 潮位と 1 時間ごとの天気を 1 枚の図にする（D-176）。**ホームと同じ関数**。
+       天気は週ぶん（fetchWeatherRange）が weatherCache に入っている */
+    const result = renderTideWeatherChart({
+      track, axis, days, tides: days.map((date) => tideOf(date)), suns, today,
+      weatherHours: weatherCache, scoreOf: currentScoreOf(),
+      chartH: CHART_H, padTop: PAD_TOP, padBottom: PAD_BOTTOM,
+    });
     if (!result) {
       track.innerHTML = `<div class="empty">読み込み中…</div>`;
       axis.innerHTML = "";
       return;
     }
-    // 日付の帯はグラフと同じ器に入れる（横スクロールに追従する・D-121）
-    track.innerHTML = result.ruler + result.svg + sunStripHtml(result.sunMarks);
-    // 目盛りは SVG と同じ高さの箱に置く（縦は引き伸ばしていないので座標がそのまま px）
-    axis.style.height = `${CHART_H}px`;
-    axis.innerHTML = levelAxisHtml(result.levelTicks);
+    document.getElementById("chart-units").hidden = !result.hasCards;
     renderLegend(result.min, result.max);
   }
 
@@ -282,12 +281,13 @@
     scroller.scrollTo({ left: index * dayWidth(), behavior });
   }
 
-  /** 現在時刻が画面の中央に来るようにする。 */
+  /** いまの時間の列が左から 2 列目に来るようにする（ホームと同じ・D-176）。
+      天気は「これから」を見るものなので、中央ではなく左に寄せる。 */
   function scrollToNow(behavior = "smooth") {
     const now = nowInJst();
     const index = dayIndex(now.date);
     if (index < 0) return scrollToDate(state.date, behavior);
-    const left = (index + now.hours / 24) * dayWidth() - scroller.clientWidth / 2;
+    const left = (index * 24 + now.hour - 1) * CHART_SLOT_PX;
     scroller.scrollTo({ left: Math.max(0, left), behavior });
   }
 
@@ -412,7 +412,7 @@
     if (!sunCache.has(key)) sunCache.set(key, sunTimes(at.lat, at.lng, date));
     return sunCache.get(key);
   }
-  const suns = { get: sunOf };      // tideTimelineSvg へ渡す（Map と同じ使い方）
+  const suns = { get: sunOf };      // グラフへ渡す（Map と同じ使い方）
 
   /**
    * 指定日の時間別予報。取得は週まとめ（D-055）なので、
@@ -517,17 +517,24 @@
        日の境目で 0 時が重なるが、renderHourlyStrip がまとめる（D-114） */
     const next = weatherCache.get(addJstDays(state.date, 1)) ?? [];
     const hours = weather ? [...weather, ...next] : null;
+    /* 潮汐のある場所では、天気は潮位グラフの上の段に入る（D-176・renderChart）。
+       ここでは「いつ雨か」の 1 行だけをグラフの上に出す。
+       潮汐の無い場所（淡水）はグラフが無いので、今まで通りこの欄にカードを並べる */
+    const inChart = Boolean(state.point);
+    document.getElementById("hourly-section").hidden = inChart;
+    if (inChart) {
+      renderRainLead(document.getElementById("chart-lead"), { hours, date: state.date });
+      return;
+    }
     renderHourlyStrip(document.getElementById("hourly"), {
       hours, date: state.date,
       leadBox: document.getElementById("hourly-lead"),
       emptyText: "読み込み中…",
-      /* 1 時間ごとの釣行スコア（D-116）。**ホームと同じ部品なので同じ★が出る。**
+      /* 1 時間ごとの釣行スコア（D-116）。**ホームと同じ部品なので同じ色が出る。**
          片方だけに出すと、また 2 つに分かれて片方が取り残される（D-105） */
       scoreOf: currentScoreOf(),
       // マヅメの帯（D-163）。ホームと同じ部品なので同じ帯が出る
       sunOf,
-      // 潮位の曲線をカードの上に重ねる（D-169 試作）
-      tideOf,
     });
   }
 
