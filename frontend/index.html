@@ -92,10 +92,12 @@
           </div>
           <div class="level-axis" id="level-axis" aria-hidden="true"></div>
         </div>
-        <!-- グラフの中の天気カード（D-171）。単位と「突風」はカードに書いたので、
-             ここは矢印の向きだけ言う（向きは字で書く場所がカードに無い） -->
+        <!-- グラフの中の天気カード（D-171 / D-172）。単位と「突風」はカードに書いたので、
+             ここはカードに字で書く場所が無いもの（気温の色・矢印の向き）だけを言う -->
         <div class="chart-units" id="chart-units" hidden>
-          天気カードの矢印は、風が吹いていく向きです
+          気温の色は 1 時間前と比べて
+          <span class="temp-up">上がる</span>・<span class="temp-down">下がる</span>・同じ（灰）。
+          矢印は風が吹いていく向きです
         </div>
         <div class="tide-legend" id="tide-legend"></div>
         <!-- どの観測所の値かは、グラフと同じカードの中に置く（D-105）。
