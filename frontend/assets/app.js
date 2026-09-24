@@ -5973,12 +5973,13 @@ export function renderRainLead(leadBox, { hours, date = null, count = 24 } = {})
  * @param {number|null} opt.score 釣行スコア。渡すとカードの上端を★と同じ色で塗る（D-170）
  * @param {boolean} opt.past 過ぎた時間か（沈める）
  * @param {string} opt.style 置き場所の指定（グラフの中では何時の列かを渡す）
- * @param {boolean} opt.compact 潮位グラフの中に入れる細い版（D-171）。数字だけにし、
- *   単位と「最大」の字はカードの外（グラフの下）に 1 回だけ書く
+ * @param {boolean} opt.compact 潮位グラフの中に入れる細い版（D-171）
+ * @param {"up"|"down"|"flat"|null} opt.tempTrend 1 時間前から気温が上がるか（D-172）。
+ *   気温の字の色を変える。前の 1 時間の予報が無いときは null（色を付けない）
  */
 function hourCardHtml(w, {
   isNow = false, newDay = false, mazume = null, score = null, past = false, style = "",
-  compact = false,
+  compact = false, tempTrend = null,
 } = {}) {
   const { icon: weatherIcon } = describeWeather(w.weather_code);
   const rain = rainLevel(w.precip_mm);
@@ -6004,7 +6005,8 @@ function hourCardHtml(w, {
         <div class="h">${w.hour}</div>
         <div class="icon-wrap">${weatherIcon}</div>
         <div class="pop ${rain?.key ?? "unknown"}">${rainText}</div>
-        <div class="t">${w.temp_c != null ? `${Math.round(w.temp_c)}°` : "—"}</div>
+        <div class="t${tempTrend ? ` temp-${tempTrend}` : ""}">${
+          w.temp_c != null ? `${Math.round(w.temp_c)}°` : "—"}</div>
         <div class="wind wnd-${wind?.key ?? "unknown"}">${arrow != null
           ? `<span class="wind-arrow" style="transform:rotate(${arrow}deg)"
                    title="${escapeHtml(windDirection(w.wind_dir_deg))}の風">${
@@ -6080,6 +6082,17 @@ export function chartHourCardsHtml({ days, weatherHours, sunOf = null, scoreOf =
   }
   const now = nowInJst();
   const nowKey = `${now.date}T${String(now.hour).padStart(2, "0")}`;
+  /* 気温が 1 時間前から上がるか・下がるか・同じか（D-172）。
+     **画面に出す整数どうしで比べる。** 小数で比べると、どちらも「24°」なのに
+     「上がる」の色が付き、見た目の数字と色が食い違う。
+     前の 1 時間は日をまたいで引く（0 時の 1 時間前は前日の 23 時） */
+  const tempTrendOf = (date, h, w) => {
+    const prevKey = h === 0 ? `${addJstDays(date, -1)}T23` : `${date}T${String(h - 1).padStart(2, "0")}`;
+    const prev = byKey.get(prevKey)?.temp_c;
+    if (w.temp_c == null || prev == null) return null;
+    const diff = Math.round(w.temp_c) - Math.round(prev);
+    return diff > 0 ? "up" : diff < 0 ? "down" : "flat";
+  };
   const cards = [];
   days.forEach((date, d) => {
     for (let h = 0; h < 24; h++) {
@@ -6094,6 +6107,7 @@ export function chartHourCardsHtml({ days, weatherHours, sunOf = null, scoreOf =
         score: scoreOf ? scoreOf(w) : null,
         past: key < nowKey,
         compact: true,
+        tempTrend: tempTrendOf(date, h, w),
         style: `grid-column:${d * 24 + h + 1};width:${CHART_CARD_W}px`,
       }));
     }
