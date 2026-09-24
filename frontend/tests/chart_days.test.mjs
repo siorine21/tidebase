@@ -13,6 +13,7 @@ const read = (p) => fs.readFileSync(new URL(p, import.meta.url), 'utf8');
 const CSS = read('../assets/theme.css');
 const TIDE = read('../tide.html');
 const HOME = read('../index.html');
+const APP = read('../assets/app.js');
 
 let failed = 0;
 const check = (name, ok, extra = '') => {
@@ -31,9 +32,16 @@ for (const dead of ['width: 700%', 'width: 300%', 'width: 14.2857%', 'width: 33.
   check(`古い固定幅が残っていない（${dead}）`, !CSS.includes(dead));
 }
 
-/* ---- 画面側は必ず日数を渡す ---- */
-check('潮汐画面が --chart-days を渡している', TIDE.includes('"--chart-days"'));
-check('ホームが --chart-days を渡している', HOME.includes('"--chart-days"'));
+/* ---- 日数は共通の組み立て 1 か所で渡す（D-176） ----
+   前は画面ごとに --chart-days を渡していた。天気を入れた図の組み立てを
+   renderTideWeatherChart にまとめたので、渡すのはそこ 1 か所。
+   両方の画面がそこを通っていれば、日数と器の幅はずれようがない */
+const from = APP.indexOf('export function renderTideWeatherChart(');
+const builder = from < 0 ? '' : APP.slice(from, APP.indexOf('\nexport function ', from + 1));
+check('共通の組み立てが --chart-days を渡している', builder.includes('"--chart-days"'));
+check('共通の組み立ては器の幅を日数から決めている', /days\.length/.test(builder) && /track\.style\.width/.test(builder));
+check('潮汐画面は共通の組み立てを通す', TIDE.includes('renderTideWeatherChart('));
+check('ホームは共通の組み立てを通す', HOME.includes('renderTideWeatherChart('));
 
 /* ---- 範囲の決め方（指摘そのもの） ---- */
 check('潮汐画面の範囲は週カレンダーではなく起点から作る',

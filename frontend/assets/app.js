@@ -556,12 +556,9 @@ export function tideTimelineSvg({
       + band("mazume", rise - w, rise + w) + band("mazume", set - w, set + w);
   }).join("");
 
-  /* 釣行スコアの帯（D-169）。**潮位グラフと HOURLY WEATHER を合体できないか**
-     という相談から。このグラフは 13px/h と詰まっていて、天気のカードは
-     重ねられない（合体は時間別天気の側でやった・hourlySparklineSvg）。
-     ここには、時間別天気の曲線の下に敷いているのと**同じ色の帯**を敷く。
+  /* 釣行スコアの帯（D-169 / D-175）。1 時間ごとの釣行スコアを色で出す。
      色は「点 → 色」を決めている 1 か所（sc-N・D-122）をそのまま使う。
-     ここで色を作り直すと、2 つの帯が食い違いかねない。
+     ここで色を作り直すと、★や色の見本（期待値：低〜高）と食い違いかねない。
 
      **weatherHours は days と同じ日付ぶん持っているとは限らない。**
      時間別天気はもともと「今日から先」の窓しか持たず、過去の日や
@@ -5674,8 +5671,10 @@ const CHART_CARD_GAP = 3;
     動かしている（D-113）。離れた場所に置くと、切り出した範囲に幅の定数が無いまま
     この行だけが入り、読み込んだ時点で落ちる（D-170 で実際に落ちた） */
 export const CHART_SLOT_PX = CHART_CARD_W + CHART_CARD_GAP;
-/** カードの上に重ねる潮位の曲線の高さ（D-169 試作）。細いスパークライン。 */
-const HOURLY_CURVE_H = 40;
+/** 曲線の上に取る天気の段の高さ（D-174 / D-175）。いちばん上のスコアの帯（7px）と、
+    天気の列（時刻・天気・雨量・気温・風・突風）が入る高さ。**列の中身の高さと 1 組**。
+    字を大きくしたらここも上げる（chart.mjs が「列が満干の字・曲線と重ならない」を測る） */
+const CHART_HEAD_H = 126;
 
 /** 雨が「降っている」と言える降水量（mm/h）。これ未満は量として意味がない。 */
 const RAIN_MM = 0.1;
@@ -5900,59 +5899,6 @@ export function hoursFromNow(hours, nowIso, count = 24) {
  *   前は時間帯 4 つの並びを別に置いていたが、**同じことを 2 か所で言っていた**うえ、
  *   時間帯の点は「その帯でいちばん良い 1 時間」なので、
  *   **帯の中のどこが良いのかが消えていた**（1 日の中で 2〜5 に散る）。
-/**
- * 時間別天気のカードの並びに重ねる、潮位の細い曲線（D-169 試作）。
- *
- * **カードと同じ横幅・同じ間隔で描く。** 潮位グラフ本体（`tideTimelineSvg`）は
- * 1 時間 13px と詰まっていて、時間別天気のカード（1 時間 62px）とは
- * 目盛りの細かさが 4.6 倍違うため、そのままでは重ねられない。
- * カードの★の段をやめて幅を 54px→44px に詰めた（見合った分をここに回した）ぶん、
- * **この曲線とカードは 1 つのスクロール領域に同居できる**。連動の仕組みは要らない。
- *
- * @param {object[]} rows renderHourlyStrip が組み立てた、実際に表示する行
- * @param {(date:string)=>object|null} tideOf 日付 → 潮汐
- * @param {((row:object)=>number|null)|null} scoreOf 1 時間ごとの釣行スコア。
- *   渡すと曲線の下に、潮位グラフと同じ配色（sc-1〜sc-5・D-122）の帯を敷く。
- */
-function hourlySparklineSvg(rows, tideOf, scoreOf) {
-  const step = HOUR_CARD_W + HOUR_CARD_GAP;
-  const width = rows.length * step - HOUR_CARD_GAP;
-  const points = rows.map((w, i) => {
-    const tide = tideOf(String(w.time).slice(0, 10));
-    const level = tide ? tideLevelAt(tide.hourly_levels_cm, w.hour) : null;
-    return level == null ? null : { x: i * step + HOUR_CARD_W / 2, v: level };
-  }).filter(Boolean);
-  if (points.length < 2) return "";
-
-  const vs = points.map((p) => p.v);
-  const min = Math.min(...vs), max = Math.max(...vs);
-  const padY = 4;
-  const yOf = (v) => HOURLY_CURVE_H - padY
-    - ((v - min) / Math.max(1, max - min)) * (HOURLY_CURVE_H - padY * 2);
-  const pts = points.map((p) => ({ x: p.x, y: yOf(p.v) }));
-  const base = HOURLY_CURVE_H;
-  const line = `<path class="curve-line" d="${smoothPath(pts)}"/>`;
-  const area = `<path class="curve-area" d="${smoothPath(pts)}`
-    + ` L${pts[pts.length - 1].x.toFixed(2)},${base} L${pts[0].x.toFixed(2)},${base} Z"/>`;
-
-  /* 曲線の下に、潮位グラフと同じ帯（D-169）。色を作り直すと、
-     潮位グラフの帯・このカードの並びとで色が食い違いかねないので、
-     「点 → 色」を決めている 1 か所（.sc-1〜.sc-5）をそのまま使う。
-     data-t は .hour-card と同じ形（"YYYY-MM-DDTHH"）で持たせ、
-     座標ではなく文字で「同じ時刻を指しているか」を確かめられるようにする（D-169） */
-  const band = !scoreOf ? "" : rows.map((w, i) => {
-    const score = scoreOf(w);
-    if (score == null) return "";
-    const a = i * step;
-    return `<rect class="score-seg sc-${score}" data-t="${escapeHtml(String(w.time).slice(0, 13))}"
-      x="${a}" y="0" width="${HOUR_CARD_W}" height="4"/>`;
-  }).join("");
-
-  return `<svg class="hourly-curve" viewBox="0 0 ${width} ${HOURLY_CURVE_H}"
-    width="${width}" height="${HOURLY_CURVE_H}" preserveAspectRatio="none"
-    role="img" aria-label="時間ごとの潮位">${band}${area}${line}</svg>`;
-}
-
 /** 時間別天気で見せる窓。**今日はいまの時刻から、先の日は 0 時から。**
     予報は 0 時からの並びなので、今日をそのまま出すと過ぎた時間が先頭に来る。
     逆に明日以降を「いまの時刻から」にすると、その日の朝が消えてしまう。 */
@@ -5965,7 +5911,7 @@ function hourlyWindow(hours, date, count) {
   const rows = startsNow
     ? hoursFromNow(series, `${now.date}T${now.hhmm}`, count)
     : hoursOfDate(series, date).slice(0, count);
-  return { rows, startsNow, today, now };
+  return { rows, startsNow, today, now, series };
 }
 
 function fillRainLead(leadBox, { rows, startsNow, today, now }) {
@@ -6068,7 +6014,8 @@ function hourCardHtml(w, {
           w.precip_mm == null ? "—"
             : w.precip_mm < 0.1 ? `0<span class="pct">mm</span>`
             : `${Number(w.precip_mm).toFixed(1)}<span class="pct">mm</span>`}</div>
-        <div class="t">${w.temp_c != null ? `${Math.round(w.temp_c)}°` : "—"}</div>
+        <div class="t${tempTrend ? ` temp-${tempTrend}` : ""}">${
+          w.temp_c != null ? `${Math.round(w.temp_c)}°` : "—"}</div>
         <div class="wind wnd-${wind?.key ?? "unknown"}">
           ${arrow != null
             ? `<span class="wind-arrow" style="transform:rotate(${arrow}deg)"
@@ -6151,9 +6098,58 @@ export function chartHourCardsHtml({ days, weatherHours }) {
     CHART_SLOT_PX}px)">${cards.join("")}</div>`;
 }
 
+/**
+ * 潮位グラフと 1 時間ごとの天気を 1 枚の図として描く（D-170〜D-176）。
+ * **ホームと潮汐画面で同じものを使う。** 前は組み立て（横幅・天気の段・列・
+ * 目盛りの位置合わせ）をホームにだけ書いていた。2 か所に書くと片方だけ直して
+ * 食い違う（D-105 と同じ話）。
+ *
+ * - 1 時間 CHART_SLOT_PX（33px）。SVG の座標も同じ px にする（字が横に伸びない）。
+ * - 曲線の上に天気の段（CHART_HEAD_H）を取り、夜・マヅメ・時刻の線・日の線・
+ *   いまの列・過去の沈みを段の上端から通す。スコアはいちばん上の列ごとの帯。
+ * - 天気の数字は枠の無い列として段に重ねる（chartHourCardsHtml）。
+ *
+ * @param {object} opt
+ * @param {HTMLElement} opt.track グラフの器（.tide-track）
+ * @param {HTMLElement} opt.axis 潮位の目盛りの箱（.level-axis）
+ * @param {number} opt.chartH 曲線の区間の高さ（天気の段は含まない）
+ * @returns {object|null} tideTimelineSvg の戻り値＋ hasCards。潮位が無ければ null
+ */
+export function renderTideWeatherChart({
+  track, axis, days, tides, suns, today, weatherHours, scoreOf = null,
+  chartH, padTop = 28, padBottom = 20,
+}) {
+  const dayPx = CHART_SLOT_PX * 24;
+  // 器の幅は日数から決める。CSS 側に日数を書かない（D-128）
+  track.style.setProperty("--chart-days", days.length);
+  track.style.width = `${dayPx * days.length}px`;
+  const height = chartH + CHART_HEAD_H;
+  const result = tideTimelineSvg({
+    days, tides, suns, today, dayUnits: dayPx, height, padTop, padBottom,
+    gridStepHours: 1, headH: CHART_HEAD_H, dimPast: true, scoreOf, weatherHours,
+  });
+  if (!result) return null;
+  const cards = chartHourCardsHtml({ days, weatherHours });
+  // 日付の帯はグラフと同じ器に入れる（横スクロールに追従する・D-121）
+  track.innerHTML = result.ruler
+    + `<div class="chart-body">${result.svg}${cards}</div>`
+    + sunStripHtml(result.sunMarks);
+  // SVG の高さは CSS の既定ではなく、天気の段ぶん足した高さ（座標と 1:1）
+  const graph = track.querySelector("svg.tide-graph");
+  graph.style.height = `${height}px`;
+  /* **目盛りの箱は SVG の上端にそろえる。** 上に日付の帯が入るので、
+     枠の上端から置くと、そのぶん目盛りがずれる */
+  axis.style.height = `${height}px`;
+  const plot = track.closest(".tide-plot");
+  axis.style.top = plot
+    ? `${graph.getBoundingClientRect().top - plot.getBoundingClientRect().top}px` : "0px";
+  axis.innerHTML = levelAxisHtml(result.levelTicks);
+  return { ...result, hasCards: Boolean(cards) };
+}
+
 export function renderHourlyStrip(box, {
   hours, date = null, leadBox = null, count = 24,
-  emptyText = "予報がありません", scoreOf = null, sunOf = null, tideOf = null,
+  emptyText = "予報がありません", scoreOf = null, sunOf = null,
 } = {}) {
   const hide = (text) => {
     box.innerHTML = `<div class="empty">${escapeHtml(text)}</div>`;
@@ -6162,7 +6158,7 @@ export function renderHourlyStrip(box, {
   if (!hours?.length) return hide(emptyText);
 
   const win = hourlyWindow(hours, date, count);
-  const { rows, startsNow, today, now } = win;
+  const { rows, startsNow, today, now, series } = win;
   if (!rows.length) return hide(emptyText);
 
   if (leadBox) fillRainLead(leadBox, win);
@@ -6246,8 +6242,18 @@ export function renderHourlyStrip(box, {
     }).join("")}</div>`;
   })();
 
-  // 潮位の曲線（D-169）。tideOf を渡さない呼び出し（淡水など）は曲線なし
-  const curve = tideOf ? hourlySparklineSvg(rows, tideOf, scoreOf) : "";
+  /* 気温が 1 時間前から上がるか・下がるか・同じか（D-172 / D-176）。グラフの中の列と
+     同じ決め方（画面に出す整数どうし・前の 1 時間が無ければ色なし）。
+     窓の先頭の 1 時間前は窓の外にあるので、並び全体（series）から引く */
+  const tempAt = new Map(series.map((w) => [String(w.time).slice(0, 13), w.temp_c]));
+  const trendOf = (w) => {
+    const d = String(w.time).slice(0, 10), h = w.hour;
+    const prevKey = h === 0 ? `${addJstDays(d, -1)}T23` : `${d}T${String(h - 1).padStart(2, "0")}`;
+    const prev = tempAt.get(prevKey);
+    if (w.temp_c == null || prev == null) return null;
+    const diff = Math.round(w.temp_c) - Math.round(prev);
+    return diff > 0 ? "up" : diff < 0 ? "down" : "flat";
+  };
 
   const cards = rows.map((w, i) => hourCardHtml(w, {
     isNow: nowHour != null && String(w.time).slice(0, 13) === nowHour,
@@ -6255,15 +6261,15 @@ export function renderHourlyStrip(box, {
     /* マヅメの時間はカードごと薄く塗る（本人の指摘）。**上の帯と同じ判定**を使う。
        「いま」のカードは枠がカラシなので、塗りが重なっても見分けが付く */
     mazume: mazumeKinds[i],
-    /* **曲線が無いときはカードの上端に点の色を出す**（D-170）。★の段はやめたので、
-       曲線の下の帯も無いと、1 時間ごとの点がどこにも出なくなる（淡水のスポット） */
-    score: !curve && scoreOf ? scoreOf(w) : null,
+    /* 1 時間ごとの点はカードの上端の色で出す（D-170）。この帯は潮位グラフの無い場所
+       （淡水）でだけ使うので、グラフのいちばん上の色の帯の代わりになる */
+    score: scoreOf ? scoreOf(w) : null,
+    tempTrend: trendOf(w),
   })).join("");
 
   box.innerHTML = `<div class="hourly-inner">`
     + `<div class="hourly-days">${ruler}</div>`
     + mazumeRuler
-    + curve
     + `<div class="hourly-row">${cards}</div>`
     + `</div>`;
 }
