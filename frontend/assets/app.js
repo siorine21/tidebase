@@ -5629,6 +5629,12 @@ export function rainLevel(mm) {
     風速・突風の数字（台風並みで2桁になる）がいまの幅制約。 */
 const HOUR_CARD_W = 44;
 const HOUR_CARD_GAP = 6;
+/** 潮位グラフの中に天気のカードを入れるときの、1 時間ぶんの横幅（px・D-170）。
+    カード 1 枚＋間隔。グラフの 1 日はこの 24 倍になる。
+    **HOUR_CARD_W / HOUR_CARD_GAP のすぐ下に置く。** テストは app.js を目印で切り出して
+    動かしている（D-113）。離れた場所に置くと、切り出した範囲に HOUR_CARD_W が無いまま
+    この行だけが入り、読み込んだ時点で落ちる（実際に落ちた） */
+export const HOUR_SLOT_PX = HOUR_CARD_W + HOUR_CARD_GAP;
 /** カードの上に重ねる潮位の曲線の高さ（D-169 試作）。細いスパークライン。 */
 const HOURLY_CURVE_H = 40;
 
@@ -5908,6 +5914,155 @@ function hourlySparklineSvg(rows, tideOf, scoreOf) {
     role="img" aria-label="時間ごとの潮位">${band}${area}${line}</svg>`;
 }
 
+/** 時間別天気で見せる窓。**今日はいまの時刻から、先の日は 0 時から。**
+    予報は 0 時からの並びなので、今日をそのまま出すと過ぎた時間が先頭に来る。
+    逆に明日以降を「いまの時刻から」にすると、その日の朝が消えてしまう。 */
+function hourlyWindow(hours, date, count) {
+  // 日ごとの配列をつないで渡されることがあり、境目の 0 時が重なる（D-114）
+  const series = uniqueHours(hours);
+  const today = todayInJst();
+  const now = nowInJst();
+  const startsNow = !date || date === today;
+  const rows = startsNow
+    ? hoursFromNow(series, `${now.date}T${now.hhmm}`, count)
+    : hoursOfDate(series, date).slice(0, count);
+  return { rows, startsNow, today, now };
+}
+
+function fillRainLead(leadBox, { rows, startsNow, today, now }) {
+  /* 先頭が「いまの時間帯」かを渡す（D-107）。
+     これを渡さないと、いま 12:05 なのに「12 時ごろから雨になりそうです」と出る */
+  /* today も渡す（本人の指摘）。夕方に見ると帯の後ろ半分は翌日なので、
+     そこを指すときは「明日の」と書く。窓の先頭が今日でないときは書かない */
+  const outlook = rainOutlook(rows, {
+    startsNow: startsNow && rows[0].hour === now.hour, today,
+  });
+  leadBox.hidden = !outlook;
+  if (outlook) {
+    leadBox.className = `hourly-lead ${outlook.key}`;
+    leadBox.innerHTML = `${icon(outlook.key === "none" ? "sun" : "rain", { size: 14 })}`
+      + `<span>${escapeHtml(outlook.text)}</span>`;
+  }
+}
+
+/**
+ * 「いつ雨か」の 1 行だけを出す（D-104）。時間別天気のカードを潮位グラフの中に
+ * 入れた画面（D-170）では、カードの帯が無くてもこの結論は先に言う。
+ */
+export function renderRainLead(leadBox, { hours, date = null, count = 24 } = {}) {
+  if (!hours?.length) { leadBox.hidden = true; return; }
+  const win = hourlyWindow(hours, date, count);
+  if (!win.rows.length) { leadBox.hidden = true; return; }
+  fillRainLead(leadBox, win);
+}
+
+/**
+ * 時間別天気のカード 1 枚（D-104 / D-111）。**時間別天気の帯と、潮位グラフの中の
+ * カードの列（D-170）とで同じものを使う。** 2 つに書くと片方だけ直して食い違う（D-105）。
+ *
+ * @param {object} w 1 時間ぶんの予報
+ * @param {object} opt
+ * @param {boolean} opt.isNow いまの時間か（枠をカラシにする・D-117）
+ * @param {boolean} opt.newDay 日が変わる最初の 1 枚か
+ * @param {string|null} opt.mazume "morning" / "evening" ならカードを薄く塗る（D-163）
+ * @param {number|null} opt.score 釣行スコア。渡すとカードの上端を★と同じ色で塗る（D-170）
+ * @param {boolean} opt.past 過ぎた時間か（沈める）
+ * @param {string} opt.style 置き場所の指定（グラフの中では何時の列かを渡す）
+ */
+function hourCardHtml(w, {
+  isNow = false, newDay = false, mazume = null, score = null, past = false, style = "",
+} = {}) {
+  const { icon: weatherIcon } = describeWeather(w.weather_code);
+  const rain = rainLevel(w.precip_mm);
+  const wind = windLevel(w.wind_speed_ms);
+  const arrow = windArrowDeg(w.wind_dir_deg);
+  const cls = ["hour-card", isNow && "now", newDay && "newday", mazume && "mazume",
+    past && "past", score != null && `scored sc-${score}`].filter(Boolean).join(" ");
+  /* **時刻をそのまま持たせる**（D-169）。表示の「${w.hour}」は日をまたぐと
+     どの日か分からなくなるが、こちらは "YYYY-MM-DDTHH" のまま持てるので、
+     潮位の曲線・帯と同じ時刻を指しているかを確かめるのに使える */
+  return `
+      <div class="${cls}" data-t="${escapeHtml(String(w.time).slice(0, 13))}"${
+        style ? ` style="${style}"` : ""}>
+        <div class="h">${w.hour}</div>
+        <div class="icon-wrap">${weatherIcon}</div>
+        <!-- 降水確率ではなく**予想雨量**を出す（D-111）。
+             確率は気象庁が返さず、出していた値は別モデルのものだった。
+             0.0 は「降らない」なので「—」（値が無い）とは分けて書く -->
+        <div class="pop ${rain?.key ?? "unknown"}">${
+          w.precip_mm == null ? "—"
+            : w.precip_mm < 0.1 ? `0<span class="pct">mm</span>`
+            : `${Number(w.precip_mm).toFixed(1)}<span class="pct">mm</span>`}</div>
+        <div class="t">${w.temp_c != null ? `${Math.round(w.temp_c)}°` : "—"}</div>
+        <div class="wind wnd-${wind?.key ?? "unknown"}">
+          ${arrow != null
+            ? `<span class="wind-arrow" style="transform:rotate(${arrow}deg)"
+                     title="${escapeHtml(windDirection(w.wind_dir_deg))}の風">${
+                 icon("wind-arrow", { size: 12 })}</span>`
+            : ""}
+          <!-- 単位を添える（本人の指摘）。数字だけだと m/s か km/h か分からない -->
+          <span class="ms">${w.wind_speed_ms != null
+            ? `${Number(w.wind_speed_ms).toFixed(1)}<small>m/s</small>` : "—"}</span>
+        </div>
+        <!-- 「突」だけでは何の略か伝わらない。**最大**（その 1 時間で瞬間的に
+             いちばん強かった風。Open-Meteo の定義もその 1 時間の最大値）と書く -->
+        <div class="gust">${w.wind_gust_ms != null
+          ? `最大${Math.round(w.wind_gust_ms)}<small>m/s</small>` : "&nbsp;"}</div>
+      </div>`;
+}
+
+/**
+ * 潮位グラフの中に並べる、時間別天気のカードの列（D-170）。
+ *
+ * 「タイドグラフのカラーバーの部分に、時間単位の天気情報のカードが入るイメージ」
+ * （本人）。グラフのほうを 1 時間 HOUR_SLOT_PX に伸ばし、**その目盛りの上に
+ * 1 時間 1 枚ずつ置く**。グラフと同じ器（`.tide-track`）に入れるので、
+ * 横スクロールしてもずれない。
+ *
+ * 列は CSS グリッドで「グラフの時間数」ぶん切り、カードは自分の時刻の列に入る。
+ * **予報の無い時間（取れなかった日など）はその列が空くだけ**で、
+ * 後ろのカードが詰まって時刻がずれることはない。
+ *
+ * @param {object} opt
+ * @param {string[]} opt.days グラフの日付
+ * @param {Map<string, object[]>} opt.weatherHours 日付 → 予報
+ * @param {((date:string)=>object|null)|null} opt.sunOf 日付 → 日の出・日没（マヅメの塗り）
+ * @param {((row:object)=>number|null)|null} opt.scoreOf 釣行スコア（カードの上端の色）
+ */
+export function chartHourCardsHtml({ days, weatherHours, sunOf = null, scoreOf = null }) {
+  /* 日ごとの予報には、翌日の頭の数時間が混ざっていることがある（D-104）。
+     全部を 1 つに集め、時刻で引く。同じ時刻は先に見つけたほうを使う */
+  const byKey = new Map();
+  for (const rows of weatherHours.values()) {
+    for (const w of rows ?? []) {
+      const key = String(w.time).slice(0, 13);
+      if (!byKey.has(key)) byKey.set(key, w);
+    }
+  }
+  const now = nowInJst();
+  const nowKey = `${now.date}T${String(now.hour).padStart(2, "0")}`;
+  const cards = [];
+  days.forEach((date, d) => {
+    for (let h = 0; h < 24; h++) {
+      const key = `${date}T${String(h).padStart(2, "0")}`;
+      const w = byKey.get(key);
+      if (!w) continue;
+      const band = sunOf ? timeBandOf(sunOf(date), `${String(h).padStart(2, "0")}:00`) : null;
+      cards.push(hourCardHtml(w, {
+        isNow: key === nowKey,
+        newDay: h === 0 && d > 0,
+        mazume: band === "morning" || band === "evening" ? band : null,
+        score: scoreOf ? scoreOf(w) : null,
+        past: key < nowKey,
+        style: `grid-column:${d * 24 + h + 1}`,
+      }));
+    }
+  });
+  if (!cards.length) return "";
+  return `<div class="chart-hours" style="grid-template-columns:repeat(${days.length * 24}, ${
+    HOUR_SLOT_PX}px)">${cards.join("")}</div>`;
+}
+
 export function renderHourlyStrip(box, {
   hours, date = null, leadBox = null, count = 24,
   emptyText = "予報がありません", scoreOf = null, sunOf = null, tideOf = null,
@@ -5918,35 +6073,11 @@ export function renderHourlyStrip(box, {
   };
   if (!hours?.length) return hide(emptyText);
 
-  // 日ごとの配列をつないで渡されることがあり、境目の 0 時が重なる（D-114）
-  const series = uniqueHours(hours);
-
-  /* **今日はいまの時刻から、先の日は 0 時から。**
-     予報は 0 時からの並びなので、今日をそのまま出すと過ぎた時間が先頭に来る。
-     逆に明日以降を「いまの時刻から」にすると、その日の朝が消えてしまう。 */
-  const today = todayInJst();
-  const now = nowInJst();
-  const startsNow = !date || date === today;
-  const rows = startsNow
-    ? hoursFromNow(series, `${now.date}T${now.hhmm}`, count)
-    : hoursOfDate(series, date).slice(0, count);
+  const win = hourlyWindow(hours, date, count);
+  const { rows, startsNow, today, now } = win;
   if (!rows.length) return hide(emptyText);
 
-  if (leadBox) {
-    /* 先頭が「いまの時間帯」かを渡す（D-107）。
-       これを渡さないと、いま 12:05 なのに「12 時ごろから雨になりそうです」と出る */
-    /* today も渡す（本人の指摘）。夕方に見ると帯の後ろ半分は翌日なので、
-       そこを指すときは「明日の」と書く。窓の先頭が今日でないときは書かない */
-    const outlook = rainOutlook(rows, {
-      startsNow: startsNow && rows[0].hour === now.hour, today,
-    });
-    leadBox.hidden = !outlook;
-    if (outlook) {
-      leadBox.className = `hourly-lead ${outlook.key}`;
-      leadBox.innerHTML = `${icon(outlook.key === "none" ? "sun" : "rain", { size: 14 })}`
-        + `<span>${escapeHtml(outlook.text)}</span>`;
-    }
-  }
+  if (leadBox) fillRainLead(leadBox, win);
 
   /* 色を付けるのは**いまの時間**（D-117）。
      前はマヅメ（日の出・日没の時間）に色を付けていたが、
@@ -6027,52 +6158,19 @@ export function renderHourlyStrip(box, {
     }).join("")}</div>`;
   })();
 
-  const cards = rows.map((w, i) => {
-    const { icon: weatherIcon } = describeWeather(w.weather_code);
-    const rain = rainLevel(w.precip_mm);
-    const wind = windLevel(w.wind_speed_ms);
-    const arrow = windArrowDeg(w.wind_dir_deg);
-    const isNow = nowHour != null && String(w.time).slice(0, 13) === nowHour;
-    const newDay = i > 0 && String(w.time).slice(0, 10) !== String(rows[i - 1].time).slice(0, 10);
+  // 潮位の曲線（D-169）。tideOf を渡さない呼び出し（淡水など）は曲線なし
+  const curve = tideOf ? hourlySparklineSvg(rows, tideOf, scoreOf) : "";
+
+  const cards = rows.map((w, i) => hourCardHtml(w, {
+    isNow: nowHour != null && String(w.time).slice(0, 13) === nowHour,
+    newDay: i > 0 && String(w.time).slice(0, 10) !== String(rows[i - 1].time).slice(0, 10),
     /* マヅメの時間はカードごと薄く塗る（本人の指摘）。**上の帯と同じ判定**を使う。
        「いま」のカードは枠がカラシなので、塗りが重なっても見分けが付く */
-    const mz = mazumeKinds[i];
-    /* **時刻をそのまま持たせる**（D-169）。上に重ねる潮位の曲線・帯と
-       同じ時刻を指しているかを確かめるのに使う。表示の「${w.hour}時」は
-       日をまたぐと消えるが、こちらは "YYYY-MM-DDTHH" のまま持てる */
-    return `
-      <div class="hour-card${isNow ? " now" : ""}${newDay ? " newday" : ""}${
-        mz ? " mazume" : ""}" data-t="${escapeHtml(String(w.time).slice(0, 13))}">
-        <!-- ★の段は無くした（D-169 試作）。潮位の曲線に重ねた帯が同じ色を伝える -->
-        <div class="h">${w.hour}</div>
-        <div class="icon-wrap">${weatherIcon}</div>
-        <!-- 降水確率ではなく**予想雨量**を出す（D-111）。
-             確率は気象庁が返さず、出していた値は別モデルのものだった。
-             0.0 は「降らない」なので「—」（値が無い）とは分けて書く -->
-        <div class="pop ${rain?.key ?? "unknown"}">${
-          w.precip_mm == null ? "—"
-            : w.precip_mm < 0.1 ? `0<span class="pct">mm</span>`
-            : `${Number(w.precip_mm).toFixed(1)}<span class="pct">mm</span>`}</div>
-        <div class="t">${w.temp_c != null ? `${Math.round(w.temp_c)}°` : "—"}</div>
-        <div class="wind wnd-${wind?.key ?? "unknown"}">
-          ${arrow != null
-            ? `<span class="wind-arrow" style="transform:rotate(${arrow}deg)"
-                     title="${escapeHtml(windDirection(w.wind_dir_deg))}の風">${
-                 icon("wind-arrow", { size: 12 })}</span>`
-            : ""}
-          <!-- 単位を添える（本人の指摘）。数字だけだと m/s か km/h か分からない -->
-          <span class="ms">${w.wind_speed_ms != null
-            ? `${Number(w.wind_speed_ms).toFixed(1)}<small>m/s</small>` : "—"}</span>
-        </div>
-        <!-- 「突」だけでは何の略か伝わらない。**最大**（その 1 時間で瞬間的に
-             いちばん強かった風。Open-Meteo の定義もその 1 時間の最大値）と書く -->
-        <div class="gust">${w.wind_gust_ms != null
-          ? `最大${Math.round(w.wind_gust_ms)}<small>m/s</small>` : "&nbsp;"}</div>
-      </div>`;
-  }).join("");
-
-  // 潮位の曲線（D-169 試作）。tideOf を渡さない呼び出しは今まで通り曲線なし
-  const curve = tideOf ? hourlySparklineSvg(rows, tideOf, scoreOf) : "";
+    mazume: mazumeKinds[i],
+    /* **曲線が無いときはカードの上端に点の色を出す**（D-170）。★の段はやめたので、
+       曲線の下の帯も無いと、1 時間ごとの点がどこにも出なくなる（淡水のスポット） */
+    score: !curve && scoreOf ? scoreOf(w) : null,
+  })).join("");
 
   box.innerHTML = `<div class="hourly-inner">`
     + `<div class="hourly-days">${ruler}</div>`

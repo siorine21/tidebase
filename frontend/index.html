@@ -81,6 +81,9 @@
         <a class="note" id="tide-detail-link" href="tide.html">詳細 →</a>
       </div>
       <div class="card tide-chart-card">
+        <!-- いつ雨か、を先に 1 行で（D-104）。時間別天気のカードはグラフの中に
+             入った（D-170）が、数字を並べる前に結論を言うのはここでも同じ -->
+        <div class="hourly-lead" id="chart-lead" hidden></div>
         <!-- 潮位の目盛りは横スクロールしても残ってほしいので、スクローラの外に重ねる -->
         <div class="tide-plot">
           <div class="tide-scroller" id="tide-scroller" tabindex="0"
@@ -102,17 +105,21 @@
     <!-- 時間別天気は TODAY の中に入れる（D-114）。
          スコアも時間帯ごとの点も、この 1 時間ごとの予報から出している。
          別の節に置くと、点の根拠を見るのに節をまたぐことになる。 -->
-    <div class="hero-hourly">
+    <!-- 潮汐のある場所では、時間別天気のカードは潮位グラフの中に入る（D-170）。
+         この節は**潮位グラフが無い場所（淡水）でだけ**出す。
+         グラフが無いと、天気のカードを置く場所が無くなるため -->
+    <div class="hero-hourly" id="hero-hourly" hidden>
       <div class="hero-hourly-head">
         <span>HOURLY WEATHER</span>
       </div>
       <!-- いつ雨か、を先に 1 行で（D-104）。数字を並べる前に結論を出す -->
       <div class="hourly-lead" id="hourly-lead" hidden></div>
       <div class="hourly" id="hourly"><div class="empty">読み込み中…</div></div>
-      <!-- どこの何を見ているのかを画面に出す（D-076）。
-           出典が分からないと、外れたときに「何が外れたのか」を判断できない -->
-      <div class="list-sub" id="weather-source"></div>
     </div>
+    <!-- どこの何を見ているのかを画面に出す（D-076）。
+         出典が分からないと、外れたときに「何が外れたのか」を判断できない。
+         天気のカードがグラフの中にあっても外にあっても出すので、節の外に置く -->
+    <div class="list-sub weather-source" id="weather-source"></div>
   </section>
 
   <!-- ライブカメラ（D-143 / 043 / D-165）。**スポットには依らない。**
@@ -159,7 +166,7 @@
     fetchTide, fetchWeather, todayInJst, formatJstDate, relativeDays,
     fishingScoreAhead, hourScorer, watchNow,
     showFishingScoreHelp, tideType, TIDE_TYPE_COLORS,
-    renderHourlyStrip,
+    renderHourlyStrip, renderRainLead, chartHourCardsHtml, HOUR_SLOT_PX,
     listSpots, listRecords, icon, renderIcons,
     recordFishName, ownerBadge, nowInJst, hoursFromHhmm, addJstDays,
     listTidePoints, fetchTideForPoint, savedTidePoint, saveTidePoint, formatLag,
@@ -190,7 +197,7 @@
   let tideCache = new Map();          // 日付 → 潮汐
   const sunCache = new Map();         // 日付 → 日の出・日没
   let todayHours = null;              // 今日の時間別予報（波の行が読む・D-142）
-  /* 日付 → 時間別予報（D-169）。潮位グラフの★の帯に使う。
+  /* 日付 → 時間別予報（D-169 / D-170）。潮位グラフの中の天気カードに使う。
      loadNeighbours が翌日ぶんを取りに行っていたのに、いままで捨てていた
      （tideCache には積んでいたが weather のほうは変数に代入していなかった）。
      そのぶんを拾って積む。**新しく取りに行くものは増えない。** */
@@ -356,7 +363,6 @@
         + ` · 出典: ${WEATHER_SOURCE}`
       : `出典: ${WEATHER_SOURCE}`;
     scrollToNow("auto");
-    wireScrollSync();
 
     // 前後の日をあとから読み足す。明日ぶんが届いたらスコアを描き直す（D-115）
     loadNeighbours(point, weatherAt,
@@ -979,14 +985,19 @@
     const axis = document.getElementById("level-axis");
     // 器の幅は日数から決める。CSS 側に日数を書かない（D-128）
     track.style.setProperty("--chart-days", chartDays.length);
+    /* **1 時間 HOUR_SLOT_PX（50px）に伸ばす**（D-170）。時間別天気のカードを
+       グラフの中に 1 時間 1 枚で並べるため。前は「画面 1 枚 = 1 日」（1 時間 13px）で、
+       カードが入らなかった。
+       **dayUnits も同じ px にする。** SVG は preserveAspectRatio="none" で器いっぱいに
+       引き伸ばすので、座標と実際の px がずれると時刻や「満 08:00」の字が横に伸びる */
+    const dayPx = HOUR_SLOT_PX * 24;
+    track.style.width = `${dayPx * chartDays.length}px`;
     const tides = chartDays.map((date) => tideCache.get(date) ?? null);
     const result = tideTimelineSvg({
       days: chartDays, tides, suns: sunCache, today: todayInJst(),
       /* 日付は SVG の外の帯に出るので、上の余白は元どおり。
          下は時刻だけになったぶん薄くしてある（D-120 / D-121） */
-      dayUnits: 320, height: CHART_H, padTop: 28, padBottom: 20,
-      // ★の帯（D-169）。scoreOf は renderHero が先に決めている（呼び出し順は固定）
-      scoreOf, weatherHours: weatherCache,
+      dayUnits: dayPx, height: CHART_H, padTop: 28, padBottom: 20,
     });
     if (!result) {
       track.innerHTML = `<div class="empty">潮汐データを取得できませんでした</div>`;
@@ -996,9 +1007,22 @@
     }
     // 日の出・日没はグラフの下の帯で示すので、凡例からは外す（D-053）
     // 日付の帯はグラフと同じ器に入れる（横スクロールに追従する・D-121）
-    track.innerHTML = result.ruler + result.svg + sunStripHtml(result.sunMarks);
+    /* 天気のカードは**日付の帯と曲線のあいだ**に入れる（D-170）。もとは曲線の上に
+       ★の色の細い帯（D-169）があった場所。スコアの色はカードの上端に移した。
+       scoreOf は renderHero が先に決めている（呼び出し順は固定） */
+    const cards = chartHourCardsHtml({
+      days: chartDays, weatherHours: weatherCache,
+      sunOf: (day) => sunCache.get(day) ?? null, scoreOf,
+    });
+    track.innerHTML = result.ruler + cards + result.svg + sunStripHtml(result.sunMarks);
     // 目盛りは SVG と同じ高さの箱に置く（縦は引き伸ばしていないので座標がそのまま px）
     axis.style.height = `${CHART_H}px`;
+    /* **目盛りの箱は SVG の上端にそろえる。** 上に日付の帯と天気のカードが入るので、
+       枠の上端から置くと、カードの高さぶん目盛りが上にずれる */
+    const graph = track.querySelector("svg.tide-graph");
+    const plot = track.closest(".tide-plot");
+    axis.style.top = graph && plot
+      ? `${graph.getBoundingClientRect().top - plot.getBoundingClientRect().top}px` : "0px";
     axis.innerHTML = levelAxisHtml(result.levelTicks);
 
     /* いまの潮位はヒーローの「いまの潮」に大きく出したので、凡例からは落とす（D-129）。
@@ -1020,98 +1044,17 @@
     document.getElementById("tide-station").textContent = "";
   }
 
-  /** 現在時刻が画面中央に来るようにスクロールする。 */
+  /** いまの時間のカードが左から 2 枚目に来るようにスクロールする（D-170）。
+      天気は「これから」を見るものなので、中央ではなく左に寄せる（前の時間別天気が
+      「いま」を先頭に置いていたのと同じ・D-104）。1 枚ぶん前を残して、直前の潮の
+      向きも見えるようにする。 */
   function scrollToNow(behavior = "smooth") {
     const scroller = document.getElementById("tide-scroller");
     const now = nowInJst();
     const index = chartDays.indexOf(now.date);
     if (index < 0) return;
-    const width = scroller.clientWidth;
     scroller.scrollTo({
-      left: Math.max(0, (index + now.hours / 24) * width - width / 2), behavior,
-    });
-  }
-
-  /* ---------- 潮位グラフと時間別天気を、同じ時刻でつなぐ（D-169） ----------
-
-     「潮位グラフと HOURLY WEATHER を合体できないか」という相談から。
-     目盛りの細かさが違いすぎて（潮位グラフ 13px/h・時間別天気 62px/h）、
-     絵としては 1 つにできない。代わりに、**片方を動かすともう片方も
-     同じ時刻へついてくる**ようにする。合体はしていないが、見比べる用途は
-     これで足りると考えた。
-
-     **左端の時刻をそろえる。** 潮位グラフは「いま」を画面の真ん中に
-     置く（scrollToNow）が、時間別天気は「いま」を先頭に置く（D-104）。
-     この 2 つはもともと基準が違うので、真ん中どうしをそろえる意味が無い。
-     左端どうしをそろえれば、どちらから動かしても迷わない。 */
-  function wireScrollSync() {
-    const tide = document.getElementById("tide-scroller");
-    const hourly = document.getElementById("hourly");
-    /* **ピンポンを止める。** 片方を動かすと scroll イベントが飛び、
-       それでもう片方を動かすと……を繰り返すと無限ループになる。
-       「いま自分が動かした直後か」を時刻で持っておき、その間に来た
-       scroll イベントは「自分の echo」とみなして無視する。
-       動かした側で判定すると、体感の追いつき方が良い（後追いにならない）。 */
-    let guardUntil = 0;
-    const guard = () => { guardUntil = performance.now() + 150; };
-    const guarded = () => performance.now() < guardUntil;
-
-    /** tide-scroller の scrollLeft → その位置の日付・時刻 */
-    const tideTimeAt = (scrollLeft) => {
-      const width = tide.clientWidth;
-      if (!width || !chartDays.length) return null;
-      const pos = scrollLeft / width;
-      const dayIndex = Math.max(0, Math.min(chartDays.length - 1, Math.floor(pos)));
-      const hours = Math.max(0, Math.min(23.99, (pos - dayIndex) * 24));
-      return { date: chartDays[dayIndex], hours };
-    };
-    /** 日付・時刻 → tide-scroller の scrollLeft */
-    const tideScrollFor = (date, hours) => {
-      const width = tide.clientWidth;
-      const index = chartDays.indexOf(date);
-      if (index < 0 || !width) return null;
-      return (index + hours / 24) * width;
-    };
-    /* hourly のカードは時刻がとびとびで連続していないことがある
-       （マヅメ帯と違い、カードは 1 時間ごとに必ずある想定だが念のため）。
-       **いちばん近いカードを探す。** ちょうどの時刻が無くても止まらない */
-    const hourlyCardAt = (date, hours) => {
-      const cards = hourly.querySelectorAll(".hour-card[data-t]");
-      let best = null, bestDiff = Infinity;
-      for (const c of cards) {
-        const t = c.dataset.t;                    // "YYYY-MM-DDTHH"
-        const diffDays = (Date.parse(`${t.slice(0, 10)}T00:00:00+09:00`)
-          - Date.parse(`${date}T00:00:00+09:00`)) / 86400000;
-        const diff = diffDays * 24 + Number(t.slice(11, 13)) - hours;
-        if (Math.abs(diff) < Math.abs(bestDiff)) { bestDiff = diff; best = c; }
-      }
-      return best;
-    };
-
-    tide.addEventListener("scroll", () => {
-      if (guarded()) return;
-      const at = tideTimeAt(tide.scrollLeft);
-      const card = at && hourlyCardAt(at.date, at.hours);
-      if (!card) return;
-      guard();
-      hourly.scrollLeft = card.offsetLeft;
-    });
-
-    hourly.addEventListener("scroll", () => {
-      if (guarded()) return;
-      const cards = [...hourly.querySelectorAll(".hour-card[data-t]")];
-      // 左端に少しでもかかっているカードを「いま見えている先頭」とする
-      const first = cards.find((c) => c.offsetLeft + c.offsetWidth > hourly.scrollLeft);
-      if (!first) return;
-      const t = first.dataset.t;
-      const width = first.offsetWidth || 1;
-      // カードの途中までスクロールしていれば、そのぶん時刻を進める
-      const within = Math.max(0, Math.min(1,
-        (hourly.scrollLeft - first.offsetLeft) / width));
-      const left = tideScrollFor(t.slice(0, 10), Number(t.slice(11, 13)) + within);
-      if (left == null) return;
-      guard();
-      tide.scrollLeft = left;
+      left: Math.max(0, (index * 24 + now.hour - 1) * HOUR_SLOT_PX), behavior,
     });
   }
 
@@ -1128,18 +1071,29 @@
       tideCache.set(date, tide);
       /* **前から取りに行っていたのに、捨てていた。** ★の帯（D-169）に使う */
       if (forecast?.hours) weatherCache.set(date, forecast.hours);
-      renderChart();
-      renderNow();          // 翌日ぶんが届くと、夜の「次の満潮」が出せるようになる
       /* **スコアを出し直す**（D-115）。窓が「これから 24 時間」になったので、
          夕方以降に見ると帯の半分は明日にかかる。明日の潮汐が届くまでは
-         潮の動きぶんの加減が入らず、点が低いまま止まってしまう */
+         潮の動きぶんの加減が入らず、点が低いまま止まってしまう。
+         **グラフより先に出す**（D-170）。グラフの中のカードの色は scoreOf を読むので、
+         後にすると明日の潮汐が入る前の点で塗ったまま残る */
       if (date === addJstDays(todayInJst(), 1) && hero) hero();
+      renderChart();
+      renderNow();          // 翌日ぶんが届くと、夜の「次の満潮」が出せるようになる
     }));
   }
 
   /* 1 時間ごとの予報（D-104）。描画は app.js の共通版に任せる（D-105）。
      前は潮汐詳細にも同じものが別に書いてあり、片方だけ直して取り残した */
   function renderHourly(weather) {
+    /* 潮位グラフがあるときは、カードはグラフの中に並べる（D-170・renderChart）。
+       ここでは「いつ雨か」の 1 行だけをグラフの上に出す。
+       グラフが無い場所（淡水）では、今まで通りこの節にカードを並べる */
+    const inChart = !document.getElementById("tide-block").hidden;
+    document.getElementById("hero-hourly").hidden = inChart;
+    if (inChart) {
+      renderRainLead(document.getElementById("chart-lead"), { hours: weather, date: todayInJst() });
+      return;
+    }
     renderHourlyStrip(document.getElementById("hourly"), {
       hours: weather, date: todayInJst(),
       leadBox: document.getElementById("hourly-lead"),
@@ -1149,8 +1103,6 @@
       /* マヅメの帯（D-163）。**点には混ぜない**（D-139）。印として並べるだけ。
          日をまたぐので、日付ごとに引けるようにして渡す */
       sunOf: (day) => sunCache.get(day) ?? null,
-      // 潮位の曲線をカードの上に重ねる（D-169 試作）
-      tideOf: (day) => tideCache.get(day) ?? null,
     });
   }
 
