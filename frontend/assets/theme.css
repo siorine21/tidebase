@@ -530,6 +530,10 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
    そのまま使う。ここで色を作り直すと、時間別天気のカードの★と食い違いかねない。
    帯は 6px の細いリボンで、曲線・満干・現在時刻の邪魔をしない高さに置く（グラフの上端）。 */
 .tide-graph .score-seg { fill: var(--sc); }
+/* いまの 1 時間の列（D-174）。塗らずに枠。マヅメの塗り（カラシ）と見分けるため */
+.tide-graph .now-col { fill: rgba(201, 168, 76, 0.05); stroke: var(--mustard); stroke-width: 1; }
+/* 過ぎた時間を、天気の段から曲線の下までまとめて沈める（D-174） */
+.tide-graph .past-dim { fill: rgba(10, 21, 32, 0.5); }
 .tide-graph text { font-family: 'JetBrains Mono', monospace; font-size: 9px; fill: var(--text-muted); }
 .tide-graph text.peak { fill: var(--text-secondary); }
 .tide-graph text.sun-time { font-size: 8px; fill: var(--text-muted); }
@@ -615,13 +619,23 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
    グラフを 1 時間 50px（カード 44px ＋ 間隔 6px・app.js の HOUR_SLOT_PX）に伸ばし、
    その目盛りに 1 時間 1 枚ずつ置く。列の数と幅は JS が style で渡す。
    **カードの幅 44px は .hour-card と同じ値にする**（ここだけ違うと列の中で片寄る）。 */
-.chart-hours { display: grid; margin: 2px 0 4px; }
+/* 天気の列はグラフの上の段に重ねる（D-174）。背景（夜・マヅメ・線）は下の SVG が描く。
+   top はいちばん上のスコアの帯（4px）の下 */
+.chart-body { position: relative; }
+.chart-body .chart-hours { position: absolute; top: 7px; left: 0; display: grid; pointer-events: none; }
 /* 幅は JS が style で渡す（CHART_CARD_W）。ここに書くと 2 か所になる */
 .chart-hours .hour-card { justify-self: center; grid-row: 1; }
 
 /* グラフの中の細いカード（D-171・30px）。中身は 28px。数字は 10px の等幅（1 文字 6px）、
    単位は 7px で添える。**字の大きさと幅は 1 組**。字を大きくすると 30px からはみ出して隠れる */
-.hour-card.compact { padding: 5px 0 4px; border-radius: 6px; }
+/* **箱にしない**（D-174）。枠も地の色も付けず、グラフの背景の上に数字を直接置く。
+   「いま」「日の変わり目」「マヅメ」の見分けは SVG の背景（いまの列の枠・日の線・帯）が担う */
+.hour-card.compact,
+.hour-card.compact.now,
+.hour-card.compact.newday {
+  padding: 0; border: none; border-radius: 0; background: none; box-shadow: none;
+}
+.hour-card.compact.now .h { color: var(--mustard-lt); font-weight: 700; }
 .hour-card.compact .h { font-size: 10px; }
 .hour-card.compact .icon-wrap { margin: 2px 0; }
 /* 天気の絵だけ。風の矢印も同じ .icon なので、.icon-wrap で絞らないと矢印まで 16px になる */

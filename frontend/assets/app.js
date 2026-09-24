@@ -464,9 +464,16 @@ export function tideTimelineSvg({
   days, tides, suns = new Map(), today = null, marker = null,
   dayUnits = 320, height = 176, padTop = 30, padBottom = 30,
   scoreOf = null, weatherHours = null, gridStepHours = 2,
+  headH = 0, dimPast = false,
 }) {
   const width = dayUnits * days.length;
   const totalHours = days.length * 24;
+  /* **上に天気の段を置く**（ホーム・D-174）。headH ぶん曲線を下げ、
+     夜・マヅメ・時刻の線・日の境目は**天気の段の上端から**曲線の下まで通す。
+     天気の数字はこの上に HTML で重ねる（chartHourCardsHtml）。帯や線が段を突き抜けるので、
+     天気と潮が 1 枚の図として読める。headH = 0（潮汐画面など）は今まで通り */
+  const top = padTop + headH;
+  const bandTop = headH > 0 ? 0 : top - 8;
 
   // 毎時値に加えて満潮・干潮の実測値も曲線に含める。
   // JMA の満干は毎時値の最大／最小を超えることがあり（例: 毎時 115cm / 満潮 116cm）、
@@ -497,7 +504,7 @@ export function tideTimelineSvg({
   const min = Math.min(...all), max = Math.max(...all);
   const x = (hours) => (hours / totalHours) * width;
   const y = (v) => height - padBottom
-    - ((v - min) / Math.max(1, max - min)) * (height - padTop - padBottom);
+    - ((v - min) / Math.max(1, max - min)) * (height - top - padBottom);
 
   // 曲線は日をまたいでつなぐ。未取得の日はそこで区切る
   const segments = [];
@@ -532,9 +539,9 @@ export function tideTimelineSvg({
       const a = Math.max(0, Math.min(totalHours, d * 24 + from));
       const b = Math.max(0, Math.min(totalHours, d * 24 + to));
       if (b <= a) return "";
-      return `<rect class="${cls}" x="${x(a)}" y="${padTop - 8}"
+      return `<rect class="${cls}" x="${x(a)}" y="${bandTop}"
         width="${Math.max(0, x(b) - x(a))}"
-        height="${height - padBottom - padTop + 8}"/>`;
+        height="${height - padBottom - bandTop}"/>`;
     };
     /* **マヅメは夜の帯より後ろに書く**（D-163）。前に書くと夜の塗りに覆われ、
        日の出前・日没後の半分が消える。マヅメは日をまたいで昼と夜の**両側**に
@@ -574,16 +581,18 @@ export function tideTimelineSvg({
          横スクロールで動く画面なので、位置だけでは「同じ時刻か」を
          あとから確かめられない。文字で持たせておけば、
          帯とカードが本当に同じ時刻・同じ点を指しているかを付き合わせられる。 */
+      /* 上に天気の段があるときは、**いちばん上の細い帯**にする（D-174）。
+         本人の言う「カラーバー」の場所。天気の数字はこの下に並ぶ */
       return `<rect class="score-seg sc-${score}" data-t="${date}T${
-        String(row.hour).padStart(2, "0")}" x="${a.toFixed(2)}" y="4"
-        width="${(b - a).toFixed(2)}" height="6"/>`;
+        String(row.hour).padStart(2, "0")}" x="${a.toFixed(2)}" y="${headH > 0 ? 0 : 4}"
+        width="${(b - a).toFixed(2)}" height="${headH > 0 ? 4 : 6}"/>`;
     }).join("");
   }).join("");
 
   // 日の出・日没の縦線。夜の帯の境目そのものだが、線があると時刻を読み取りやすい
   const sunLines = sunMarks.map((m) => {
     const sx = (m.left / 100) * width;
-    return `<line class="sun-line" x1="${sx}" y1="${padTop - 8}" x2="${sx}" y2="${height - padBottom}"/>`;
+    return `<line class="sun-line" x1="${sx}" y1="${bandTop}" x2="${sx}" y2="${height - padBottom}"/>`;
   }).join("");
 
   // 潮位の横目盛り。何センチかを読み取れるようにする（D-054）
@@ -601,7 +610,7 @@ export function tideTimelineSvg({
     for (let h = 0; h < 24; h += gridStepHours) {
       if (h === 0) continue;                       // 0 時は日境界の線が担う
       const cls = h % 6 === 0 ? "grid" : "grid-minor";
-      marks.push(`<line class="${cls}" x1="${x(d * 24 + h)}" y1="${padTop - 8}"
+      marks.push(`<line class="${cls}" x1="${x(d * 24 + h)}" y1="${bandTop}"
         x2="${x(d * 24 + h)}" y2="${height - padBottom}"/>`);
     }
     /* 日付は**上の帯**に出す（D-120）。ここには時刻だけを置く。
@@ -631,7 +640,7 @@ export function tideTimelineSvg({
 
   // 日境界。線の上端は目盛り線と揃える（上に日付を置かなくなったので 0 まで伸ばさない）
   const boundaries = days.map((date, d) =>
-    `<line class="day-line" x1="${x(d * 24)}" y1="${padTop - 8}"
+    `<line class="day-line" x1="${x(d * 24)}" y1="${bandTop}"
        x2="${x(d * 24)}" y2="${height - padBottom}"/>`).join("");
 
   // 満潮・干潮
@@ -657,12 +666,26 @@ export function tideTimelineSvg({
   // 現在時刻
   const now = nowInJst();
   const nowIndex = days.indexOf(now.date);
-  let nowMark = "";
+  let nowMark = "", nowCol = "", pastDim = "";
   if (nowIndex >= 0) {
     const hours = Math.min(now.hours, 23);
     const nx = x(nowIndex * 24 + hours);
+    if (headH > 0) {
+      /* **いまの 1 時間の列を、上から下まで枠で囲む**（D-174）。天気の数字と曲線の
+         「いま」が同じ列にあることを示す。塗らずに枠にするのは、マヅメの塗り（カラシ）と
+         見分けるため */
+      const c0 = x(nowIndex * 24 + now.hour), c1 = x(nowIndex * 24 + now.hour + 1);
+      nowCol = `<rect class="now-col" x="${(c0 + 0.5).toFixed(2)}" y="0.5"
+        width="${(c1 - c0 - 1).toFixed(2)}" height="${height - padBottom - 0.5}"/>`;
+    }
+    if (dimPast) {
+      /* 過ぎた時間は、天気の段から曲線の下まで**まとめて**沈める（D-174）。
+         数字だけ薄くして曲線はそのまま、だと、どこまでが過去か読み取りにくい */
+      pastDim = `<rect class="past-dim" x="0" y="${bandTop}" width="${nx.toFixed(2)}"
+        height="${height - padBottom - bandTop}"/>`;
+    }
     const level = tideLevelAt(tides[nowIndex]?.hourly_levels_cm, hours);
-    nowMark = `<line class="now" x1="${nx}" y1="${padTop - 8}" x2="${nx}" y2="${height - padBottom}"/>`
+    nowMark = `<line class="now" x1="${nx}" y1="${top - 8}" x2="${nx}" y2="${height - padBottom}"/>`
       + (level != null ? `<circle class="now-dot" cx="${nx}" cy="${y(level)}" r="4"/>` : "");
   }
 
@@ -675,10 +698,10 @@ export function tideTimelineSvg({
       const mx = x(markerIndex * 24 + Math.min(hours, 23.999));
       const level = tideLevelAt(tides[markerIndex]?.hourly_levels_cm, Math.min(hours, 23));
       markerMark =
-        `<line class="catch-line" x1="${mx}" y1="${padTop - 8}" x2="${mx}" y2="${height - padBottom}"/>`
+        `<line class="catch-line" x1="${mx}" y1="${top - 8}" x2="${mx}" y2="${height - padBottom}"/>`
         + (level != null ? `<circle class="catch-dot" cx="${mx}" cy="${y(level)}" r="5"/>` : "")
         + (marker.label
-          ? `<text class="catch-label" x="${mx}" y="${padTop - 12}" text-anchor="middle">${
+          ? `<text class="catch-label" x="${mx}" y="${top - 12}" text-anchor="middle">${
               escapeHtml(marker.label)}</text>`
           : "");
     }
@@ -696,7 +719,9 @@ export function tideTimelineSvg({
       <line class="axis" x1="0" y1="${height - padBottom}" x2="${width}" y2="${height - padBottom}"/>
       ${areas}
       ${lines}
+      ${pastDim}
       ${boundaries}
+      ${nowCol}
       ${nowMark}
       ${marks}
       ${markerMark}
@@ -6067,13 +6092,17 @@ function hourCardHtml(w, {
  * **予報の無い時間（取れなかった日など）はその列が空くだけ**で、
  * 後ろのカードが詰まって時刻がずれることはない。
  *
+ * **箱にしない**（D-174）。枠つきのカードを曲線の上に積むと「合体させただけ」で
+ * 一体感が無い（本人）。数字は枠なしの列として、グラフの背景（夜・マヅメ・時刻の線・
+ * いまの列・スコアの帯）の上に直接置く。**マヅメの塗りと点の色はここでは付けない。**
+ * グラフの背景が分単位で 1 回だけ描く。ここで 1 時間まるごと塗ると、日没 17:47 の
+ * マヅメが 17〜19 時になり、グラフの 16:47〜18:47 と 13 分ずれる（本人の指摘・正はグラフ）。
+ *
  * @param {object} opt
  * @param {string[]} opt.days グラフの日付
  * @param {Map<string, object[]>} opt.weatherHours 日付 → 予報
- * @param {((date:string)=>object|null)|null} opt.sunOf 日付 → 日の出・日没（マヅメの塗り）
- * @param {((row:object)=>number|null)|null} opt.scoreOf 釣行スコア（カードの上端の色）
  */
-export function chartHourCardsHtml({ days, weatherHours, sunOf = null, scoreOf = null }) {
+export function chartHourCardsHtml({ days, weatherHours }) {
   /* 日ごとの予報には、翌日の頭の数時間が混ざっていることがある（D-104）。
      全部を 1 つに集め、時刻で引く。同じ時刻は先に見つけたほうを使う */
   const byKey = new Map();
@@ -6102,12 +6131,8 @@ export function chartHourCardsHtml({ days, weatherHours, sunOf = null, scoreOf =
       const key = `${date}T${String(h).padStart(2, "0")}`;
       const w = byKey.get(key);
       if (!w) continue;
-      const band = sunOf ? timeBandOf(sunOf(date), `${String(h).padStart(2, "0")}:00`) : null;
       cards.push(hourCardHtml(w, {
         isNow: key === nowKey,
-        newDay: h === 0 && d > 0,
-        mazume: band === "morning" || band === "evening" ? band : null,
-        score: scoreOf ? scoreOf(w) : null,
         past: key < nowKey,
         compact: true,
         tempTrend: tempTrendOf(date, h, w),

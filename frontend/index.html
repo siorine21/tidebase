@@ -216,6 +216,10 @@
   const camLive = new Map();          // ライブカメラの code → いま配信中か（D-156）
   let liveCams = [];                  // 出しているカメラ（毎分の書き直しが引く）
   const CHART_H = 152;                // グラフの高さ（潮位目盛りの箱もこれに合わせる）
+  /* 曲線の上に置く天気の段の高さ（D-174）。いちばん上のスコアの帯（4px）と、
+     天気の列（時刻・天気・雨量・気温・風・突風）が入る高さ。
+     **列の中身の高さと 1 組**。字を大きくしたらここも上げる（chart.mjs が切れを測る） */
+  const CHART_HEAD_H = 122;
 
   // いま何でスコアを判定したか。スコア円を押されたときに説明へ渡す
   let scoreContext = null;
@@ -1003,9 +1007,12 @@
       days: chartDays, tides, suns: sunCache, today: todayInJst(),
       /* 日付は SVG の外の帯に出るので、上の余白は元どおり。
          下は時刻だけになったぶん薄くしてある（D-120 / D-121） */
-      dayUnits: dayPx, height: CHART_H, padTop: 28, padBottom: 20,
-      // 縦の線は 1 時間ごと。上の天気カードの隙間と同じ位置に来る（D-173）
+      dayUnits: dayPx, height: CHART_H + CHART_HEAD_H, padTop: 28, padBottom: 20,
+      // 縦の線は 1 時間ごと。上の天気の列の切れ目と同じ位置に来る（D-173）
       gridStepHours: 1,
+      /* 天気の段を曲線の上に取り、夜・マヅメ・線・いまの列・過去の沈みを
+         段の上端から通す（D-174）。スコアはいちばん上の細い帯（カラーバー） */
+      headH: CHART_HEAD_H, dimPast: true, scoreOf, weatherHours: weatherCache,
     });
     if (!result) {
       track.innerHTML = `<div class="empty">潮汐データを取得できませんでした</div>`;
@@ -1015,17 +1022,18 @@
     }
     // 日の出・日没はグラフの下の帯で示すので、凡例からは外す（D-053）
     // 日付の帯はグラフと同じ器に入れる（横スクロールに追従する・D-121）
-    /* 天気のカードは**日付の帯と曲線のあいだ**に入れる（D-170）。もとは曲線の上に
-       ★の色の細い帯（D-169）があった場所。スコアの色はカードの上端に移した。
+    /* 天気の列はグラフの**上の段に重ねる**（D-174）。グラフと同じ箱（.chart-body）に入れ、
+       背景（夜・マヅメ・線）は SVG が段の上端から描く。
        scoreOf は renderHero が先に決めている（呼び出し順は固定） */
-    const cards = chartHourCardsHtml({
-      days: chartDays, weatherHours: weatherCache,
-      sunOf: (day) => sunCache.get(day) ?? null, scoreOf,
-    });
-    track.innerHTML = result.ruler + cards + result.svg + sunStripHtml(result.sunMarks);
+    const cards = chartHourCardsHtml({ days: chartDays, weatherHours: weatherCache });
+    track.innerHTML = result.ruler
+      + `<div class="chart-body">${result.svg}${cards}</div>`
+      + sunStripHtml(result.sunMarks);
+    // SVG の高さは CSS の既定（152px）ではなく、天気の段ぶん足した高さ（座標と 1:1）
+    track.querySelector("svg.tide-graph").style.height = `${CHART_H + CHART_HEAD_H}px`;
     document.getElementById("chart-units").hidden = !cards;
     // 目盛りは SVG と同じ高さの箱に置く（縦は引き伸ばしていないので座標がそのまま px）
-    axis.style.height = `${CHART_H}px`;
+    axis.style.height = `${CHART_H + CHART_HEAD_H}px`;
     /* **目盛りの箱は SVG の上端にそろえる。** 上に日付の帯と天気のカードが入るので、
        枠の上端から置くと、カードの高さぶん目盛りが上にずれる */
     const graph = track.querySelector("svg.tide-graph");
