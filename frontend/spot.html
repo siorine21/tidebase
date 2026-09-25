@@ -34,9 +34,9 @@
 <script type="module">
   import {
     client, requireSession, renderNav, escapeHtml, toJapaneseError,
-    listSpots, getSpot, listRecords, createMap, spotMarker, spotType, waterLabel, ownerBadge,
+    listSpots, getSpot, listRecords, createMap, spotMarker, spotType, ownerBadge,
     SPOT_TYPES, WATER_TYPES, ENTRY_STYLES, entryStyle,
-    TIDE_INFLUENCES, spotWaterLabel, spotIsTidal, defaultTidal,
+    TIDE_INFLUENCES, tidalNote, spotWaterLabel, spotIsTidal,
     googleMapsUrl, googleDirectionsUrl, formatJstDate, icon,
     recordFishName, listTidePoints, tidePointOfSpot, formatLag, isCoordinateInJapan,
     attachPlaceSearch,
@@ -154,7 +154,10 @@
         <h2>スポットを編集</h2>
         <div class="field"><label for="e-name">スポット名</label>
           <input type="text" id="e-name" maxlength="100"></div>
-        <div class="field"><label>水域区分</label><div class="chips" id="e-water"></div></div>
+        <!-- 見出しは「塩分濃度」（D-178）。「水域」だと海・川・湖といった場所の区分に読めるが、
+         中身（海水・汽水・淡水）は水の塩分の区分。同じ河口でも潮で汽水にも淡水にもなる。
+         感潮（潮汐の影響）とは別の軸（D-134）なので、場所の言葉を使わない -->
+        <div class="field"><label>塩分濃度</label><div class="chips" id="e-water"></div></div>
         <!-- 感潮は水域（塩分）とは別の軸（D-134）。淡水でも潮位は動く。
              もう一度押すと「自動」に戻る -->
         <div class="field"><label>潮汐の影響</label><div class="chips" id="e-tidal"></div>
@@ -357,14 +360,7 @@
                          data-value="${t.value}">${icon(t.iconName, { size: 13 })} ${t.label}</span>`).join("");
     /* **自動が何になるかを書く。** 「選んでいない」と「選んだ結果こうなった」は
        見た目が同じなので、いま何が効いているのかを文にしないと分からない */
-    document.getElementById("e-tidal-note").textContent = edit.tidal
-      ? (edit.tidal === "tidal"
-          ? (edit.water === "freshwater"
-              ? "感潮域として扱います（塩分は淡水でも潮位が動く場所）。"
-              : "潮汐を効かせます。")
-          : "潮汐を使いません。潮位グラフとスコアの潮の項目が外れます。")
-      : `未選択（自動）。いまの水域「${waterLabel(edit.water)}」では`
-        + `${defaultTidal(edit.water) ? "潮汐あり" : "潮汐なし"}になります。`;
+    document.getElementById("e-tidal-note").textContent = tidalNote(edit.tidal, edit.water);
   }
 
   document.addEventListener("click", (e) => {

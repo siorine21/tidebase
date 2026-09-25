@@ -58,9 +58,20 @@
     <label for="new-name">スポット名</label>
     <input type="text" id="new-name" maxlength="100" placeholder="例: ○○港 北堤防">
   </div>
+  <!-- 見出しは「塩分濃度」（D-178）。「水域」だと海・川・湖といった場所の区分に読めるが、
+         中身（海水・汽水・淡水）は水の塩分の区分。同じ河口でも潮で汽水にも淡水にもなる。
+         感潮（潮汐の影響）とは別の軸（D-134）なので、場所の言葉を使わない -->
   <div class="field">
-    <label>水域区分</label>
+    <label>塩分濃度</label>
     <div class="chips" id="new-water"></div>
+  </div>
+  <!-- 感潮は水域（塩分）とは別の軸（D-134）。淡水でも潮位は動く（感潮域）。
+       編集画面にしか無く、登録のときに選べなかった（D-177）。
+       もう一度押すと「自動」（塩分濃度から決まる）に戻る -->
+  <div class="field">
+    <label>潮汐の影響</label>
+    <div class="chips" id="new-tidal"></div>
+    <div class="page-sub" id="new-tidal-note" style="margin-top:6px;line-height:1.5"></div>
   </div>
   <div class="field">
     <label>スポット種別</label>
@@ -88,7 +99,7 @@
   import {
     client, requireSession, renderNav, escapeHtml, toJapaneseError, requireUserId,
     listSpots, createMap, spotMarker, spotType, waterLabel, spotWaterLabel,
-    SPOT_TYPES, WATER_TYPES, groupSpotsByType, googleMapsUrl, googleDirectionsUrl, isNightMap, setNightMap, icon,
+    SPOT_TYPES, WATER_TYPES, TIDE_INFLUENCES, tidalNote, groupSpotsByType, googleMapsUrl, googleDirectionsUrl, isNightMap, setNightMap, icon,
     isCoordinateInJapan,
     attachPlaceSearch, renderIcons,
     todayInJst, tideType, sunTimes, fishingScoreOfDay, stars,
@@ -100,7 +111,8 @@
   if (!session) throw new Error("unauthenticated");
   renderNav("map");
 
-  const state = { addMode: false, draft: null, water: "saltwater", type: null, entry: null };
+  // tidal: 潮汐の影響（D-177）。null は「自動」（水域から決まる・D-134）
+  const state = { addMode: false, draft: null, water: "saltwater", tidal: null, type: null, entry: null };
   let spots = await listSpots().catch(() => []);
 
   // 位置が未設定のスポット（旧フォームで 0,0 になったもの）は地図に載せない
@@ -398,12 +410,24 @@
     document.getElementById("new-entry").innerHTML = ENTRY_STYLES
       .map((e) => `<span class="chip${e.value === state.entry ? " selected" : ""}"
                          data-value="${e.value}">${icon(e.iconName, { size: 13 })} ${e.label}</span>`).join("");
+    document.getElementById("new-tidal").innerHTML = TIDE_INFLUENCES
+      .map((t) => `<span class="chip${t.value === state.tidal ? " selected" : ""}"
+                         data-value="${t.value}">${icon(t.iconName, { size: 13 })} ${t.label}</span>`).join("");
+    // 水域を変えると「自動」の結果も変わるので、説明は毎回書き直す（編集画面と同じ文）
+    document.getElementById("new-tidal-note").textContent = tidalNote(state.tidal, state.water);
   }
 
   document.getElementById("new-water").addEventListener("click", (e) => {
     const chip = e.target.closest(".chip");
     if (!chip) return;
     state.water = chip.dataset.value; renderChips();
+  });
+  document.getElementById("new-tidal").addEventListener("click", (e) => {
+    const chip = e.target.closest(".chip");
+    if (!chip) return;
+    // もう一度押すと「自動」に戻る（編集画面・立ち位置と同じ操作）
+    state.tidal = chip.classList.contains("selected") ? null : chip.dataset.value;
+    renderChips();
   });
   document.getElementById("new-type").addEventListener("click", (e) => {
     const chip = e.target.closest(".chip");
@@ -444,6 +468,8 @@
       latitude: Number(state.draft.lat.toFixed(6)),
       longitude: Number(state.draft.lng.toFixed(6)),
       water_type: state.water,
+      // 感潮（D-177）。null は自動。トリガーが潮汐地点の付け外しを決める（D-134）
+      tide_influence: state.tidal,
       spot_type: state.type,
       entry_style: state.entry,
       low_tide_only: document.getElementById("new-lowtide").checked,
@@ -456,6 +482,7 @@
     document.getElementById("new-name").value = "";
     document.getElementById("new-lowtide").checked = false;
     state.entry = null;
+    state.tidal = null;
     renderChips();
     // ここは以前ボタンの中身を "＋ 追加" の文字に戻していて、登録するたびに
     // アイコンが消えていた（D-027 で線画アイコンにした分が飛ぶ）。setAddMode に寄せる

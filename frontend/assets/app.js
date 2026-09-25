@@ -4841,6 +4841,26 @@ export function defaultTidal(waterType) {
   return waterType !== "freshwater";
 }
 
+/**
+ * 「潮汐の影響」の欄の下に出す説明（D-134 / D-177）。**登録と編集で同じ文を使う。**
+ * 「選んでいない」と「選んだ結果こうなった」は見た目が同じなので、
+ * いま何が効いているのかを文にしないと分からない。
+ * @param {"tidal"|"none"|null} tidal 選んだ値。null は未選択（自動）
+ * @param {string} waterType 水域区分
+ */
+export function tidalNote(tidal, waterType) {
+  if (tidal === "tidal") {
+    return waterType === "freshwater"
+      ? "感潮域として扱います（塩分は淡水でも潮位が動く場所）。"
+      : "潮汐を効かせます。";
+  }
+  if (tidal === "none") return "潮汐を使いません。潮位グラフとスコアの潮の項目が外れます。";
+  /* 自動は塩分濃度から決まる（D-178）。見出しも「水域区分」から「塩分濃度」に改めたので、
+     ここも「水域」と書かない。場所の話ではなく水の塩分の話だと伝わるようにする */
+  return `未選択（自動）。塩分濃度が「${waterLabel(waterType)}」なので、`
+    + `${defaultTidal(waterType) ? "潮汐あり" : "潮汐なし"}になります。`;
+}
+
 /** そのスポットで潮汐が効くか。手の指定が優先、無ければ水域から。 */
 export function spotIsTidal(spot) {
   if (spot?.tide_influence === "tidal") return true;
