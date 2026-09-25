@@ -166,9 +166,20 @@
         </div>
         <!-- スポットマップ側の登録と同じ項目にする（D-078）。
              ここで種別を入れられないと、一覧の種別ごとの並びで「未設定」に落ちる -->
+        <!-- 見出しは「塩分濃度」（D-178）。「水域」だと海・川・湖といった場所の区分に読めるが、
+         中身（海水・汽水・淡水）は水の塩分の区分。同じ河口でも潮で汽水にも淡水にもなる。
+         感潮（潮汐の影響）とは別の軸（D-134）なので、場所の言葉を使わない -->
         <div class="field">
-          <label>水域区分</label>
+          <label>塩分濃度</label>
           <div class="chips" id="water-chips"></div>
+        </div>
+        <!-- 感潮（潮汐の影響）。スポットマップの登録と同じ項目（D-078 / D-177）。
+             ここには無く、釣果の記録から登録した淡水のスポットは必ず「潮汐なし」になっていた。
+             もう一度押すと「自動」（塩分濃度から決まる）に戻る -->
+        <div class="field">
+          <label>潮汐の影響</label>
+          <div class="chips" id="spot-tidal-chips"></div>
+          <div class="page-sub" id="spot-tidal-note" style="margin-top:6px;line-height:1.5"></div>
         </div>
         <div class="field">
           <label>スポット種別</label>
@@ -244,7 +255,7 @@
     client, requireSession, renderNav, escapeHtml, toJapaneseError, requireUserId,
     todayInJst, nowInJst, listSpots, listSpecies, listRecipes, suggestFishName, icon,
     groupSpeciesByCategory, createMap, spotMarker, LURE_CATEGORIES, attachPlaceSearch,
-    SPOT_TYPES, WATER_TYPES, ENTRY_STYLES, entryStyle, isCoordinateInJapan,
+    SPOT_TYPES, WATER_TYPES, TIDE_INFLUENCES, tidalNote, ENTRY_STYLES, entryStyle, isCoordinateInJapan,
     listTackle, TACKLE_KINDS,
     listRecordPhotos, preparePhoto, uploadPreparedPhoto, looksLikeImage,
     captureWeatherSnapshot,
@@ -635,7 +646,8 @@
   }
   /* 新しいスポットの入力（D-078）。スポットマップ側と同じ項目・同じマスタを使う。
      ここだけ選択肢を手書きすると、種別が増えたときに片方だけ古くなる */
-  const newSpot = { water: "saltwater", type: null, entry: null };
+  // tidal: 潮汐の影響（D-177）。null は「自動」（塩分濃度から決まる・D-134）
+  const newSpot = { water: "saltwater", tidal: null, type: null, entry: null };
   document.getElementById("water-chips").innerHTML = WATER_TYPES
     .map((w) => `<span class="chip${w.value === newSpot.water ? " selected" : ""}"
                        data-value="${w.value}">${escapeHtml(w.label)}</span>`).join("");
@@ -645,12 +657,22 @@
   document.getElementById("spot-entry-chips").innerHTML = ENTRY_STYLES
     .map((s) => `<span class="chip" data-value="${s.value}"
                    >${icon(s.iconName, { size: 13 })} ${escapeHtml(s.label)}</span>`).join("");
+  document.getElementById("spot-tidal-chips").innerHTML = TIDE_INFLUENCES
+    .map((t) => `<span class="chip" data-value="${t.value}"
+                   >${icon(t.iconName, { size: 13 })} ${escapeHtml(t.label)}</span>`).join("");
+  /* 説明はマップの登録・編集と同じ文（tidalNote）。塩分濃度を変えると「自動」の結果も
+     変わるので、どちらを押しても書き直す */
+  const renderTidalNote = () => {
+    document.getElementById("spot-tidal-note").textContent = tidalNote(newSpot.tidal, newSpot.water);
+  };
+  renderTidalNote();
 
   bindChips("layer-chips", (v) => { state.layer = v; }, { toggle: true });
   bindChips("spot-type-chips", (v) => { newSpot.type = v; }, { toggle: true });
   bindChips("spot-entry-chips", (v) => { newSpot.entry = v; }, { toggle: true });
   bindChips("visibility-chips", (v) => { state.visibility = v ?? "group"; });
-  bindChips("water-chips", (v) => { newSpot.water = v ?? "saltwater"; });
+  bindChips("water-chips", (v) => { newSpot.water = v ?? "saltwater"; renderTidalNote(); });
+  bindChips("spot-tidal-chips", (v) => { newSpot.tidal = v; renderTidalNote(); }, { toggle: true });
 
   /* ---------- 出世魚の呼称提案（設計補完書 5 章） ---------- */
   const suggestBox = document.getElementById("name-suggest");
@@ -869,6 +891,8 @@
         user_id: userId, name,
         latitude: draft.lat, longitude: draft.lng,
         water_type: newSpot.water,
+        // 感潮（D-177）。null は自動。トリガーが潮汐地点の付け外しを決める（D-134）
+        tide_influence: newSpot.tidal,
         spot_type: newSpot.type,
         entry_style: newSpot.entry,
         low_tide_only: document.getElementById("spot-lowtide").checked,
@@ -884,8 +908,10 @@
     document.getElementById("spot-lowtide").checked = false;
     newSpot.type = null;
     newSpot.entry = null;
-    document.querySelectorAll("#spot-type-chips .chip, #spot-entry-chips .chip")
+    newSpot.tidal = null;
+    document.querySelectorAll("#spot-type-chips .chip, #spot-entry-chips .chip, #spot-tidal-chips .chip")
       .forEach((c) => c.classList.remove("selected"));
+    renderTidalNote();
     clearPin();
     // 登録したスポットをそのまま選ぶ。地図のピンは selectSpot が引き直す
     selectSpot(data.id);

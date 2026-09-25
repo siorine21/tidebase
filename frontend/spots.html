@@ -58,13 +58,16 @@
     <label for="new-name">スポット名</label>
     <input type="text" id="new-name" maxlength="100" placeholder="例: ○○港 北堤防">
   </div>
+  <!-- 見出しは「塩分濃度」（D-178）。「水域」だと海・川・湖といった場所の区分に読めるが、
+         中身（海水・汽水・淡水）は水の塩分の区分。同じ河口でも潮で汽水にも淡水にもなる。
+         感潮（潮汐の影響）とは別の軸（D-134）なので、場所の言葉を使わない -->
   <div class="field">
-    <label>水域区分</label>
+    <label>塩分濃度</label>
     <div class="chips" id="new-water"></div>
   </div>
   <!-- 感潮は水域（塩分）とは別の軸（D-134）。淡水でも潮位は動く（感潮域）。
        編集画面にしか無く、登録のときに選べなかった（D-177）。
-       もう一度押すと「自動」（水域から決まる）に戻る -->
+       もう一度押すと「自動」（塩分濃度から決まる）に戻る -->
   <div class="field">
     <label>潮汐の影響</label>
     <div class="chips" id="new-tidal"></div>

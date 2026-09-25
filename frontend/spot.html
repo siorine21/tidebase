@@ -154,7 +154,10 @@
         <h2>スポットを編集</h2>
         <div class="field"><label for="e-name">スポット名</label>
           <input type="text" id="e-name" maxlength="100"></div>
-        <div class="field"><label>水域区分</label><div class="chips" id="e-water"></div></div>
+        <!-- 見出しは「塩分濃度」（D-178）。「水域」だと海・川・湖といった場所の区分に読めるが、
+         中身（海水・汽水・淡水）は水の塩分の区分。同じ河口でも潮で汽水にも淡水にもなる。
+         感潮（潮汐の影響）とは別の軸（D-134）なので、場所の言葉を使わない -->
+        <div class="field"><label>塩分濃度</label><div class="chips" id="e-water"></div></div>
         <!-- 感潮は水域（塩分）とは別の軸（D-134）。淡水でも潮位は動く。
              もう一度押すと「自動」に戻る -->
         <div class="field"><label>潮汐の影響</label><div class="chips" id="e-tidal"></div>

@@ -4855,7 +4855,9 @@ export function tidalNote(tidal, waterType) {
       : "潮汐を効かせます。";
   }
   if (tidal === "none") return "潮汐を使いません。潮位グラフとスコアの潮の項目が外れます。";
-  return `未選択（自動）。いまの水域「${waterLabel(waterType)}」では`
+  /* 自動は塩分濃度から決まる（D-178）。見出しも「水域区分」から「塩分濃度」に改めたので、
+     ここも「水域」と書かない。場所の話ではなく水の塩分の話だと伝わるようにする */
+  return `未選択（自動）。塩分濃度が「${waterLabel(waterType)}」なので、`
     + `${defaultTidal(waterType) ? "潮汐あり" : "潮汐なし"}になります。`;
 }
 
