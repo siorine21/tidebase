@@ -511,6 +511,16 @@ BEGIN
     RAISE EXCEPTION 'TEST FAIL: 039/040/041 で足した魚種が揃っていない';
   END IF;
 
+  -- 052 で足したオオニベ。**ニベの直後に並ぶこと**（同じニベ科・同じサーフの砂地物）。
+  -- 別の場所に入ると、選ぶときにニベと見比べられない
+  IF (SELECT b.sort_order - a.sort_order
+      FROM public.fish_species a, public.fish_species b
+      WHERE a.user_id IS NULL AND a.name = 'ニベ'
+        AND b.user_id IS NULL AND b.name = 'オオニベ'
+        AND a.category = '海水' AND b.category = '海水') IS DISTINCT FROM 1 THEN
+    RAISE EXCEPTION 'TEST FAIL: オオニベがニベの直後（海水）に無い';
+  END IF;
+
   -- **「イカ」を分けたのに元の名前が残っていないこと。**
   -- 残ると選択肢にイカ・アオリイカ・コウイカの 3 つが並び、
   -- どれを選べばよいか分からなくなる（改名ではなく追加にすると、こうなる）
