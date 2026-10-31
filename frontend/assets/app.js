@@ -3367,25 +3367,103 @@ export const RECORD_TREND_COLUMNS = [
 export async function listRecords({
   limit = 50, spotId = null, columns = RECORD_LIST_COLUMNS, mineOnly = false,
 } = {}) {
-  let query = client
-    .from("record_feed")
-    .select(columns)
-    /* **釣れた日時の降順**（D-106）。
-       fished_at は date で、時刻は別列の fished_time に入っている。
-       日付だけで並べると、同じ日の中は created_at＝**登録した順**になり、
-       あとから時刻を直しても並びが変わらなかった。
-       時刻の無い記録はその日の先頭に置く（本人の指定）。
-       created_at は同じ日・同じ時刻のときの最後の同着解消として残す。 */
-    .order("fished_at", { ascending: false })
-    .order("fished_time", { ascending: false, nullsFirst: true })
-    .order("created_at", { ascending: false })
-    .limit(limit);
+  let query = inRecordOrder(client.from("record_feed").select(columns)).limit(limit);
   if (spotId) query = query.eq("spot_id", spotId);
   // **サーバー側で絞る。** 傾向画面は 1000 件取ってから JS で捨てていた
   if (mineOnly) query = query.eq("user_id", await requireUserId());
   const { data, error } = await query;
   if (error) throw error;
   return data;
+}
+
+/* **釣れた日時の降順**（D-106）。
+   fished_at は date で、時刻は別列の fished_time に入っている。
+   日付だけで並べると、同じ日の中は created_at＝**登録した順**になり、
+   あとから時刻を直しても並びが変わらなかった。
+   時刻の無い記録はその日の先頭に置く（本人の指定）。
+   created_at は同じ日・同じ時刻のときの最後の同着解消として残す。 */
+function inRecordOrder(query) {
+  return query
+    .order("fished_at", { ascending: false })
+    .order("fished_time", { ascending: false, nullsFirst: true })
+    .order("created_at", { ascending: false });
+}
+
+/**
+ * 釣果を**全件**読む（D-181）。CATCH LOG が使う。
+ *
+ * 前は `listRecords({ limit: 200 })` で新しい 200 件だけを読んでいた。グループ全体で
+ * 月 25 件ほどなので、200 件を超えると**古い年が黙って欠ける**。年で畳むと
+ * 「2025 年 13 件」のように数が見えるぶん、欠けると数が合わなくなる。
+ *
+ * PostgREST は 1 回で返す行数に上限がある（Supabase の既定は 1000 行）。
+ * 最初の 1 回で**全体の件数**（count=exact）も受け取り、その件数に届くまで続けて読む。
+ * 「頼んだ件数より少なければ終わり」にすると、上限がこちらの頼む数より小さく
+ * 設定されていたとき、そこで黙って止まる。件数で止めれば、ふだんは 1 回で済む。
+ * 件数が返らない・途中で行が減ったときは、空のページで止める（回り続けない）。
+ * 同じ日時の行がページの境目で入れ替わらないよう、最後に id でも並べる。
+ */
+export async function listAllRecords({ columns = RECORD_LIST_COLUMNS, pageSize = 1000 } = {}) {
+  const rows = [];
+  let total = Infinity;
+  while (rows.length < total) {
+    const first = rows.length === 0;
+    const { data, error, count } = await inRecordOrder(
+      client.from("record_feed").select(columns, first ? { count: "exact" } : undefined))
+      .order("id")
+      .range(rows.length, rows.length + pageSize - 1);
+    if (error) throw error;
+    if (first && count != null) total = count;
+    if (!data?.length) break;
+    rows.push(...data);
+  }
+  return rows;
+}
+
+/**
+ * CATCH LOG をどう畳むか（D-181）。**中身を数えず、並べ方と開き方だけを決める。**
+ *
+ * - 月ごとにまとめ、**記録のある直近 2 か月**は開く。暦の 2 か月にしないのは、
+ *   冬に数か月釣りに行かないと、開いたとき全部が畳まれた画面になるから（本人と合意）。
+ * - いちばん新しい記録の年は、月を並べる（年の見出しを挟まない）。
+ *   それより前の年は「年 → 月」の 2 段に畳む。直近 2 か月を含む年は開いておく
+ *   （1 月の頭は、去年の 12 月が直近に入る）。
+ * - 絞り込み中（filtered）は全部開く。当たった記録しか渡されないので、
+ *   畳むと見出ししか見えず、探している記録に届かない。
+ *
+ * @param {object[]} records 釣果（fished_at が "YYYY-MM-DD"）。並び順は問わない
+ * @param {{filtered?: boolean}} [opt]
+ * @returns {object[]} 上から順に並べる節。
+ *   月 { kind: "month", key: "2026-08", label: "2026.08", open, records }
+ *   年 { kind: "year", key: "2025", label: "2025", open, records, children: [月…] }
+ */
+export function catchLogGroups(records, { filtered = false } = {}) {
+  const byMonth = new Map();
+  for (const r of records ?? []) {
+    const key = String(r.fished_at).slice(0, 7);
+    if (!byMonth.has(key)) byMonth.set(key, []);
+    byMonth.get(key).push(r);
+  }
+  const months = [...byMonth.keys()].sort().reverse();
+  if (!months.length) return [];
+  const recent = new Set(months.slice(0, 2));
+  const latestYear = months[0].slice(0, 4);
+  const monthNode = (key) => ({
+    kind: "month", key, label: key.replace("-", "."),
+    open: filtered || recent.has(key), records: byMonth.get(key),
+  });
+
+  const groups = [];
+  for (const year of [...new Set(months.map((m) => m.slice(0, 4)))]) {
+    const children = months.filter((m) => m.startsWith(year)).map(monthNode);
+    if (year === latestYear) { groups.push(...children); continue; }
+    groups.push({
+      kind: "year", key: year, label: year,
+      open: filtered || children.some((c) => recent.has(c.key)),
+      records: children.flatMap((c) => c.records), children,
+    });
+  }
+  return groups;
 }
 
 /**
@@ -3432,6 +3510,30 @@ export function recordFishName(record) {
   // バラシに「釣果」と出ると、キャッチしたように読めてしまう
   const outcome = recordOutcome(record);
   return outcome.value === "landed" ? "釣果" : "魚";
+}
+
+/**
+ * 釣果の数え方（D-092 / D-181）。CATCH LOG の見出しと、畳んだ年・月の要約が使う。
+ * **同じ数え方を 2 か所に書かない**（見出しの合計と、月の要約の足し算が食い違う）。
+ * - 匹数は「釣った」記録の catch_count の合計（1 投稿に 8 匹もある・D-160）
+ * - 反応は釣った以外（バラシ・アタリ・目視）の catch_count の合計
+ * - 最大は「釣った」記録のうち、長さのいちばん大きいもの
+ */
+export function catchSummary(records) {
+  let landed = 0, reactions = 0, best = null;
+  for (const r of records ?? []) {
+    const outcome = recordOutcome(r);
+    if (outcome.value === "landed") {
+      landed += r.catch_count ?? 0;
+      if (r.length_cm != null && (!best || Number(r.length_cm) > Number(best.length_cm))) best = r;
+    } else if (outcome.reaction) {
+      reactions += r.catch_count ?? 0;
+    }
+  }
+  return {
+    count: records?.length ?? 0, landed, reactions,
+    best: best ? { name: recordFishName(best), length: Number(best.length_cm) } : null,
+  };
 }
 
 /* ---------------- 釣果写真（D-045） ----------------

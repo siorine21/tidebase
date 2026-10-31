@@ -84,7 +84,8 @@
 <script src="assets/config.js"></script>
 <script type="module">
   import {
-    requireSession, renderNav, escapeHtml, lureCategoryText, ownerBadge, listRecords, listSpots,
+    requireSession, renderNav, escapeHtml, lureCategoryText, ownerBadge, listAllRecords, listSpots,
+    catchLogGroups, catchSummary,
     formatJstDate, relativeDays, icon, recordFishName, signedPhotoUrls,
     recordOutcome,
     outcomeLead,
@@ -103,8 +104,10 @@
     history.replaceState(null, "", "records.html");
   }
 
+  /* **全件を読む**（D-181）。前は新しい 200 件だけで、超えると古い年が黙って欠けた。
+     年・月で畳むので、畳んだ見出しの数が合わなくなる */
   const [records, spots] = await Promise.all([
-    listRecords({ limit: 200 }).catch(() => []),
+    listAllRecords().catch(() => []),
     listSpots().catch(() => []),
   ]);
 
@@ -164,6 +167,40 @@
       c.classList.toggle("selected", c.dataset.word === value);
   }
 
+  /* ---------- 年・月で畳む（D-181） ----------
+     **開き方は catchLogGroups が決める**（記録のある直近 2 か月は開く・今年のほかの月は
+     月で畳む・去年より前は「年 → 月」で畳む・絞り込み中は全部開く）。
+     ここは描くだけ。畳んだ節の中身は**開いたときに描く**（年の数だけ全部を描かない。
+     写真の署名付き URL も、見えるぶんだけ取りに行く）。 */
+  const listBox = document.getElementById("list");
+  let nodeByKey = new Map();          // 節の key → 節（開いたときに中身を描くのに使う）
+
+  /* 自分で開け閉めした節は覚えておく（このタブのあいだだけ）。
+     記録を開いて戻ってきたら、さっき開いた月が畳まれている、を避ける。
+     **絞り込み中は覚えない**（当たった節を全部開く、のほうが優先）。
+     覚えられない環境（プライベートブラウズなど）では、毎回いつもの開き方になるだけ */
+  const OPEN_KEY = "tidebase.catchlog.open";
+  const readOpen = () => {
+    try { return JSON.parse(sessionStorage.getItem(OPEN_KEY) ?? "{}") ?? {}; } catch { return {}; }
+  };
+  const rememberOpen = (key, open) => {
+    try {
+      const saved = readOpen();
+      saved[key] = open;
+      sessionStorage.setItem(OPEN_KEY, JSON.stringify(saved));
+    } catch { /* 覚えられなくても表示は変わらない */ }
+  };
+
+  /** 絞り込みが効いているか。投稿者は「グループ全員」がいつもの値（欄が出ていないときは自分だけ） */
+  function filtersActive() {
+    const ownerShown = !document.getElementById("owner-field").hidden;
+    return Boolean(document.getElementById("filter-spot").value
+      || document.getElementById("filter-kind").value
+      || document.getElementById("filter-word").value.trim()
+      || recipeId
+      || (ownerShown && document.getElementById("filter-owner").value !== "all"));
+  }
+
   render();
 
   function render() {
@@ -183,60 +220,105 @@
     });
 
     // 「釣れた数」と「魚がいた回数」は別に出す。後者こそ次の判断材料になる（D-092）
-    const landed = filtered.filter((r) => recordOutcome(r).value === "landed")
-      .reduce((sum, r) => sum + (r.catch_count ?? 0), 0);
-    const reactions = filtered.filter((r) => recordOutcome(r).reaction && recordOutcome(r).value !== "landed")
-      .reduce((sum, r) => sum + (r.catch_count ?? 0), 0);
+    const total = catchSummary(filtered);
     document.getElementById("count").textContent =
-      `${filtered.length} 件 / ${landed} 匹${reactions ? ` / 反応 ${reactions}` : ""}`;
+      `${total.count} 件 / ${total.landed} 匹${total.reactions ? ` / 反応 ${total.reactions}` : ""}`;
 
-    const box = document.getElementById("list");
     if (!filtered.length) {
-      box.innerHTML = `<div class="empty">該当する記録がありません。</div>`;
+      listBox.innerHTML = `<div class="empty">該当する記録がありません。</div>`;
       return;
     }
 
-    // 年月ごとに区切って表示
-    let currentMonth = "";
-    box.innerHTML = filtered.map((r) => {
-      const month = r.fished_at.slice(0, 7);
-      const header = month !== currentMonth
-        ? `<div class="section-label"><span>${month.replace("-", ".")}</span></div>`
-        : "";
-      currentMonth = month;
-
-      const outcome = recordOutcome(r);
-      const title = outcome.value === "none"
-        ? `${icon(outcome.iconName, { size: 15 })} ${outcome.label}`
-        : outcomeLead(r)
-          + `${escapeHtml(recordFishName(r))}${r.length_cm ? ` ${r.length_cm}cm` : ""}`
-          + (r.catch_count > 1 ? ` ×${r.catch_count}` : "");
-      const sub = [
-        r.spot_name, r.lure_label ?? lureCategoryText(r), r.water_layer,
-        r.tide_type, r.quantity_note,
-      ].filter(Boolean).map(escapeHtml).join(" / ");
-      // 誰の釣果かはひと目で分かるようにする（自分のものには何も付けない）
-      const owner = ownerBadge(r);
-
-      return `${header}
-        <a class="list-item${r.is_mine ? "" : " shared"}" href="record.html?id=${r.id}">
-          <div class="thumb">${r.photo_thumb_path
-            ? `<img class="thumb-photo" data-path="${escapeHtml(r.photo_thumb_path)}" alt="">`
-            : icon(outcome.iconName, { size: 20 })}</div>
-          <div class="list-body">
-            <div class="list-title">${owner}${title}</div>
-            <div class="list-sub">${escapeHtml(formatJstDate(r.fished_at, { weekday: true }))}${
-            r.fished_time ? " " + r.fished_time.slice(0, 5) : ""}${sub ? " · " + sub : ""}</div>
-          </div>
-          <div class="list-aside">${relativeDays(r.fished_at)}</div>
-        </a>`;
-    }).join("");
-    fillThumbs();
+    const active = filtersActive();
+    const saved = active ? {} : readOpen();
+    nodeByKey = new Map();
+    listBox.innerHTML = catchLogGroups(filtered, { filtered: active })
+      .map((node) => groupHtml(node, saved)).join("");
+    fillThumbs(listBox);
   }
 
-  /** 非公開バケットなので、一覧に出すサムネイルも署名付き URL が要る。 */
-  async function fillThumbs() {
-    const images = [...document.querySelectorAll(".thumb-photo")];
+  /** 節 1 つ。開いているものだけ中身を描く */
+  function groupHtml(node, saved) {
+    nodeByKey.set(node.key, node);
+    const open = saved[node.key] ?? node.open;
+    return `
+      <details class="log-group log-${node.kind}" data-key="${escapeHtml(node.key)}"${open ? " open" : ""}>
+        <summary>${summaryHtml(node)}</summary>
+        <div class="log-body">${open ? bodyHtml(node, saved) : ""}</div>
+      </details>`;
+  }
+
+  function bodyHtml(node, saved) {
+    return node.kind === "year"
+      ? node.children.map((child) => groupHtml(child, saved)).join("")
+      : node.records.map(itemHtml).join("");
+  }
+
+  /* 畳んだままでも「その月・その年はどうだったか」が読めるように、見出しに要約を出す。
+     数え方は上の合計と同じ（catchSummary）。足し算が食い違わない */
+  function summaryHtml(node) {
+    const s = catchSummary(node.records);
+    const parts = [`${s.count}件`, `${s.landed}匹`];
+    if (s.reactions) parts.push(`反応${s.reactions}`);
+    return `<span class="log-caret">${icon("chevron-right", { size: 13 })}</span>`
+      + `<span class="log-label">${escapeHtml(node.label)}</span>`
+      + `<span class="log-stats">${parts.join("・")}</span>`
+      + (s.best
+        ? `<span class="log-best">最大 ${escapeHtml(s.best.name)} ${s.best.length}cm</span>` : "");
+  }
+
+  function itemHtml(r) {
+    const outcome = recordOutcome(r);
+    const title = outcome.value === "none"
+      ? `${icon(outcome.iconName, { size: 15 })} ${outcome.label}`
+      : outcomeLead(r)
+        + `${escapeHtml(recordFishName(r))}${r.length_cm ? ` ${r.length_cm}cm` : ""}`
+        + (r.catch_count > 1 ? ` ×${r.catch_count}` : "");
+    const sub = [
+      r.spot_name, r.lure_label ?? lureCategoryText(r), r.water_layer,
+      r.tide_type, r.quantity_note,
+    ].filter(Boolean).map(escapeHtml).join(" / ");
+    // 誰の釣果かはひと目で分かるようにする（自分のものには何も付けない）
+    const owner = ownerBadge(r);
+
+    return `
+      <a class="list-item${r.is_mine ? "" : " shared"}" href="record.html?id=${r.id}">
+        <div class="thumb">${r.photo_thumb_path
+          ? `<img class="thumb-photo" data-path="${escapeHtml(r.photo_thumb_path)}" alt="">`
+          : icon(outcome.iconName, { size: 20 })}</div>
+        <div class="list-body">
+          <div class="list-title">${owner}${title}</div>
+          <div class="list-sub">${escapeHtml(formatJstDate(r.fished_at, { weekday: true }))}${
+          r.fished_time ? " " + r.fished_time.slice(0, 5) : ""}${sub ? " · " + sub : ""}</div>
+        </div>
+        <div class="list-aside">${relativeDays(r.fished_at)}</div>
+      </a>`;
+  }
+
+  /* 開いたら中身を描く。toggle は泡立たないので、捕捉の段で受ける */
+  listBox.addEventListener("toggle", (e) => {
+    const details = e.target;
+    if (!details.matches?.(".log-group") || !details.open) return;
+    const body = details.querySelector(":scope > .log-body");
+    if (body.childElementCount) return;
+    body.innerHTML = bodyHtml(nodeByKey.get(details.dataset.key), filtersActive() ? {} : readOpen());
+    fillThumbs(body);
+  }, true);
+
+  /* 自分で開け閉めしたものだけ覚える。summary を押したあと、開いたかどうかが決まってから読む */
+  listBox.addEventListener("click", (e) => {
+    const summary = e.target.closest(".log-group > summary");
+    if (!summary) return;
+    const details = summary.parentElement;
+    setTimeout(() => {
+      if (!filtersActive()) rememberOpen(details.dataset.key, details.open);
+    }, 0);
+  });
+
+  /** 非公開バケットなので、一覧に出すサムネイルも署名付き URL が要る。
+      **描いたぶんだけ**取りに行く（畳んだ節の写真まで先に取らない） */
+  async function fillThumbs(scope) {
+    const images = [...scope.querySelectorAll(".thumb-photo:not([src])")];
     if (!images.length) return;
     const urls = await signedPhotoUrls(images.map((el) => el.dataset.path)).catch(() => new Map());
     for (const el of images) {

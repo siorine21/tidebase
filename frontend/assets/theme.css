@@ -884,6 +884,31 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
    全行に線が入って、かえって見分けがつかなくなる */
 .list-item.shared { border-left: 3px solid var(--blue-mid); }
 
+/* ---------- CATCH LOG を年・月で畳む（D-181） ----------
+   見出しは押せる行。**当たりは 44px 以上**（濡れた手・手袋・D-150）。
+   畳んだままでも「その月はどうだったか」が読めるよう、件数・匹数・反応・最大を並べる。
+   狭い画面では「最大 …」が次の行へ回る（折り返しを許す。切らない）。 */
+.log-group > summary {
+  list-style: none; cursor: pointer;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px;
+  min-height: 44px; box-sizing: border-box; padding: 10px 2px;
+  border-bottom: 1px solid var(--border);
+}
+.log-group > summary::-webkit-details-marker { display: none; }
+.log-group > summary:focus-visible { outline: 1px solid var(--border-strong); outline-offset: 2px; }
+.log-group > .log-body { padding-top: 8px; }
+.log-caret { display: inline-flex; color: var(--text-muted); transition: transform 0.15s; }
+.log-group[open] > summary .log-caret { transform: rotate(90deg); }
+.log-label {
+  font-family: 'JetBrains Mono', monospace; font-size: 12px; letter-spacing: 1px;
+  color: var(--text-secondary);
+}
+.log-stats { font-size: 11px; color: var(--text-muted); }
+.log-best { font-size: 11px; color: var(--text-secondary); }
+/* 年は月より一段強く。中の月は少し下げて、どの年の月かが線で分かるようにする */
+.log-year > summary .log-label { font-size: 14px; letter-spacing: 1.5px; color: var(--mustard-lt); }
+.log-year > .log-body { margin-left: 6px; padding-left: 10px; border-left: 1px solid var(--border); }
+
 /* 招待リンクは選択してコピーできるよう input のままにする（読み取り専用） */
 /* 編集パネルの保存ボタンは、地図の下に埋もれず常に手が届く位置に置く */
 #edit-panel .actions, #reassign-panel .actions {
