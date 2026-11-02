@@ -17,16 +17,21 @@
 </head>
 <body class="app-body">
 <!-- SCR-006 釣果日誌一覧 -->
-<header class="app-header">
+<!-- 件数は題の下の段に置く（D-182）。「統計」「図鑑」と同じ段に並べると、
+     390px でも 40px 余りはみ出す。ページ名は縮めない（D-152）ので、件数のほうを段で逃がす -->
+<header class="app-header log-head">
   <h1>CATCH LOG</h1>
   <span class="head-actions">
-    <span class="page-sub" id="count">—</span>
     <!-- 統計（SCR-018・D-102 / D-152）。ナビの 6 枠は埋まっているので、一覧の隣から開く。
          **ページ名をそのまま出す。** グラフのアイコンだけでは、押した先が
          何の画面なのかが分からない -->
     <a class="btn btn-quiet link-btn head-page" href="trends.html" id="trends-link"
        ><span data-icon="chart"></span>統計</a>
+    <!-- 魚図鑑（D-182）。統計と同じく、釣果を見る流れの中から開く -->
+    <a class="btn btn-quiet link-btn head-page" href="fishbook.html" id="book-link"
+       ><span data-icon="fish"></span>図鑑</a>
   </span>
+  <span class="page-sub log-count" id="count">—</span>
 </header>
 
 <main>

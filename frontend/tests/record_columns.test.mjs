@@ -28,6 +28,7 @@ function columnsOf(name) {
 
 const LIST = columnsOf('RECORD_LIST_COLUMNS');
 const TREND = columnsOf('RECORD_TREND_COLUMNS');
+const BOOK = columnsOf('RECORD_BOOK_COLUMNS');
 
 /* `r.` で始まるが釣果の列ではないもの。**足すときは理由を書く。** */
 const IGNORE = new Set([
@@ -65,6 +66,20 @@ for (const file of ['../records.html', '../index.html', '../spot.html']) {
   const missing = [...new Set(used(read('../trends.html')))].filter((c) => !TREND.has(c));
   check('trends.html が読む列は、取る列に入っている',
     missing.length === 0, missing.length ? `不足: ${missing.join(', ')}` : `${TREND.size} 列`);
+}
+
+/* ---- 魚図鑑（D-182）は、画面と組み立て（fishBook）の両方が読む列を見る ---- */
+{
+  const start = APP.indexOf('export function fishBook(');
+  const end = APP.indexOf('\nexport ', start + 10);
+  const sources = { 'fishbook.html': read('../fishbook.html'), 'fishBook（app.js）': APP.slice(start, end) };
+  for (const [name, source] of Object.entries(sources)) {
+    const missing = [...new Set(used(source))].filter((c) => !BOOK.has(c));
+    check(`${name} が読む列は、図鑑の取る列に入っている`,
+      start >= 0 && missing.length === 0, missing.length ? `不足: ${missing.join(', ')}` : `${BOOK.size} 列`);
+  }
+  // 到達段階の判定（recordOutcome）が中で読む列
+  for (const c of ['outcome', 'is_skunked']) check(`図鑑の列にも ${c} がある`, BOOK.has(c));
 }
 
 /* ---- 一覧でも傾向でも使う共通の部品 ---- */

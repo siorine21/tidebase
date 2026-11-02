@@ -884,6 +884,103 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
    全行に線が入って、かえって見分けがつかなくなる */
 .list-item.shared { border-left: 3px solid var(--blue-mid); }
 
+/* ---------- 魚図鑑（D-182） ----------
+   自分たちの釣果から作る図鑑。札は 3 列。釣った魚種は写真（いちばん大きかった 1 匹）、
+   まだの魚種は「？」で伏せ、名前だけ見せる（何が残っているかが分かるように） */
+.book-head { padding: 12px 14px; }
+.book-scope { margin-bottom: 10px; }
+.book-progress { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.book-count {
+  font-family: 'JetBrains Mono', monospace; font-size: 22px; color: var(--mustard-lt); letter-spacing: 0.5px;
+}
+.book-unit { font-size: 12px; color: var(--text-secondary); }
+.book-scope-note { font-size: 11px; color: var(--text-muted); margin-left: auto; }
+.book-bar { height: 5px; margin-top: 8px; border-radius: 3px; background: var(--bg-deep); overflow: hidden; }
+.book-bar > span { display: block; height: 100%; background: var(--mustard); border-radius: 3px; }
+.book-section-count { font-family: 'JetBrains Mono', monospace; }
+.book-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.book-card {
+  display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0;
+  padding: 8px 6px 9px; border-radius: var(--radius);
+  background: var(--bg-card); border: 1px solid var(--border-strong);
+  color: inherit; font: inherit; text-align: center;
+}
+button.book-card { cursor: pointer; }
+button.book-card:focus-visible { outline: 2px solid var(--mustard); outline-offset: 2px; }
+.book-pic {
+  width: 100%; aspect-ratio: 1; border-radius: 7px; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-raised); color: var(--mustard);
+}
+.book-pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.book-name {
+  width: 100%; font-size: 12px; color: var(--text-primary);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.book-meta { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-secondary); }
+/* まだ釣っていない魚種は沈める。押しても何も出ないので、押せる見た目にもしない */
+.book-card.unknown { background: var(--bg-deep); border-color: var(--border); border-style: dashed; }
+.book-card.unknown .book-pic { background: transparent; }
+.book-q { font-size: 30px; font-weight: 700; color: var(--text-muted); opacity: 0.6; }
+.book-card.unknown .book-name { color: var(--text-muted); }
+.book-card.unknown .book-meta { color: var(--text-muted); opacity: 0.7; }
+
+/* 魚種の詳しいところ（ダイアログの中） */
+.book-detail-top { display: flex; gap: 12px; align-items: flex-start; }
+.book-detail-pic {
+  flex: 0 0 96px; height: 96px; border-radius: 8px; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg-raised); color: var(--mustard);
+}
+.book-detail-pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.book-facts { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.book-fact { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+.book-fact .k { width: 3.5em; font-size: 11px; color: var(--text-muted); }
+.book-fact .v { font-family: 'JetBrains Mono', monospace; font-size: 15px; color: var(--mustard-lt); }
+.book-fact .s { flex-basis: 100%; padding-left: calc(3.5em + 8px); font-size: 11px; color: var(--text-secondary); }
+.book-sub { margin: 14px 0 6px; font-size: 11px; letter-spacing: 1px; color: var(--text-muted); }
+/* 季節。1〜12 月を 1 本に並べ、釣れた月ほど濃く塗る（いちばん多い月が 1.0） */
+.book-months { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 3px; }
+.book-month {
+  height: 26px; border-radius: 4px; display: flex; align-items: flex-end; justify-content: center;
+  padding-bottom: 2px; background: var(--bg-deep);
+  font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--text-muted);
+}
+.book-month.on {
+  background: var(--mustard-dk);          /* color-mix が使えないブラウザでは 1 色で塗る */
+  background: color-mix(in srgb, var(--mustard) calc(var(--level) * 100%), var(--bg-deep));
+  color: var(--bg-deep); font-weight: 700;
+}
+.book-list { margin: 0; padding: 0; list-style: none; }
+.book-list li {
+  display: flex; justify-content: space-between; gap: 10px; padding: 6px 0;
+  border-bottom: 1px solid var(--border); font-size: 12px;
+}
+.book-list .n { font-family: 'JetBrains Mono', monospace; color: var(--text-secondary); white-space: nowrap; }
+.book-recent { display: flex; flex-direction: column; }
+/* 釣果を開く行。**当たりは 44px**（D-150） */
+.book-recent a {
+  display: flex; align-items: center; min-height: 44px; box-sizing: border-box;
+  padding: 4px 0; border-bottom: 1px solid var(--border);
+  font-size: 12px; color: var(--text-primary); text-decoration: none;
+}
+.book-recent a::after { content: "→"; margin-left: auto; padding-left: 8px; color: var(--text-muted); }
+
+/* ホームの入口（D-182）。最近の釣果の下に 1 行。埋まり具合を棒で見せる */
+.book-entry {
+  display: flex; align-items: center; gap: 10px; min-height: 44px; box-sizing: border-box;
+  margin-top: 4px; padding: 8px 12px; border-radius: var(--radius);
+  background: var(--bg-card); border: 1px solid var(--border);
+  color: inherit; text-decoration: none;
+}
+.book-entry[hidden] { display: none; }
+.book-entry .icon { color: var(--mustard); flex-shrink: 0; }
+.book-entry-label { font-size: 13px; color: var(--text-primary); white-space: nowrap; }
+.book-entry-count { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--mustard-lt); white-space: nowrap; }
+.book-entry-bar { flex: 1; min-width: 30px; height: 4px; border-radius: 2px; background: var(--bg-deep); overflow: hidden; }
+.book-entry-bar > span { display: block; height: 100%; background: var(--mustard); }
+.book-entry-go { color: var(--text-muted); }
+
 /* ---------- CATCH LOG を年・月で畳む（D-181） ----------
    見出しは押せる行。**当たりは 44px 以上**（濡れた手・手袋・D-150）。
    畳んだままでも「その月はどうだったか」が読めるよう、件数・匹数・反応・最大を並べる。
@@ -908,6 +1005,12 @@ main { padding: 16px; max-width: 640px; margin: 0 auto; }
 /* 年は月より一段強く。中の月は少し下げて、どの年の月かが線で分かるようにする */
 .log-year > summary .log-label { font-size: 14px; letter-spacing: 1.5px; color: var(--mustard-lt); }
 .log-year > .log-body { margin-left: 6px; padding-left: 10px; border-left: 1px solid var(--border); }
+/* 見出し: 1 段目に題と「統計」「図鑑」、2 段目に件数（D-182）。
+   件数は**いつも 2 段目**。入るときだけ 1 段目に上がると、画面の幅で位置が変わって探させる。
+   2 段目は横幅をまるごと使えるので、桁が増えても切らずに読める */
+.log-head { flex-wrap: wrap; row-gap: 2px; }
+.log-head .head-actions { flex-shrink: 0; }
+.app-header.log-head .log-count { flex-basis: 100%; text-align: left; }
 
 /* 招待リンクは選択してコピーできるよう input のままにする（読み取り専用） */
 /* 編集パネルの保存ボタンは、地図の下に埋もれず常に手が届く位置に置く */

@@ -3360,6 +3360,18 @@ export const RECORD_TREND_COLUMNS = [
   "memo",                                   // メモの言葉で絞る（D-148）
 ].join(",");
 
+/** 魚図鑑が使う列（D-182）。魚種ごとに「初めて・最大・季節・場所・誰が」を出すぶんだけ */
+export const RECORD_BOOK_COLUMNS = [
+  "id", "user_id", "is_mine", "owner_name", "fished_at", "fished_time",
+  "outcome", "is_skunked", "fish_species_id", "species_name",
+  "length_cm", "catch_count", "spot_name", "photo_thumb_path",
+].join(",");
+
+/** ホームの図鑑の入口が使う列（D-182）。「どの魚種を釣ったか」だけ分かればよい */
+export const RECORD_BOOK_PROGRESS_COLUMNS = [
+  "is_mine", "outcome", "is_skunked", "fish_species_id",
+].join(",");
+
 /**
  * @param {string} [input.columns] 取る列。既定は一覧に要るぶん
  * @param {boolean} [input.mineOnly] 自分の記録だけ。**取ってから捨てるのをやめる**（D-126）
@@ -3510,6 +3522,85 @@ export function recordFishName(record) {
   // バラシに「釣果」と出ると、キャッチしたように読めてしまう
   const outcome = recordOutcome(record);
   return outcome.value === "landed" ? "釣果" : "魚";
+}
+
+/**
+ * 魚図鑑（D-182）。**自分たちの釣果から作る図鑑**。外から集めた解説ではなく、
+ * 「いつ・どこで・どれだけの大きさを釣ったか」で埋まっていく。
+ *
+ * - 載せるのは魚種一覧（listSpecies）の**全種**。釣っていない魚種も「まだ」として並べる
+ *   （本人の選択。何が残っているかが見えると、埋めたくなる）
+ * - 数えるのは「釣った」記録だけ（バラシ・アタリ・目視は数えない）。魚種の無い記録も数えない
+ * - mine: true は自分の釣果だけ、false は見えている全員（グループ）の釣果
+ *
+ * @param {object[]} species listSpecies() の魚種。**並び順をそのまま使う**
+ * @param {object[]} records 釣果（RECORD_BOOK_COLUMNS）
+ * @param {{mine?: boolean}} [opt]
+ * @returns {object[]} 魚種ごとの項目。釣っていなければ { caught: false } だけ
+ */
+export function fishBook(species, records, { mine = true } = {}) {
+  const bySpecies = new Map();
+  for (const r of records ?? []) {
+    if (mine && !r.is_mine) continue;
+    if (!r.fish_species_id || recordOutcome(r).value !== "landed") continue;
+    if (!bySpecies.has(r.fish_species_id)) bySpecies.set(r.fish_species_id, []);
+    bySpecies.get(r.fish_species_id).push(r);
+  }
+  const known = new Set((species ?? []).map((s) => s.id));
+  const entries = (species ?? []).map((s) => bookEntry(s, bySpecies.get(s.id) ?? []));
+  /* 自分の魚種一覧に無い魚種（仲間が自分用に足した魚種）でも、釣果が見えていれば末尾に出す。
+     出さないと、グループの図鑑で「釣ったのに載っていない」が起きる */
+  for (const [id, list] of bySpecies) {
+    if (known.has(id)) continue;
+    entries.push(bookEntry({ id, name: list[0].species_name ?? "名前のない魚種", category: null }, list));
+  }
+  return entries;
+}
+
+/** 魚種 1 つぶんの図鑑の項目。list はその魚種の「釣った」記録 */
+function bookEntry(s, list) {
+  const base = { id: s.id, name: s.name, category: s.category ?? null };
+  if (!list.length) return { ...base, caught: false };
+  const at = (r) => `${r.fished_at}T${r.fished_time ?? "00:00:00"}`;
+  const sorted = list.slice().sort((a, b) => at(a).localeCompare(at(b)) || String(a.id).localeCompare(String(b.id)));
+  const fishOf = (r) => r.catch_count ?? 1;
+  const longest = (rows) => rows.filter((r) => r.length_cm != null)
+    .reduce((m, r) => (!m || Number(r.length_cm) > Number(m.length_cm) ? r : m), null);
+  const best = longest(sorted);
+  /* 札の写真は「いちばん大きかった 1 匹」。その記録に写真が無ければ、写真のある中で
+     いちばん大きいもの、長さが 1 つも無ければいちばん新しい写真 */
+  const withPhoto = sorted.filter((r) => r.photo_thumb_path);
+  const photoRecord = best?.photo_thumb_path ? best : (longest(withPhoto) ?? withPhoto.at(-1) ?? null);
+  const months = Array(12).fill(0);
+  for (const r of sorted) months[Number(String(r.fished_at).slice(5, 7)) - 1] += fishOf(r);
+  const groupBy = (keyOf) => {
+    const map = new Map();
+    for (const r of sorted) {
+      const key = keyOf(r);
+      if (key == null) continue;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(r);
+    }
+    return [...map.values()];
+  };
+  const fishIn = (rows) => rows.reduce((n, r) => n + fishOf(r), 0);
+  const byFish = (a, b) => b.fish - a.fish || a.name.localeCompare(b.name, "ja");
+  return {
+    ...base, caught: true,
+    records: list.length, fish: fishIn(sorted),
+    first: sorted[0], best, photo: photoRecord?.photo_thumb_path ?? null, photoRecord,
+    months,
+    // よく釣れる場所（匹数の多い順に 3 つ）
+    spots: groupBy((r) => r.spot_name ?? null)
+      .map((rows) => ({ name: rows[0].spot_name, fish: fishIn(rows) })).sort(byFish).slice(0, 3),
+    // 誰が釣ったか（グループの図鑑で出す）。自分は「自分」と書く（ownerBadge と同じ）
+    people: groupBy((r) => r.user_id ?? (r.is_mine ? "me" : r.owner_name ?? null))
+      .map((rows) => ({
+        name: rows[0].is_mine ? "自分" : (rows[0].owner_name ?? "メンバー"), mine: Boolean(rows[0].is_mine),
+        fish: fishIn(rows), best: longest(rows)?.length_cm ?? null,
+      })).sort(byFish),
+    recent: sorted.slice(-3).reverse(),
+  };
 }
 
 /**
