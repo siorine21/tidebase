@@ -162,6 +162,9 @@
 
   <div class="section-label"><span>RECENT CATCH</span><a class="note" href="records.html">すべて見る →</a></div>
   <div id="recent"><div class="empty">読み込み中…</div></div>
+  <!-- 魚図鑑の入口（D-182・本人の選択で「ホームにも置く」）。数は自分の図鑑。
+       ほかの表示を待たせないよう、あとから出す。取れなければ出さない -->
+  <a class="book-entry" id="book-entry" href="fishbook.html" hidden></a>
 </main>
 
 <a class="fab" href="record-new.html" title="釣行を記録"
@@ -196,6 +199,7 @@
     recommendSpots, groupOutings, historyLine, phaseLine,
     RECORD_RECOMMEND_COLUMNS, isRecommendable, fishingScoreOfDay, fetchWeatherMulti,
     stars, tidePointOfSpot,
+    listSpecies, listAllRecords, RECORD_BOOK_PROGRESS_COLUMNS, fishBook,
   } from "./assets/app.js";
 
   // 静岡県特化のため既定は舞阪（浜名湖口・遠州灘西部の基準）
@@ -257,6 +261,8 @@
        届いた時点で上に出す。**失敗したら黙って出さない**。
        バトルが取れないくらいで、潮とスコアを止める理由は無い */
     loadHomeBattles().catch(() => {});
+    /* 魚図鑑の入口（D-182）もスポットに依らないので待たない。取れなければ出さない */
+    loadBookEntry().catch(() => {});
 
     /* **前回と同じところなら、決まるのを待たずに投げておく**（D-140）。
        下の 2 本は「どの地点を見るか」を決めるためだけにあり、
@@ -846,6 +852,26 @@
       const old = item.querySelector(".live-cam-wave-box");
       if (old) old.outerHTML = camWaveBody(c);
     });
+  }
+
+  /* 魚図鑑の入口（D-182）。**自分の図鑑の埋まり具合**（何種のうち何種を釣ったか）。
+     図鑑の画面と同じ組み立て（fishBook）で数える。数え方を 2 つ書くと、
+     ホームと図鑑で数が食い違う。取る列は「どの魚種を釣ったか」が分かる 4 列だけ */
+  async function loadBookEntry() {
+    const [species, rows] = await Promise.all([
+      listSpecies(), listAllRecords({ columns: RECORD_BOOK_PROGRESS_COLUMNS }),
+    ]);
+    const entries = fishBook(species, rows, { mine: true });
+    if (!entries.length) return;
+    const caught = entries.filter((e) => e.caught).length;
+    const box = document.getElementById("book-entry");
+    box.innerHTML = `${icon("fish", { size: 16 })}<span class="book-entry-label">魚図鑑</span>`
+      + `<span class="book-entry-count">${caught} / ${entries.length} 種</span>`
+      + `<span class="book-entry-bar" aria-hidden="true"><span style="width:${
+        Math.round((caught / entries.length) * 100)}%"></span></span>`
+      + `<span class="book-entry-go" aria-hidden="true">→</span>`;
+    box.setAttribute("aria-label", `魚図鑑 ${caught} / ${entries.length} 種`);
+    box.hidden = false;
   }
 
   /* 開催中・これからのバトル（D-147）。**ホームのいちばん上。**

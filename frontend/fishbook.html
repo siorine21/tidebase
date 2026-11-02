@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FISH BOOK | TIDEBASE</title>
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" href="assets/icons/app-icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/icons/apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0F1E2E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="TIDEBASE">
+<link rel="stylesheet" href="vendor/fonts/fonts.css">
+<link rel="stylesheet" href="assets/theme.css">
+</head>
+<body class="app-body">
+
+<!-- 魚図鑑（D-182）。**自分たちの釣果から作る図鑑**。
+     外から集めた解説ではなく、「いつ・どこで・どれだけの大きさを釣ったか」で埋まっていく。
+     CATCH LOG の「統計」の隣と、ホームの最近の釣果の下から開く -->
+<header class="page-head">
+  <button type="button" class="back" id="back" aria-label="戻る">←</button>
+  <div class="page-title">FISH BOOK</div>
+  <span class="page-sub">魚図鑑</span>
+</header>
+
+<main>
+  <div id="message" class="message" hidden role="alert"></div>
+
+  <div class="card book-head">
+    <!-- 自分の図鑑とグループの図鑑を切り替える（本人の選択）。
+         メンバーの釣果が 1 件も見えていないうちは出さない（切り替えても同じになる） -->
+    <div class="chips book-scope" id="scope" role="radiogroup" aria-label="誰の釣果で埋めるか" hidden>
+      <button type="button" class="chip" role="radio" data-scope="mine">自分</button>
+      <button type="button" class="chip" role="radio" data-scope="group">グループ</button>
+    </div>
+    <div class="book-progress">
+      <span class="book-count" id="book-count">— / —</span><span class="book-unit">種</span>
+      <span class="book-scope-note" id="book-scope-note"></span>
+    </div>
+    <div class="book-bar" aria-hidden="true"><span id="book-bar"></span></div>
+  </div>
+
+  <div id="book"><div class="empty">読み込み中…</div></div>
+</main>
+
+<script src="vendor/supabase.js"></script>
+<script src="assets/config.js"></script>
+<script type="module">
+  import {
+    requireSession, renderNav, escapeHtml, icon, navigate, toJapaneseError,
+    listSpecies, listAllRecords, RECORD_BOOK_COLUMNS, fishBook,
+    signedPhotoUrls, showInfoDialog, formatJstDate,
+  } from "./assets/app.js";
+
+  const session = await requireSession();
+  if (!session) throw new Error("unauthenticated");
+  renderNav("records");
+  document.getElementById("back").addEventListener("click", () => navigate("records.html"));
+
+  /* どちらの図鑑を見ていたかは、この端末で覚える（見るだけの設定・D-182）。
+     覚えられない環境では、いつも「自分」から始まるだけ */
+  const SCOPE_KEY = "tidebase.fishbook.scope";
+  let scope = "mine";
+  try { if (localStorage.getItem(SCOPE_KEY) === "group") scope = "group"; } catch { /* 既定のまま */ }
+
+  let species = [], records = [];
+  try {
+    [species, records] = await Promise.all([
+      listSpecies(),
+      // 全件読む（D-181）。古い年の初めての 1 匹が欠けると「初めて」が嘘になる
+      listAllRecords({ columns: RECORD_BOOK_COLUMNS }),
+    ]);
+  } catch (error) {
+    document.getElementById("book").innerHTML = "";
+    message(toJapaneseError(error), "error");
+    throw error;
+  }
+
+  const hasMembers = records.some((r) => !r.is_mine);
+  document.getElementById("scope").hidden = !hasMembers;
+  if (!hasMembers) scope = "mine";
+  const urls = new Map();               // 写真のパス → 署名付き URL（開き直しても取り直さない）
+  let entries = [];
+
+  render();
+
+  document.getElementById("scope").addEventListener("click", (e) => {
+    const chip = e.target.closest("[data-scope]");
+    if (!chip || chip.dataset.scope === scope) return;
+    scope = chip.dataset.scope;
+    try { localStorage.setItem(SCOPE_KEY, scope); } catch { /* 覚えられなくても切り替えはできる */ }
+    render();
+  });
+
+  function render() {
+    entries = fishBook(species, records, { mine: scope === "mine" });
+    for (const chip of document.querySelectorAll("#scope [data-scope]")) {
+      const on = chip.dataset.scope === scope;
+      chip.classList.toggle("selected", on);
+      chip.setAttribute("aria-checked", String(on));
+    }
+    const caught = entries.filter((e) => e.caught).length;
+    document.getElementById("book-count").textContent = `${caught} / ${entries.length}`;
+    document.getElementById("book-scope-note").textContent =
+      scope === "mine" ? "自分が釣った魚種" : "グループの誰かが釣った魚種";
+    document.getElementById("book-bar").style.width =
+      `${entries.length ? Math.round((caught / entries.length) * 100) : 0}%`;
+
+    if (!entries.length) {
+      document.getElementById("book").innerHTML = `<div class="empty">魚種がまだありません</div>`;
+      return;
+    }
+    // 魚種一覧と同じ区分ごと（海水 → 汽水 → 淡水）。一覧に無い魚種は最後に「その他」
+    const sections = [];
+    for (const entry of entries) {
+      const label = entry.category ?? "その他";
+      if (sections.at(-1)?.label !== label) sections.push({ label, items: [] });
+      sections.at(-1).items.push(entry);
+    }
+    document.getElementById("book").innerHTML = sections.map(({ label, items }) => `
+      <div class="section-label"><span>${escapeHtml(label)}</span>
+        <span class="note book-section-count">${items.filter((e) => e.caught).length} / ${items.length}</span></div>
+      <div class="book-grid">${items.map(cardHtml).join("")}</div>`).join("");
+    fillPhotos(document.getElementById("book"));
+  }
+
+  /** 図鑑の札 1 枚。釣った魚種は押すと詳しく出る。まだの魚種は伏せる */
+  function cardHtml(entry) {
+    if (!entry.caught) {
+      return `
+        <div class="book-card unknown" aria-label="まだ釣っていない: ${escapeHtml(entry.name)}">
+          <div class="book-pic"><span class="book-q">？</span></div>
+          <div class="book-name">${escapeHtml(entry.name)}</div>
+          <div class="book-meta">まだ</div>
+        </div>`;
+    }
+    const size = entry.best ? `${Number(entry.best.length_cm)}cm` : null;
+    return `
+      <button type="button" class="book-card caught" data-id="${escapeHtml(entry.id)}">
+        <div class="book-pic">${entry.photo
+          ? `<img class="book-photo" data-path="${escapeHtml(entry.photo)}" alt="">`
+          : icon("fish", { size: 28 })}</div>
+        <div class="book-name">${escapeHtml(entry.name)}</div>
+        <div class="book-meta">${[size, `${entry.fish}匹`].filter(Boolean).join(" · ")}</div>
+      </button>`;
+  }
+
+  document.getElementById("book").addEventListener("click", (e) => {
+    const card = e.target.closest(".book-card.caught");
+    if (!card) return;
+    const entry = entries.find((x) => String(x.id) === card.dataset.id);
+    if (entry) openDetail(entry);
+  });
+
+  /** 魚種の詳しいところ。数はどれも、今見ている図鑑（自分／グループ）の釣果から */
+  function openDetail(entry) {
+    const group = scope === "group";
+    const who = (r) => (group ? ` · ${r.is_mine ? "自分" : escapeHtml(r.owner_name ?? "メンバー")}` : "");
+    const where = (r) => (r.spot_name ? ` · ${escapeHtml(r.spot_name)}` : "");
+    const day = (r) => escapeHtml(formatJstDate(r.fished_at));
+    const peak = Math.max(...entry.months);
+    const html = `
+      <div class="book-detail">
+        <div class="book-detail-top">
+          <div class="book-detail-pic">${entry.photo
+            ? `<img class="book-photo" data-path="${escapeHtml(entry.photo)}" alt="">`
+            : icon("fish", { size: 36 })}</div>
+          <div class="book-facts">
+            <div class="book-fact"><span class="k">最大</span><span class="v">${entry.best
+              ? `${Number(entry.best.length_cm)}cm` : "—"}</span>
+              ${entry.best ? `<span class="s">${day(entry.best)}${where(entry.best)}${who(entry.best)}</span>` : ""}</div>
+            <div class="book-fact"><span class="k">初めて</span><span class="v">${day(entry.first)}</span>
+              <span class="s">${escapeHtml(entry.first.spot_name ?? "")}${who(entry.first)}</span></div>
+            <div class="book-fact"><span class="k">合計</span><span class="v">${entry.fish}匹</span>
+              <span class="s">記録 ${entry.records} 件</span></div>
+          </div>
+        </div>
+
+        <div class="book-sub">季節（月ごとの匹数）</div>
+        <div class="book-months">${entry.months.map((n, i) => `
+          <div class="book-month${n ? " on" : ""}" title="${i + 1}月 ${n}匹"
+               style="--level:${n ? (0.35 + 0.65 * n / peak).toFixed(2) : 0}">
+            <span>${i + 1}</span></div>`).join("")}</div>
+
+        ${entry.spots.length ? `
+          <div class="book-sub">よく釣れる場所</div>
+          <ol class="book-list">${entry.spots.map((s) => `
+            <li><span>${escapeHtml(s.name)}</span><span class="n">${s.fish}匹</span></li>`).join("")}</ol>` : ""}
+
+        ${group ? `
+          <div class="book-sub">釣った人</div>
+          <ol class="book-list">${entry.people.map((p) => `
+            <li><span>${escapeHtml(p.name)}</span>
+              <span class="n">${p.fish}匹${p.best != null ? ` · 最大 ${Number(p.best)}cm` : ""}</span></li>`).join("")}</ol>` : ""}
+
+        <div class="book-sub">最近の釣果</div>
+        <div class="book-recent">${entry.recent.map((r) => `
+          <a href="record.html?id=${encodeURIComponent(r.id)}">${day(r)}${
+            r.length_cm != null ? ` · ${Number(r.length_cm)}cm` : ""}${r.catch_count > 1 ? ` ×${r.catch_count}` : ""}${
+            where(r)}${who(r)}</a>`).join("")}</div>
+      </div>`;
+    const dialog = showInfoDialog(entry.name, html);
+    fillPhotos(dialog);
+  }
+
+  /** 非公開バケットなので写真には署名付き URL が要る。**描いたぶんだけ**、まとめて 1 回で取る */
+  async function fillPhotos(scopeEl) {
+    const images = [...scopeEl.querySelectorAll(".book-photo:not([src])")];
+    const missing = [...new Set(images.map((el) => el.dataset.path))].filter((p) => !urls.has(p));
+    if (missing.length) {
+      const got = await signedPhotoUrls(missing).catch(() => new Map());
+      for (const p of missing) urls.set(p, got.get(p) ?? null);
+    }
+    for (const el of images) {
+      const url = urls.get(el.dataset.path);
+      if (url) el.src = url;
+      else el.closest(".book-pic, .book-detail-pic").innerHTML = icon("fish", { size: 28 });
+    }
+  }
+
+  function message(text, kind) {
+    const box = document.getElementById("message");
+    box.textContent = text;
+    box.className = `message ${kind}`;
+    box.hidden = false;
+  }
+</script>
+</body>
+</html>
