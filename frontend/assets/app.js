@@ -1198,7 +1198,8 @@ export function spotFacesOpenSea(spot) {
 /**
  * その日の波をひとことでまとめる（D-142）。
  * @param {object[]} hours mapHourly の結果（1 日ぶん）
- * @returns {{now, min, max, level, period, longSwell, dirLabel}|null}
+ * @returns {{now, min, max, level, period, longSwell, dirLabel,
+ *            hour, swellHeight, swellPeriod, swellDirLabel}|null}
  */
 export function describeWaves(hours, atHour = null) {
   const rows = (hours ?? []).filter((r) => r.wave_height_m != null);
@@ -1217,6 +1218,14 @@ export function describeWaves(hours, atHour = null) {
     longSwell: periods.some((s) => s >= LONG_PERIOD_S),
     dirLabel: here.wave_direction_deg == null
       ? null : windDirection(here.wave_direction_deg),
+    /* **何時の値を出しているか**（D-183）。頼まれた時刻ではなく、実際に使った行の時刻。
+       その時刻の行が無くて先頭で代用したときに、いまの時刻を書くと嘘になる */
+    hour: Number.isInteger(here.hour) ? here.hour : null,
+    // うねり（D-183）。ライブ映像の波だけが頼んでいる。無ければ null（0m とは言わない）
+    swellHeight: here.swell_height_m ?? null,
+    swellPeriod: here.swell_period_s ?? null,
+    swellDirLabel: here.swell_direction_deg == null
+      ? null : windDirection(here.swell_direction_deg),
   };
 }
 
@@ -1231,7 +1240,9 @@ export function describeWaves(hours, atHour = null) {
  * @param {ReturnType<typeof describeWaves>|null} wave
  * @returns {{height:string, band:string, bandKey:string, note:string,
  *            period:string|null, dir:string|null, range:string|null,
- *            swell:string|null}|null}
+ *            swell:string|null, at:string|null,
+ *            swellWave:{height:string, period:string|null, dir:string|null}|null}|null}
+ *   swell は「今日は長いうねりが入る」の一文、swellWave はその時刻のうねりの数字。
  */
 export function waveSummary(wave) {
   if (!wave?.level) return null;
@@ -1247,6 +1258,16 @@ export function waveSummary(wave) {
     range: wave.max - wave.min >= 0.3
       ? `${wave.min.toFixed(1)}〜${wave.max.toFixed(1)}m` : null,
     swell: wave.longSwell ? `今日は長いうねり（${LONG_PERIOD_S}秒以上）が入ります` : null,
+    // 何時の値か（D-183）。予報は 1 時間ごとなので「14:00」の形
+    at: wave.hour == null ? null : `${String(wave.hour).padStart(2, "0")}:00`,
+    /* その時刻のうねり（D-183）。丸め方は波と同じ（小数 1 桁）。
+       **波の帯（WAVE_BANDS）は当てない。** 帯は合わせた波高の分布で切ってあり、
+       うねりは中央 0.78m と一段低い。当てると、ふつうのうねりが「穏やか」になる */
+    swellWave: wave.swellHeight == null ? null : {
+      height: `${Number(wave.swellHeight).toFixed(1)}`,
+      period: wave.swellPeriod == null ? null : `${Number(wave.swellPeriod).toFixed(1)}`,
+      dir: wave.swellDirLabel ?? null,
+    },
   };
 }
 
@@ -1594,22 +1615,30 @@ export async function fetchWaves(lat, lng, date) {
 async function fetchWavesUncached(lat, lng, date) {
   /* **その日ぶんだけ。** 予報のほうは翌日 0 時まで取るが（グラフを 24 時まで
      引くため）、ここは「今日の幅」を言うのに使うので翌日を混ぜない */
+  /* うねり（swell_wave_*）も同じ 1 本で頼む（D-183）。「波」は風波とうねりを
+     合わせた高さで、同じ 2.1m でも中身が違う（実測: 1 年の 63% はうねりが主）。
+     列を足しても要求は 1 本のまま。**スポットの予報（fetchWeather）には足さない**
+     （そちらでは使っていない） */
   const url = "https://marine-api.open-meteo.com/v1/marine?"
     + `latitude=${lat}&longitude=${lng}&timezone=Asia%2FTokyo`
     + `&start_date=${date}&end_date=${date}`
-    + "&hourly=wave_height,wave_period,wave_direction";
+    + "&hourly=wave_height,wave_period,wave_direction"
+    + ",swell_wave_height,swell_wave_period,swell_wave_direction";
   const response = await fetchWithTimeout(url);
   if (!response.ok) throw new Error(`波を取得できませんでした (${response.status})`);
   const sea = (await response.json()).hourly ?? null;
   if (!sea?.time) return [];
   /* **波高・周期・向きは瞬間値**なので添字はそのまま（D-111）。
-     区間の値（雨量・天気記号）と違って 1 つ後ろを見ない */
+     区間の値（雨量・天気記号）と違って 1 つ後ろを見ない。うねりも同じ */
   return sea.time.map((time, i) => ({
     time,
     hour: Number(time.slice(11, 13)),
     wave_height_m: sea.wave_height?.[i] ?? null,
     wave_period_s: sea.wave_period?.[i] ?? null,
     wave_direction_deg: sea.wave_direction?.[i] ?? null,
+    swell_height_m: sea.swell_wave_height?.[i] ?? null,
+    swell_period_s: sea.swell_wave_period?.[i] ?? null,
+    swell_direction_deg: sea.swell_wave_direction?.[i] ?? null,
   }));
 }
 
