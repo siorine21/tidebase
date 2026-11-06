@@ -151,5 +151,89 @@ check('周期と向きが無くても波高と帯は出す',
   && bare.period === null && bare.dir === null,
   JSON.stringify(bare));
 
+/* ---- 何時の値か・うねり（D-183） ----
+   本人の要望「畳んだ部分に波だけではなくうねりの具合も。何時時点のものかも」。
+   数字は 2026-11-06 の同笠沖（実際に取ったもの）。合わせた波 2.1m のうち、
+   うねりが 1.6m（8.6 秒・南東）で、残りは西からの風波だった */
+const sea = [
+  { hour: 13, wave_height_m: 2.2, wave_period_s: 8.0, wave_direction_deg: 186,
+    swell_height_m: 1.68, swell_period_s: 8.6, swell_direction_deg: 149 },
+  { hour: 14, wave_height_m: 2.12, wave_period_s: 7.9, wave_direction_deg: 189,
+    swell_height_m: 1.58, swell_period_s: 8.55, swell_direction_deg: 149 },
+];
+{
+  const w = describeWaves(sea, 14);
+  check('使った行の時刻を返す', w.hour === 14, String(w.hour));
+  check('うねりはその時刻のもの（高さ・周期・向き）',
+    w.swellHeight === 1.58 && w.swellPeriod === 8.55 && w.swellDirLabel === '南東',
+    JSON.stringify([w.swellHeight, w.swellPeriod, w.swellDirLabel]));
+}
+/* **頼んだ時刻ではなく、実際に使った行の時刻。** 23 時の行が無くて先頭（13 時）で
+   代用したのに「23:00」と書くと、13 時の数字に嘘の時刻が付く。
+   罠: 頼まれた時刻（atHour）をそのまま返すと落ちる */
+check('**代用した行なら、その行の時刻を言う**（頼まれた時刻ではない）',
+  describeWaves(sea, 23).hour === 13, String(describeWaves(sea, 23).hour));
+check('時刻の分からない行なら時刻は null',
+  describeWaves([{ wave_height_m: 1.0 }]).hour === null);
+
+const s14 = sum(sea, 14);
+check('時刻は「14:00」の形', s14.at === '14:00', s14.at);
+check('1 桁の時は 0 を補う（「09:00」）。文字の幅がそろう',
+  sum([{ hour: 9, wave_height_m: 1.0 }], 9).at === '09:00');
+check('0 時も「00:00」（0 を「無い」と取り違えない）',
+  sum([{ hour: 0, wave_height_m: 1.0 }], 0).at === '00:00');
+check('時刻が分からなければ at は null', sum([{ wave_height_m: 1.0 }]).at === null);
+check('うねりも小数 1 桁（1.58m → 1.6m・8.55 秒 → 8.6 秒）',
+  s14.swellWave.height === '1.6' && s14.swellWave.period === '8.6', JSON.stringify(s14.swellWave));
+check('うねりの向きも言葉にする', s14.swellWave.dir === '南東', s14.swellWave.dir);
+/* **うねりに波の帯は当てない。** 帯は合わせた波高の分布で切ってある。
+   うねりは同笠沖 1 年の中央が 0.78m で、当てると「ふつう」のうねりが「穏やか」になる。
+   罠: waveLevel をうねりに通して帯を付けると、ここで落ちる */
+check('うねりには帯を付けない（高さ・周期・向きだけ）',
+  Object.keys(s14.swellWave).join(',') === 'height,period,dir', Object.keys(s14.swellWave).join(','));
+/* **0m と「取れていない」は別物**（D-142 と同じ）。 */
+check('うねりの列が無ければ null（0m と言わない）',
+  sum([{ hour: 0, wave_height_m: 1.0 }]).swellWave === null);
+check('うねりが 0m なら「0.0」と言う（無いのとは別）',
+  sum([{ hour: 0, wave_height_m: 0.5, swell_height_m: 0 }]).swellWave?.height === '0.0');
+check('周期と向きだけ無くても、うねりの高さは出す', (() => {
+  const s = sum([{ hour: 0, wave_height_m: 1.0, swell_height_m: 0.7 }]).swellWave;
+  return s?.height === '0.7' && s.period === null && s.dir === null;
+})());
+/* スポットの予報（fetchWeather）はうねりの列を頼んでいない。
+   「いまの潮」の波の行がこれまでどおりであること */
+check('スポットの予報（うねりの列なし）では、うねりを出さない',
+  sum(hours, 1).swellWave === null && sum(hours, 1).height === '1.4');
+
+/* ---- marine の行への写し方（D-183） ----
+   列の名前（swell_wave_*）と行の名前（swell_*）が違うので、写し間違えると
+   黙って null になり、うねりだけ一度も出ない。本物の応答の形で確かめる */
+{
+  const prelude = `
+    const urls = [];
+    async function fetchWithTimeout(url) {
+      urls.push(url);
+      return { ok: true, json: async () => ({ hourly: {
+        time: ["2026-11-06T13:00", "2026-11-06T14:00"],
+        wave_height: [2.2, 2.12], wave_period: [8.0, 7.9], wave_direction: [186, 189],
+        swell_wave_height: [1.68, 1.58], swell_wave_period: [8.6, 8.55], swell_wave_direction: [149, 149],
+      } }) };
+    }`;
+  const fetchCode = sliceApp([
+    ['/* ライブ映像に添える波（D-144）。**波だけを取りに行く。**', 'async function fetchWeatherUncached'],
+  ], prelude);
+  const { fetchWaves, urls } = new Function(fetchCode + '; return { fetchWaves, urls };')();
+  const rows = await fetchWaves(34.63, 137.93, '2026-11-06');
+  check('うねりの列を行に写す（高さ・周期・向き）',
+    rows[1].swell_height_m === 1.58 && rows[1].swell_period_s === 8.55 && rows[1].swell_direction_deg === 149,
+    JSON.stringify(rows[1]));
+  check('写した行から、そのまま見出しの数字になる',
+    JSON.stringify(waveSummary(describeWaves(rows, 14)).swellWave) === JSON.stringify({ height: '1.6', period: '8.6', dir: '南東' }));
+  const hourly = new URL(urls[0]).searchParams.get('hourly').split(',');
+  check('**うねりの列も同じ 1 本で頼む**',
+    urls.length === 1 && ['swell_wave_height', 'swell_wave_period', 'swell_wave_direction'].every((c) => hourly.includes(c)),
+    hourly.join(','));
+}
+
 console.log(failed ? `\nFAIL ${failed} 件` : '\nすべて通過');
 process.exit(failed ? 1 : 0);

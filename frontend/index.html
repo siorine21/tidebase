@@ -695,12 +695,20 @@
     return waveSummary(describeWaves(hours, nowInJst().hour));
   }
 
+  /* 畳んだ見出しの 2 段目（D-183）: **何時の値か・波・うねり**。
+     本人の要望「畳んだ部分に波だけではなくうねりの具合も。何時時点のものかも」。
+     開かなくても、その時刻の海の中身（合わせた波と、そのうちのうねり）が分かる。
+     うねりの向きは開いた中に置く（360px の 1 段に入らない） */
   function camWaveHead(c) {
     const w = camWaveNow(c);
     if (w === undefined) return `<span class="live-cam-wave loading">波 …</span>`;
-    if (!w) return "";               // 取れなかった。黙って何も出さない
-    return `<span class="live-cam-wave wv-${w.bandKey}">`
-      + `${w.height}<small>m</small> ${escapeHtml(w.band)}</span>`;
+    if (!w) return "";               // 取れなかった。黙って何も出さない（段ごと消える）
+    const s = w.swellWave;
+    return (w.at ? `<span class="cw-at">${w.at}</span>` : "")
+      + `<span class="live-cam-wave wv-${w.bandKey}">`
+      + `波 ${w.height}<small>m</small> ${escapeHtml(w.band)}</span>`
+      + (s ? `<span class="live-cam-swell">うねり ${s.height}<small>m</small>`
+        + (s.period ? ` ${s.period}<small>秒</small>` : "") + `</span>` : "");
   }
 
   function camWaveBody(c) {
@@ -711,13 +719,22 @@
       w.dir ? `${escapeHtml(w.dir)}から` : null,
       w.range ? `今日 ${w.range}` : null,
     ].filter(Boolean).join(" · ");
+    /* うねりの行（D-183）。見出しに入らなかった向きもここで出す */
+    const s = w.swellWave;
+    const swellBits = !s ? "" : [
+      `うねり ${s.height}m`,
+      s.period ? `周期 ${s.period}秒` : null,
+      s.dir ? `${escapeHtml(s.dir)}から` : null,
+    ].filter(Boolean).join(" · ");
     return `<div class="live-cam-wave-box">`
       + `<div class="cw-head">`
       + `<span class="cw-place">${escapeHtml(c.name)}沖の波</span>`
+      + (w.at ? `<span class="cw-at">${w.at} 時点</span>` : "")
       + `<span class="cw-now wv-${w.bandKey}">${w.height}<small>m</small></span>`
       + `<span class="cw-band wv-${w.bandKey}">${escapeHtml(w.band)}</span>`
       + `</div>`
       + (bits ? `<div class="cw-sub">${bits}</div>` : "")
+      + (swellBits ? `<div class="cw-sub cw-swell">${swellBits}</div>` : "")
       + `<div class="cw-note">${escapeHtml(w.note)}</div>`
       + (w.swell ? `<div class="cw-note">${escapeHtml(w.swell)}</div>` : "")
       + `</div>`;

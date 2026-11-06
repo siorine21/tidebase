@@ -1127,7 +1127,27 @@ button.book-card:focus-visible { outline: 2px solid var(--mustard); outline-offs
 .live-cam-open .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   flex: 1 1 auto; min-width: 0; }
 .live-cam-open .head-live { display: flex; flex: 0 0 auto; }
-.live-cam-open .head-wave { display: flex; flex: 0 0 auto; }
+/* 波は 2 段目（D-183）。何時の値か・波・うねりを並べると 1 段に入らない
+   （360px で 1 段目の残りは 100px ほど）。
+   **字下げしない。** 名前の下にそろえると 360px で 23px 足りず、うねりが 3 段目へ落ちる
+   （帯 5 文字・周期 2 桁で 281px 要る／字下げすると 279px）。狭ければ折り返す。
+   **取れなかったときは段ごと消す**（空の段で見出しが高くならないように） */
+.live-cam-open { flex-wrap: wrap; row-gap: 4px; }
+.live-cam-open .head-wave {
+  order: 1; flex: 1 0 100%;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; min-width: 0;
+}
+.live-cam-open .head-wave:empty { display: none; }
+/* 何時の値か（D-183）。数字と同じ明るさにはしないが、読めないほど沈めない */
+.live-cam-open .cw-at, .live-cam-wave-box .cw-at {
+  font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  color: var(--text-secondary); white-space: nowrap; flex: 0 0 auto;
+}
+.live-cam-swell {
+  font-family: 'JetBrains Mono', monospace; font-size: 12px; white-space: nowrap;
+  color: var(--text-secondary);
+}
+.live-cam-swell small { font-size: 10px; opacity: .8; }
 .live-cam-open:hover { border-color: var(--border-strong); }
 /* 畳めるようにした（D-144）。開いているあいだは印を上向きに倒す。
    下の器は中身ごと捨てるので、閉じれば配信も止まる */
